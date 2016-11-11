@@ -23,16 +23,19 @@ namespace OpenRA.Mods.Common.Traits.Render
 	{
 		public readonly string Sequence = "idle";
 
+		[Desc("Defines if the Voxel should have a shadow.")]
+		public readonly bool ShowShadow = true;
+
 		public override object Create(ActorInitializer init) { return new WithVoxelBody(init.Self, this); }
 
 		public IEnumerable<VoxelAnimation> RenderPreviewVoxels(
 			ActorPreviewInitializer init, RenderVoxelsInfo rv, string image, Func<WRot> orientation, int facings, PaletteReference p)
 		{
 			var body = init.Actor.TraitInfo<BodyOrientationInfo>();
-			var voxel = VoxelProvider.GetVoxel(image, "idle");
+			var voxel = VoxelProvider.GetVoxel(image, Sequence);
 			yield return new VoxelAnimation(voxel, () => WVec.Zero,
 				() => new[] { body.QuantizeOrientation(orientation(), facings) },
-				() => false, () => 0);
+				() => false, () => 0, ShowShadow);
 		}
 	}
 
@@ -49,7 +52,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 			var voxel = VoxelProvider.GetVoxel(rv.Image, info.Sequence);
 			rv.Add(new VoxelAnimation(voxel, () => WVec.Zero,
 				() => new[] { body.QuantizeOrientation(self, self.Orientation) },
-				() => IsTraitDisabled, () => 0));
+				() => IsTraitDisabled, () => 0, info.ShowShadow));
 
 			// Selection size
 			var rvi = self.Info.TraitInfo<RenderVoxelsInfo>();

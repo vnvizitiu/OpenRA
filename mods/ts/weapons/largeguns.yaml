@@ -6,7 +6,7 @@
 		Speed: 682
 		Image: 120mm
 		Shadow: true
-		Angle: 75
+		LaunchAngle: 75
 		Palette: ra
 	Warhead@1Dam: SpreadDamage
 		Spread: 128
@@ -19,7 +19,7 @@
 			Concrete: 60
 		DamageTypes: Prone50Percent, TriggerProne, SmallExplosionDeath
 	Warhead@2Eff: CreateEffect
-		Explosions: medium_clsn
+		Explosions: small_clsn
 		ImpactSounds: expnew14.aud
 		InvalidImpactTypes: Water
 	Warhead@3EffWater: CreateEffect
@@ -48,7 +48,7 @@
 			Concrete: 60
 		DamageTypes: Prone50Percent, TriggerProne, SmallExplosionDeath
 	Warhead@2Eff: CreateEffect
-		Explosions: large_clsn
+		Explosions: medium_clsn
 		ImpactSounds: expnew14.aud
 		InvalidImpactTypes: Water
 	Warhead@3EffWater: CreateEffect
@@ -70,7 +70,7 @@
 		Speed: 682
 		Image: 120mm
 		Shadow: true
-		Angle: 62
+		LaunchAngle: 62
 		Palette: ra
 	Warhead@1Dam: SpreadDamage
 		Spread: 128
@@ -102,7 +102,7 @@
 	Projectile: Bullet
 		Speed: 170
 		Image: 120mm
-		Angle: 165
+		LaunchAngle: 165
 		Shadow: true
 		Blockable: false
 		Palette: ra
@@ -119,6 +119,7 @@
 		DamageTypes: Prone100Percent, TriggerProne, ExplosionDeath
 	Warhead@2Eff: CreateEffect
 		Explosions: large_explosion
+		ExplosionPalette: effectalpha75
 		ImpactSounds: expnew06.aud
 		InvalidImpactTypes: Water
 	Warhead@3EffWater: CreateEffect

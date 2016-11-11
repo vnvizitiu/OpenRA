@@ -50,8 +50,8 @@ if (!(Test-Path "MaxMind.GeoIP2.dll"))
 if (!(Test-Path "SharpFont.dll"))
 {
 	echo "Fetching SharpFont from NuGet."
-	./nuget.exe install SharpFont -Version 3.1.0 -ExcludeVersion
-	cp SharpFont/lib/net20/SharpFont* .
+	./nuget.exe install SharpFont -Version 4.0.1 -ExcludeVersion
+	cp SharpFont/lib/net45/SharpFont* .
 	cp SharpFont/config/SharpFont.dll.config .
 	rmdir SharpFont -Recurse
 	rmdir SharpFont.Dependencies -Recurse
@@ -89,7 +89,7 @@ if (!(Test-Path "windows/SDL2.dll"))
 if (!(Test-Path "Open.Nat.dll"))
 {
 	echo "Fetching Open.Nat from NuGet."
-	./nuget.exe install Open.Nat -Version 2.0.16 -ExcludeVersion
+	./nuget.exe install Open.Nat -Version 2.1.0 -ExcludeVersion
 	cp Open.Nat/lib/net45/Open.Nat.dll .
 	rmdir Open.Nat -Recurse
 }

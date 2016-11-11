@@ -14,9 +14,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenRA.Chat;
@@ -33,6 +35,8 @@ namespace OpenRA
 		public const int NetTickScale = 3; // 120 ms net tick for 40 ms local tick
 		public const int Timestep = 40;
 		public const int TimestepJankThreshold = 250; // Don't catch up for delays larger than 250ms
+
+		public static InstalledMods Mods { get; private set; }
 
 		public static ModData ModData;
 		public static Settings Settings;
@@ -58,16 +62,17 @@ namespace OpenRA
 		{
 			var connection = new NetworkConnection(host, port);
 			if (recordReplay)
-				connection.StartRecording(TimestampedFilename);
+				connection.StartRecording(() => { return TimestampedFilename(); });
 
 			var om = new OrderManager(host, port, password, connection);
 			JoinInner(om);
 			return om;
 		}
 
-		static string TimestampedFilename()
+		static string TimestampedFilename(bool includemilliseconds = false)
 		{
-			return DateTime.UtcNow.ToString("OpenRA-yyyy-MM-ddTHHmmssZ");
+			var format = includemilliseconds ? "yyyy-MM-ddTHHmmssfffZ" : "yyyy-MM-ddTHHmmssZ";
+			return "OpenRA-" + DateTime.UtcNow.ToString(format, CultureInfo.InvariantCulture);
 		}
 
 		static void JoinInner(OrderManager om)
@@ -90,7 +95,7 @@ namespace OpenRA
 
 		// More accurate replacement for Environment.TickCount
 		static Stopwatch stopwatch = Stopwatch.StartNew();
-		public static int RunTime { get { return (int)stopwatch.ElapsedMilliseconds; } }
+		public static long RunTime { get { return stopwatch.ElapsedMilliseconds; } }
 
 		public static int RenderFrame = 0;
 		public static int NetFrameNumber { get { return OrderManager.NetFrameNumber; } }
@@ -240,11 +245,20 @@ namespace OpenRA
 		{
 			Console.WriteLine("Platform is {0}", Platform.CurrentPlatform);
 
+			// Special case handling of Game.Mod argument: if it matches a real filesystem path
+			// then we use this to override the mod search path, and replace it with the mod id
+			var modArgument = args.GetValue("Game.Mod", null);
+			string customModPath = null;
+			if (modArgument != null && (File.Exists(modArgument) || Directory.Exists(modArgument)))
+			{
+				customModPath = modArgument;
+				args.ReplaceValue("Game.Mod", Path.GetFileNameWithoutExtension(modArgument));
+			}
+
 			InitializeSettings(args);
 
 			Log.AddChannel("perf", "perf.log");
 			Log.AddChannel("debug", "debug.log");
-			Log.AddChannel("sync", "syncreport.log");
 			Log.AddChannel("server", "server.log");
 			Log.AddChannel("sound", "sound.log");
 			Log.AddChannel("graphics", "graphics.log");
@@ -252,55 +266,70 @@ namespace OpenRA
 			Log.AddChannel("irc", "irc.log");
 			Log.AddChannel("nat", "nat.log");
 
-			var renderers = new[] { Settings.Graphics.Renderer, "Default", null };
-			foreach (var r in renderers)
+			var platforms = new[] { Settings.Game.Platform, "Default", null };
+			foreach (var p in platforms)
 			{
-				if (r == null)
-					throw new InvalidOperationException("No suitable renderers were found. Check graphics.log for details.");
+				if (p == null)
+					throw new InvalidOperationException("Failed to initialize platform-integration library. Check graphics.log for details.");
 
-				Settings.Graphics.Renderer = r;
+				Settings.Game.Platform = p;
 				try
 				{
-					Renderer = new Renderer(Settings.Graphics, Settings.Server);
+					var rendererPath = Platform.ResolvePath(Path.Combine(".", "OpenRA.Platforms." + p + ".dll"));
+					var assembly = Assembly.LoadFile(rendererPath);
+
+					var platformType = assembly.GetTypes().SingleOrDefault(t => typeof(IPlatform).IsAssignableFrom(t));
+					if (platformType == null)
+						throw new InvalidOperationException("Platform dll must include exactly one IPlatform implementation.");
+
+					var platform = (IPlatform)platformType.GetConstructor(Type.EmptyTypes).Invoke(null);
+					Renderer = new Renderer(platform, Settings.Graphics);
+					Sound = new Sound(platform, Settings.Sound);
+
 					break;
 				}
 				catch (Exception e)
 				{
 					Log.Write("graphics", "{0}", e);
-					Console.WriteLine("Renderer initialization failed. Fallback in place. Check graphics.log for details.");
+					Console.WriteLine("Renderer initialization failed. Check graphics.log for details.");
+
+					if (Renderer != null)
+						Renderer.Dispose();
+
+					if (Sound != null)
+						Sound.Dispose();
 				}
 			}
 
 			GeoIP.Initialize();
 
-			if (!Game.Settings.Server.DiscoverNatDevices)
-				Game.Settings.Server.AllowPortForward = false;
+			if (!Settings.Server.DiscoverNatDevices)
+				Settings.Server.AllowPortForward = false;
 			else
 			{
 				discoverNat = UPnP.DiscoverNatDevices(Settings.Server.NatDiscoveryTimeout);
-				Game.Settings.Server.AllowPortForward = true;
+				Settings.Server.AllowPortForward = true;
 			}
-
-			Sound = new Sound(Settings.Sound.Engine);
 
 			GlobalChat = new GlobalChat();
 
+			Mods = new InstalledMods(customModPath);
 			Console.WriteLine("Available mods:");
-			foreach (var mod in ModMetadata.AllMods)
-				Console.WriteLine("\t{0}: {1} ({2})", mod.Key, mod.Value.Title, mod.Value.Version);
+			foreach (var mod in Mods)
+				Console.WriteLine("\t{0}: {1} ({2})", mod.Key, mod.Value.Metadata.Title, mod.Value.Metadata.Version);
 
 			InitializeMod(Settings.Game.Mod, args);
 		}
 
 		public static bool IsModInstalled(string modId)
 		{
-			return ModMetadata.AllMods[modId].RequiresMods.All(IsModInstalled);
+			return Mods.ContainsKey(modId) && Mods[modId].RequiresMods.All(IsModInstalled);
 		}
 
 		public static bool IsModInstalled(KeyValuePair<string, string> mod)
 		{
-			return ModMetadata.AllMods.ContainsKey(mod.Key)
-				&& ModMetadata.AllMods[mod.Key].Version == mod.Value
+			return Mods.ContainsKey(mod.Key)
+				&& Mods[mod.Key].Metadata.Version == mod.Value
 				&& IsModInstalled(mod.Key);
 		}
 
@@ -332,7 +361,7 @@ namespace OpenRA
 			ModData = null;
 
 			// Fall back to default if the mod doesn't exist or has missing prerequisites.
-			if (!ModMetadata.AllMods.ContainsKey(mod) || !IsModInstalled(mod))
+			if (!IsModInstalled(mod))
 				mod = new GameSettings().Mod;
 
 			Console.WriteLine("Loading mod: {0}", mod);
@@ -340,25 +369,13 @@ namespace OpenRA
 
 			Sound.StopVideo();
 
-			ModData = new ModData(mod, true);
+			ModData = new ModData(Mods[mod], Mods, true);
 
 			using (new PerfTimer("LoadMaps"))
 				ModData.MapCache.LoadMaps();
 
-			if (ModData.Manifest.Contains<Migrations>())
-			{
-				var reload = ModData.Manifest.Get<Migrations>().Run();
-				if (reload)
-					InitializeMod(mod, args);
-			}
-
-			var content = ModData.Manifest.Get<ModContent>();
-			var isModContentInstalled = content.Packages
-				.Where(p => p.Value.Required)
-				.All(p => p.Value.TestFiles.All(f => File.Exists(Platform.ResolvePath(f))));
-
 			// Mod assets are missing!
-			if (!isModContentInstalled)
+			if (!ModData.LoadScreen.RequiredContentIsInstalled())
 			{
 				InitializeMod("modchooser", new Arguments());
 				return;
@@ -409,7 +426,7 @@ namespace OpenRA
 			{
 				Console.WriteLine("NAT discovery failed: {0}", e.Message);
 				Log.Write("nat", e.ToString());
-				Game.Settings.Server.AllowPortForward = false;
+				Settings.Server.AllowPortForward = false;
 			}
 
 			ModData.LoadScreen.StartGame(args);
@@ -459,11 +476,11 @@ namespace OpenRA
 
 			ThreadPool.QueueUserWorkItem(_ =>
 			{
-				var mod = ModData.Manifest.Mod;
-				var directory = Platform.ResolvePath("^", "Screenshots", mod.Id, mod.Version);
+				var mod = ModData.Manifest.Metadata;
+				var directory = Platform.ResolvePath("^", "Screenshots", ModData.Manifest.Id, mod.Version);
 				Directory.CreateDirectory(directory);
 
-				var filename = TimestampedFilename();
+				var filename = TimestampedFilename(true);
 				var format = Settings.Graphics.ScreenshotFormat;
 				var extension = ImageCodecInfo.GetImageEncoders().FirstOrDefault(x => x.FormatID == format.Guid)
 					.FilenameExtension.Split(';').First().ToLowerInvariant().Substring(1);
@@ -549,7 +566,9 @@ namespace OpenRA
 					else
 						PerfHistory.Tick();
 
-					Sync.CheckSyncUnchanged(world, () => world.TickRender(worldRenderer));
+					// Wait until we have done our first world Tick before TickRendering
+					if (orderManager.LocalFrameNumber > 0)
+						Sync.CheckSyncUnchanged(world, () => world.TickRender(worldRenderer));
 				}
 			}
 		}
@@ -717,7 +736,7 @@ namespace OpenRA
 					}
 				}
 				else
-					Thread.Sleep(nextUpdate - now);
+					Thread.Sleep((int)(nextUpdate - now));
 			}
 		}
 

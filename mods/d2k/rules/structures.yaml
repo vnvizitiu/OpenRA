@@ -10,7 +10,6 @@
 		TerrainTypes: Rock
 	Tooltip:
 		Name: Concrete
-		Description: Provides a strong foundation that prevents\ndamage from the terrain.
 	RenderSprites:
 	KillsSelf:
 		RemoveInstead: true
@@ -18,6 +17,7 @@
 		Queue: Building
 		Prerequisites: construction_yard
 		BuildPaletteOrder: 10
+		Description: Provides a strong foundation that prevents\ndamage from the terrain.
 
 concretea:
 	Inherits: ^concrete
@@ -26,8 +26,9 @@ concretea:
 		Dimensions: 2,2
 	Valued:
 		Cost: 20
-	CustomBuildTimeValue:
-		Value: 54
+	Buildable:
+		BuildDuration: 54
+		BuildDurationModifier: 40
 
 concreteb:
 	Inherits: ^concrete
@@ -36,13 +37,15 @@ concreteb:
 		Dimensions: 3,3
 	Valued:
 		Cost: 50
-	CustomBuildTimeValue:
-		Value: 81
 	Buildable:
 		Prerequisites: construction_yard, upgrade.conyard
+		BuildDuration: 81
+		BuildDurationModifier: 40
 
 construction_yard:
 	Inherits: ^Building
+	Buildable:
+		Description: Produces structures.
 	-DamagedByTerrain:
 	Building:
 		Footprint: xxx xxx
@@ -111,15 +114,15 @@ wind_trap:
 		Queue: Building
 		Prerequisites: construction_yard
 		BuildPaletteOrder: 10
+		BuildDuration: 180
+		BuildDurationModifier: 40
+		Description: Provides power for other structures
 	Selectable:
 		Bounds: 64,64
 	Valued:
 		Cost: 225
-	CustomBuildTimeValue:
-		Value: 180
 	Tooltip:
 		Name: Wind Trap
-		Description: Provides power for other structures
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
@@ -150,15 +153,15 @@ barracks:
 		Prerequisites: construction_yard, wind_trap
 		Queue: Building
 		BuildPaletteOrder: 40
+		BuildDuration: 231
+		BuildDurationModifier: 40
+		Description: Trains infantry
 	Selectable:
 		Bounds: 64,64
 	Valued:
 		Cost: 225
-	CustomBuildTimeValue:
-		Value: 231
 	Tooltip:
 		Name: Barracks
-		Description: Trains infantry
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
@@ -225,15 +228,15 @@ refinery:
 		Prerequisites: construction_yard, wind_trap
 		Queue: Building
 		BuildPaletteOrder: 20
+		BuildDuration: 540
+		BuildDurationModifier: 40
+		Description: Harvesters unload Spice here for processing
 	Selectable:
 		Bounds: 96,64
 	Valued:
 		Cost: 1500
-	CustomBuildTimeValue:
-		Value: 540
 	Tooltip:
 		Name: Spice Refinery
-		Description: Harvesters unload Spice here for processing
 	Building:
 		Footprint: =xx xx=
 		Dimensions: 3,2
@@ -280,15 +283,15 @@ silo:
 		Prerequisites: construction_yard, refinery
 		Queue: Building
 		BuildPaletteOrder: 30
+		BuildDuration: 135
+		BuildDurationModifier: 40
+		Description: Stores excess harvested Spice
 	Selectable:
 		Bounds: 32,32
 	Valued:
 		Cost: 120
-	CustomBuildTimeValue:
-		Value: 135
 	Tooltip:
 		Name: Silo
-		Description: Stores excess harvested Spice
 	Building:
 		Adjacent: 4
 	-GivesBuildableArea:
@@ -327,15 +330,15 @@ light_factory:
 		Prerequisites: construction_yard, refinery
 		Queue: Building
 		BuildPaletteOrder: 70
+		BuildDuration: 277
+		BuildDurationModifier: 40
+		Description: Produces light vehicles
 	Selectable:
 		Bounds: 96,64
 	Valued:
 		Cost: 500
-	CustomBuildTimeValue:
-		Value: 277
 	Tooltip:
 		Name: Light Factory
-		Description: Produces light vehicles
 	Building:
 		Footprint: xxx xx=
 		Dimensions: 3,2
@@ -406,15 +409,15 @@ heavy_factory:
 		Prerequisites: construction_yard, refinery
 		Queue: Building
 		BuildPaletteOrder: 100
+		BuildDuration: 648
+		BuildDurationModifier: 40
+		Description: Produces heavy vehicles
 	Selectable:
 		Bounds: 96,68,0,12
 	Valued:
 		Cost: 1000
-	CustomBuildTimeValue:
-		Value: 648
 	Tooltip:
 		Name: Heavy Factory
-		Description: Produces heavy vehicles
 	Building:
 		Footprint: _x_ xxx =xx
 		Dimensions: 3,3
@@ -492,15 +495,15 @@ outpost:
 		Prerequisites: construction_yard, barracks, ~techlevel.medium
 		Queue: Building
 		BuildPaletteOrder: 50
+		BuildDuration: 270
+		BuildDurationModifier: 40
+		Description: Provides a radar map of the battlefield\n  Requires power to operate
 	Selectable:
 		Bounds: 96,72,0,-8
 	Valued:
 		Cost: 750
-	CustomBuildTimeValue:
-		Value: 270
 	Tooltip:
 		Name: Outpost
-		Description: Provides a radar map of the battlefield\n  Requires power to operate
 	Building:
 		Footprint: xxx xxx
 		Dimensions: 3,2
@@ -530,15 +533,15 @@ starport:
 	Inherits: ^Building
 	Tooltip:
 		Name: Starport
-		Description: Dropzone for quick reinforcements, at a price.\n  Requires power to operate
 	Buildable:
 		Prerequisites: construction_yard, heavy_factory, outpost, ~techlevel.high
 		Queue: Building
 		BuildPaletteOrder: 80
+		BuildDuration: 540
+		BuildDurationModifier: 40
+		Description: Dropzone for quick reinforcements, at a price.\n  Requires power to operate
 	Valued:
 		Cost: 1500
-	CustomBuildTimeValue:
-		Value: 540
 	Building:
 		Footprint: xxx x=x =x=
 		Dimensions: 3,3
@@ -605,18 +608,18 @@ wall:
 		Queue: Building
 		Prerequisites: construction_yard, barracks
 		BuildPaletteOrder: 60
+		BuildDuration: 54
+		BuildDurationModifier: 40
+		Description: Stop units and blocks enemy fire.
 	SoundOnDamageTransition:
 		DamagedSounds:
 		DestroyedSounds: EXPLSML4.WAV
 	Valued:
 		Cost: 20
-	CustomBuildTimeValue:
-		Value: 54
 	CustomSellValue:
 		Value: 0
 	Tooltip:
 		Name: Concrete Wall
-		Description: Stop units and blocks enemy fire.
 	AppearsOnRadar:
 	Building:
 		BuildSounds: CHUNG.WAV
@@ -657,13 +660,13 @@ medium_gun_turret:
 		Queue: Building
 		Prerequisites: construction_yard, barracks
 		BuildPaletteOrder: 90
+		BuildDuration: 231
+		BuildDurationModifier: 40
+		Description: Defensive structure\n  Strong vs Tanks\n  Weak vs Infantry, Aircraft
 	Valued:
 		Cost: 550
-	CustomBuildTimeValue:
-		Value: 231
 	Tooltip:
 		Name: Gun Turret
-		Description: Defensive structure\n  Strong vs Tanks\n  Weak vs Infantry, Aircraft
 	Building:
 		Adjacent: 4
 		BuildSounds: CHUNG.WAV
@@ -699,13 +702,13 @@ large_gun_turret:
 		Queue: Building
 		Prerequisites: construction_yard, outpost, upgrade.conyard, ~techlevel.medium
 		BuildPaletteOrder: 120
+		BuildDuration: 270
+		BuildDurationModifier: 40
+		Description: Defensive structure\n  Strong vs Infantry, Aircraft\n  Weak vs Tanks\n\n  Requires power to operate
 	Valued:
 		Cost: 750
-	CustomBuildTimeValue:
-		Value: 270
 	Tooltip:
 		Name: Rocket Turret
-		Description: Defensive structure\n  Strong vs Infantry, Aircraft\n  Weak vs Tanks\n\n  Requires power to operate
 	Building:
 		Adjacent: 4
 		BuildSounds: CHUNG.WAV
@@ -744,13 +747,13 @@ repair_pad:
 		Queue: Building
 		Prerequisites: construction_yard, heavy_factory, upgrade.heavy, ~techlevel.medium
 		BuildPaletteOrder: 130
+		BuildDuration: 324
+		BuildDurationModifier: 40
+		Description: Repairs vehicles\n Allows construction of MCVs
 	Valued:
 		Cost: 800
-	CustomBuildTimeValue:
-		Value: 324
 	Tooltip:
 		Name: Repair Pad
-		Description: Repairs vehicles\n Allows construction of MCVs
 	Building:
 		Footprint: =x= =x= ===
 		Dimensions: 3,3
@@ -791,15 +794,15 @@ high_tech_factory:
 		Prerequisites: construction_yard, outpost, ~techlevel.medium
 		Queue: Building
 		BuildPaletteOrder: 110
+		BuildDuration: 405
+		BuildDurationModifier: 40
+		Description: Unlocks advanced technology
 	Selectable:
 		Bounds: 96,68,0,12
 	Valued:
 		Cost: 1150
-	CustomBuildTimeValue:
-		Value: 405
 	Tooltip:
 		Name: High Tech Factory
-		Description: Unlocks advanced technology
 	ProductionFromMapEdge:
 		Produces: Aircraft
 	Exit:
@@ -860,15 +863,15 @@ research_centre:
 		Queue: Building
 		Prerequisites: construction_yard, outpost, heavy_factory, upgrade.heavy, ~techlevel.high
 		BuildPaletteOrder: 140
+		BuildDuration: 270
+		BuildDurationModifier: 40
+		Description: Unlocks experimental tanks
 	Selectable:
 		Bounds: 96,64,0,16
 	Valued:
 		Cost: 1000
-	CustomBuildTimeValue:
-		Value: 270
 	Tooltip:
 		Name: Ix Lab
-		Description: Unlocks experimental tanks
 	Building:
 		Footprint: _x_ xxx xxx
 		Dimensions: 3,3
@@ -900,15 +903,15 @@ palace:
 		Prerequisites: construction_yard, research_centre, ~techlevel.high
 		Queue: Building
 		BuildPaletteOrder: 150
+		BuildDuration: 810
+		BuildDurationModifier: 40
+		Description: Unlocks elite infantry
 	Selectable:
 		Bounds: 96,96
 	Valued:
 		Cost: 1600
-	CustomBuildTimeValue:
-		Value: 810
 	Tooltip:
 		Name: Palace
-		Description: Unlocks elite infantry
 	Building:
 		Footprint: xx= xxx =xx
 		Dimensions: 3,3

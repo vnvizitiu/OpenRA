@@ -36,7 +36,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
-    <OutputPath>..\</OutputPath>
+    <OutputPath>..</OutputPath>
     <DefineConstants>TRACE;DEBUG</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
@@ -45,7 +45,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>..\</OutputPath>
+    <OutputPath>..</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DebugType>pdbonly</DebugType>
@@ -103,6 +103,7 @@
     <Compile Include="Download.cs" />
     <Compile Include="Effects\AsyncAction.cs" />
     <Compile Include="Effects\DelayedAction.cs" />
+    <Compile Include="Effects\DelayedImpact.cs" />
     <Compile Include="Effects\IEffect.cs" />
     <Compile Include="Game.cs" />
     <Compile Include="GameRules\ActorInfo.cs" />
@@ -204,7 +205,6 @@
     <Compile Include="Traits\Player\FixedColorPalette.cs" />
     <Compile Include="Primitives\ReadOnlyDictionary.cs" />
     <Compile Include="Primitives\ReadOnlyList.cs" />
-    <Compile Include="ModMetadata.cs" />
     <Compile Include="GameRules\Ruleset.cs" />
     <Compile Include="Support\MersenneTwister.cs" />
     <Compile Include="GameInformation.cs" />
@@ -214,7 +214,7 @@
     <Compile Include="Input\InputHandler.cs" />
     <Compile Include="Input\Keycode.cs" />
     <Compile Include="Input\Hotkey.cs" />
-    <Compile Include="Graphics\IGraphicsDevice.cs" />
+    <Compile Include="Graphics\PlatformInterfaces.cs" />
     <Compile Include="Sound\Sound.cs" />
     <Compile Include="Sound\SoundDevice.cs" />
     <Compile Include="Graphics\SelectionBarsRenderable.cs" />
@@ -244,8 +244,8 @@
     <Compile Include="Traits\ActivityUtils.cs" />
     <Compile Include="FileSystem\ZipFolder.cs" />
     <Compile Include="Primitives\float3.cs" />
-    <Compile Include="ModContent.cs" />
-    <Compile Include="Migrations.cs" />
+    <Compile Include="InstalledMods.cs" />
+    <Compile Include="CryptoUtil.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="FileSystem\D2kSoundResources.cs" />
@@ -339,13 +339,5 @@
   <ItemGroup>
     <Content Include="OpenRA.ico" />
   </ItemGroup>
-  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
-  </Target>
-  <Target Name="AfterBuild">
-  </Target>
-  -->
-  <ItemGroup />
+  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />  
 </Project>

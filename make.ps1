@@ -80,6 +80,8 @@ elseif ($command -eq "clean")
 		rm *.dll
 		rm *.dll.config
 		rm mods/*/*.dll
+		rm *.pdb
+		rm mods/*/*.pdb
 		if (Test-Path thirdparty/download/)
 		{
 			rmdir thirdparty/download -Recurse -Force
@@ -162,6 +164,8 @@ elseif ($command -eq "check")
 {
 	if (Test-Path OpenRA.Utility.exe)
 	{
+		echo "Checking for explicit interface violations..."
+		./OpenRA.Utility.exe all --check-explicit-interfaces
 		echo "Checking for code style violations in OpenRA.Platforms.Default..."
 		./OpenRA.Utility.exe cnc --check-code-style OpenRA.Platforms.Default
 		echo "Checking for code style violations in OpenRA.GameMonitor..."
@@ -182,8 +186,6 @@ elseif ($command -eq "check")
 		./OpenRA.Utility.exe cnc --check-code-style OpenRA.Utility
 		echo "Checking for code style violations in OpenRA.Test..."
 		./OpenRA.Utility.exe cnc --check-code-style OpenRA.Test
-		echo "Checking for explicit interface violations..."
-		./OpenRA.Utility.exe all --check-explicit-interfaces
 	}
 	else
 	{

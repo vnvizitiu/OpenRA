@@ -66,20 +66,6 @@ namespace OpenRA.Traits
 		}
 	}
 
-	[Flags]
-	public enum ImpactType
-	{
-		None = 0,
-		Ground = 1,
-		GroundHit = 2,
-		Water = 4,
-		WaterHit = 8,
-		Air = 16,
-		AirHit = 32,
-		TargetTerrain = 64,
-		TargetHit = 128
-	}
-
 	public class AttackInfo
 	{
 		public Damage Damage;
@@ -143,23 +129,12 @@ namespace OpenRA.Traits
 	public interface INotifyCreated { void Created(Actor self); }
 	public interface INotifyAddedToWorld { void AddedToWorld(Actor self); }
 	public interface INotifyRemovedFromWorld { void RemovedFromWorld(Actor self); }
-	public interface INotifySold { void Selling(Actor self); void Sold(Actor self); }
 	public interface INotifyDamage { void Damaged(Actor self, AttackInfo e); }
-	public interface INotifyDamageStateChanged { void DamageStateChanged(Actor self, AttackInfo e); }
-	public interface INotifyRepair { void Repairing(Actor self, Actor target); }
 	public interface INotifyKilled { void Killed(Actor self, AttackInfo e); }
 	public interface INotifyActorDisposing { void Disposing(Actor self); }
 	public interface INotifyAppliedDamage { void AppliedDamage(Actor self, Actor damaged, AttackInfo e); }
-	public interface INotifyBuildComplete { void BuildingComplete(Actor self); }
-	public interface INotifyBuildingPlaced { void BuildingPlaced(Actor self); }
-	public interface INotifyProduction { void UnitProduced(Actor self, Actor other, CPos exit); }
-	public interface INotifyOtherProduction { void UnitProducedByOther(Actor self, Actor producer, Actor produced); }
-	public interface INotifyDelivery { void IncomingDelivery(Actor self); void Delivered(Actor self); }
 	public interface INotifyOwnerChanged { void OnOwnerChanged(Actor self, Player oldOwner, Player newOwner); }
 	public interface INotifyEffectiveOwnerChanged { void OnEffectiveOwnerChanged(Actor self, Player oldEffectiveOwner, Player newEffectiveOwner); }
-	public interface INotifyCapture { void OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner); }
-	public interface INotifyInfiltrated { void Infiltrated(Actor self, Actor infiltrator); }
-	public interface INotifyDiscovered { void OnDiscovered(Actor self, Player discoverer, bool playNotification); }
 
 	public interface ISeedableResource { void Seed(Actor self); }
 
@@ -176,15 +151,7 @@ namespace OpenRA.Traits
 		bool HasVoice(Actor self, string voice);
 	}
 
-	public interface IDemolishableInfo : ITraitInfoInterface { bool IsValidTarget(ActorInfo actorInfo, Actor saboteur); }
-	public interface IDemolishable
-	{
-		void Demolish(Actor self, Actor saboteur);
-		bool IsValidTarget(Actor self, Actor saboteur);
-	}
-
 	public interface IStoreResources { int Capacity { get; } }
-	public interface INotifyDocking { void Docked(Actor self, Actor harvester); void Undocked(Actor self, Actor harvester); }
 
 	public interface IEffectiveOwner
 	{
@@ -266,21 +233,13 @@ namespace OpenRA.Traits
 	}
 
 	public interface IRenderModifier { IEnumerable<IRenderable> ModifyRender(Actor self, WorldRenderer wr, IEnumerable<IRenderable> r); }
-	public interface IDamageModifier { int GetDamageModifier(Actor attacker, Damage damage); }
-	public interface ISpeedModifier { int GetSpeedModifier(); }
-	public interface IFirepowerModifier { int GetFirepowerModifier(); }
-	public interface IReloadModifier { int GetReloadModifier(); }
-	public interface IInaccuracyModifier { int GetInaccuracyModifier(); }
-	public interface IRangeModifier { int GetRangeModifier(); }
-	public interface IRangeModifierInfo : ITraitInfoInterface { int GetRangeModifierDefault(); }
-	public interface IPowerModifier { int GetPowerModifier(); }
 	public interface ILoadsPalettes { void LoadPalettes(WorldRenderer wr); }
 	public interface ILoadsPlayerPalettes { void LoadPlayerPalettes(WorldRenderer wr, string playerName, HSLColor playerColor, bool replaceExisting); }
 	public interface IPaletteModifier { void AdjustPalette(IReadOnlyDictionary<string, MutablePalette> b); }
 	public interface IPips { IEnumerable<PipType> GetPips(Actor self); }
 
 	[RequireExplicitImplementation]
-	public interface ISelectionBar { float GetValue(); Color GetColor(); }
+	public interface ISelectionBar { float GetValue(); Color GetColor(); bool DisplayWhenEmpty { get; } }
 
 	public interface IPositionableInfo : ITraitInfoInterface { }
 	public interface IPositionable : IOccupySpace
@@ -308,6 +267,7 @@ namespace OpenRA.Traits
 		Activity VisualMove(Actor self, WPos fromPos, WPos toPos);
 		CPos NearestMoveableCell(CPos target);
 		bool IsMoving { get; set; }
+		bool IsMovingVertically { get; set; }
 		bool CanEnterTargetNow(Actor self, Target target);
 	}
 
@@ -318,8 +278,6 @@ namespace OpenRA.Traits
 		bool IsBlocking(Actor self, CPos cell);
 	}
 
-	public interface INotifyBlockingMove { void OnNotifyBlockingMove(Actor self, Actor blocking); }
-
 	public interface IFacing
 	{
 		int TurnSpeed { get; }
@@ -327,19 +285,6 @@ namespace OpenRA.Traits
 	}
 
 	public interface IFacingInfo : ITraitInfoInterface { int GetInitialFacing(); }
-
-	[RequireExplicitImplementation]
-	public interface ICrushable
-	{
-		bool CrushableBy(Actor self, Actor crusher, HashSet<string> crushClasses);
-	}
-
-	[RequireExplicitImplementation]
-	public interface INotifyCrushed
-	{
-		void OnCrush(Actor self, Actor crusher, HashSet<string> crushClasses);
-		void WarnCrush(Actor self, Actor crusher, HashSet<string> crushClasses);
-	}
 
 	public interface ITraitInfoInterface { }
 	public interface ITraitInfo : ITraitInfoInterface { object Create(ActorInitializer init); }
@@ -368,17 +313,10 @@ namespace OpenRA.Traits
 	public interface INotifyBecomingIdle { void OnBecomingIdle(Actor self); }
 	public interface INotifyIdle { void TickIdle(Actor self); }
 
-	public interface IRenderInfantrySequenceModifier
-	{
-		bool IsModifyingSequence { get; }
-		string SequencePrefix { get; }
-	}
-
-	public interface IPostRender { void RenderAfterWorld(WorldRenderer wr, Actor self); }
-
-	public interface IRenderShroud { void RenderShroud(WorldRenderer wr, Shroud shroud); }
-
-	public interface IPostRenderSelection { IEnumerable<IRenderable> RenderAfterWorld(WorldRenderer wr); }
+	public interface IRenderAboveWorld { void RenderAboveWorld(Actor self, WorldRenderer wr); }
+	public interface IRenderShroud { void RenderShroud(Shroud shroud, WorldRenderer wr); }
+	public interface IRenderAboveShroud { IEnumerable<IRenderable> RenderAboveShroud(Actor self, WorldRenderer wr); }
+	public interface IRenderAboveShroudWhenSelected { IEnumerable<IRenderable> RenderAboveShroud(Actor self, WorldRenderer wr); }
 
 	public interface ITargetableInfo : ITraitInfoInterface
 	{

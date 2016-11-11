@@ -4,11 +4,11 @@ BGGY:
 		Cost: 500
 	Tooltip:
 		Name: Attack Buggy
-		Description: Fast scout and anti-infantry vehicle.\n  Strong vs Infantry, Light armor\n  Weak vs Vehicles, Aircraft
 	Buildable:
 		Queue: Vehicle
 		BuildPaletteOrder: 40
 		Prerequisites: ~naweap
+		Description: Fast scout and anti-infantry vehicle.\n  Strong vs Infantry, Light armor\n  Weak vs Vehicles, Aircraft
 	Mobile:
 		TurnSpeed: 8
 		Speed: 142
@@ -37,11 +37,11 @@ BIKE:
 		Cost: 600
 	Tooltip:
 		Name: Attack Cycle
-		Description: Fast scout vehicle, armed with\nrockets.\n  Strong vs Vehicles\n  Weak vs Infantry, Aircraft
 	Buildable:
 		Queue: Vehicle
 		BuildPaletteOrder: 30
 		Prerequisites: ~naweap
+		Description: Fast scout vehicle, armed with\nrockets.\n  Strong vs Vehicles\n  Weak vs Infantry, Aircraft
 	Mobile:
 		TurnSpeed: 8
 		Speed: 170
@@ -56,12 +56,12 @@ BIKE:
 		UpgradeTypes: eliteweapon
 		UpgradeMaxEnabledLevel: 0
 		UpgradeMaxAcceptedLevel: 1
-		LocalOffset: -128,-170,213, -128,170,213
+		LocalOffset: -108,-144,360, -108,144,360
 	Armament@ELITE:
 		Weapon: HoverMissile
 		UpgradeTypes: eliteweapon
 		UpgradeMinEnabledLevel: 1
-		LocalOffset: -128,-170,213, -128,170,213
+		LocalOffset: -108,-144,360, -108,144,360
 	AttackFrontal:
 		Voice: Attack
 	AutoTarget:
@@ -72,11 +72,17 @@ TTNK:
 		Cost: 800
 	Tooltip:
 		Name: Tick Tank
-		Description: Nod's main battle tank.\nCan deploy to gain extra protection.\n  Strong vs Vehicles\n  Weak vs Infantry, Aircraft
+		UpgradeTypes: deployed
+		UpgradeMaxEnabledLevel: 0
+	Tooltip@DEPLOYED:
+		Name: Tick Tank (deployed)
+		UpgradeTypes: deployed
+		UpgradeMinEnabledLevel: 1
 	Buildable:
 		Queue: Vehicle
 		BuildPaletteOrder: 60
 		Prerequisites: ~naweap
+		Description: Nod's main battle tank.\nCan deploy to gain extra protection.\n  Strong vs Vehicles\n  Weak vs Infantry, Aircraft
 	Mobile:
 		TurnSpeed: 5
 		Speed: 85
@@ -89,14 +95,14 @@ TTNK:
 		UpgradeMinEnabledLevel: 1
 	Armament@PRIMARY:
 		Weapon: 90mm
-		LocalOffset: 256,0,256
+		LocalOffset: 288,0,256
 		UpgradeTypes: eliteweapon
 		UpgradeMaxEnabledLevel: 0
 		UpgradeMaxAcceptedLevel: 1
 		MuzzleSequence: muzzle
 	Armament@ELITE:
 		Weapon: 120mmx
-		LocalOffset: 256,0,256
+		LocalOffset: 288,0,256
 		UpgradeTypes: eliteweapon
 		UpgradeMinEnabledLevel: 1
 		MuzzleSequence: muzzle
@@ -172,11 +178,11 @@ ART2:
 		Cost: 975
 	Tooltip:
 		Name: Artillery
-		Description: Mobile Artillery.\nNeeds to deploy in order to shoot.\n  Strong vs Ground units\n  Weak vs Aircraft
 	Buildable:
 		Queue: Vehicle
 		BuildPaletteOrder: 100
 		Prerequisites: ~naweap, naradr
+		Description: Mobile Artillery.\nNeeds to deploy in order to shoot.\n  Strong vs Ground units\n  Weak vs Aircraft
 	Health:
 		HP: 300
 	Armor:
@@ -201,11 +207,11 @@ REPAIR:
 		Queue: Vehicle
 		BuildPaletteOrder: 70
 		Prerequisites: ~naweap
+		Description: Repairs nearby vehicles.\n  Unarmed
 	Valued:
 		Cost: 1000
 	Tooltip:
 		Name: Mobile Repair Vehicle
-		Description: Repairs nearby vehicles.\n  Unarmed
 	Health:
 		HP: 200
 	Mobile:
@@ -228,11 +234,11 @@ WEED:
 		Cost: 1400
 	Tooltip:
 		Name: Weed Eater
-		Description: Collects veins for processing.\n  Unarmed
 	Buildable:
 		Queue: Vehicle
 		BuildPaletteOrder: 100
 		Prerequisites: ~naweap, nawast
+		Description: Collects veins for processing.\n  Unarmed
 	Harvester:
 		DeliveryBuildings: nawast
 		Capacity: 7
@@ -269,11 +275,11 @@ SAPC:
 		Cost: 800
 	Tooltip:
 		Name: Subterranean APC
-		Description: Troop transport that can move\nunderground to avoid detection.\n  Unarmed
 	Buildable:
 		Queue: Vehicle
 		BuildPaletteOrder: 30
 		Prerequisites: ~naweap, natech
+		Description: Troop transport that can move\nunderground to avoid detection.\n  Unarmed
 	Mobile:
 		TurnSpeed: 5
 		Speed: 71
@@ -297,11 +303,11 @@ SUBTANK:
 		Cost: 750
 	Tooltip:
 		Name: Devil's Tongue
-		Description: Subterranean Flame Tank.\nIs able to move underground.\n  Strong vs Infantry, Buildings\n  Weak vs Tanks, Aircraft
 	Buildable:
 		Queue: Vehicle
 		BuildPaletteOrder: 40
 		Prerequisites: ~naweap, natech
+		Description: Subterranean Flame Tank.\nIs able to move underground.\n  Strong vs Infantry, Buildings\n  Weak vs Tanks, Aircraft
 	Mobile:
 		TurnSpeed: 6
 		Speed: 71
@@ -324,11 +330,11 @@ STNK:
 		Cost: 1100
 	Tooltip:
 		Name: Stealth Tank
-		Description: Lightly armoured tank equipped with a personal\nstealth generator. Armed with missiles.\nCan be spotted by infantry at close range.\n  Strong vs Vehicles, Aircraft\n  Weak vs Infantry
 	Buildable:
 		BuildPaletteOrder: 90
 		Prerequisites: ~naweap, natech
 		Queue: Vehicle
+		Description: Lightly armoured tank equipped with a personal\nstealth generator. Armed with missiles.\nCan be spotted by infantry at close range.\n  Strong vs Vehicles, Aircraft\n  Weak vs Infantry
 	Mobile:
 		TurnSpeed: 5
 		Speed: 85

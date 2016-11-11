@@ -62,8 +62,8 @@ fi
 
 if [ ! -f SharpFont.dll ]; then
 	echo "Fetching SharpFont from NuGet"
-	get SharpFont 3.1.0
-	cp ./SharpFont/lib/net20/SharpFont* .
+	get SharpFont 4.0.1
+	cp ./SharpFont/lib/net45/SharpFont* .
 	cp ./SharpFont/config/SharpFont.dll.config .
 	rm -rf SharpFont SharpFont.Dependencies
 fi
@@ -85,9 +85,9 @@ fi
 
 if [ ! -f Open.Nat.dll ]; then
 	echo "Fetching Open.Nat from NuGet"
-	get Open.Nat 2.0.16
-	cp ./Open.Nat/lib/net45/Open.Nat.dll .
-	rm -rf Open.Nat
+	get Open.NAT 2.1.0
+	cp ./Open.NAT/lib/net45/Open.Nat.dll .
+	rm -rf Open.NAT
 fi
 
 if [ ! -f FuzzyLogicLibrary.dll ]; then

@@ -23,11 +23,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		enum PanelType { Display, Audio, Input, Advanced }
 
 		static readonly string OriginalSoundDevice;
-		static readonly string OriginalSoundEngine;
 		static readonly WindowMode OriginalGraphicsMode;
-		static readonly string OriginalGraphicsRenderer;
 		static readonly int2 OriginalGraphicsWindowedSize;
 		static readonly int2 OriginalGraphicsFullscreenSize;
+		static readonly bool OriginalServerDiscoverNatDevices;
 
 		readonly Dictionary<PanelType, Action> leavePanelActions = new Dictionary<PanelType, Action>();
 		readonly Dictionary<PanelType, Action> resetPanelActions = new Dictionary<PanelType, Action>();
@@ -43,11 +42,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		{
 			var original = Game.Settings;
 			OriginalSoundDevice = original.Sound.Device;
-			OriginalSoundEngine = original.Sound.Engine;
 			OriginalGraphicsMode = original.Graphics.Mode;
-			OriginalGraphicsRenderer = original.Graphics.Renderer;
 			OriginalGraphicsWindowedSize = original.Graphics.WindowedSize;
 			OriginalGraphicsFullscreenSize = original.Graphics.FullscreenSize;
+			OriginalServerDiscoverNatDevices = original.Server.DiscoverNatDevices;
 		}
 
 		[ObjectCreator.UseCtor]
@@ -72,11 +70,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 				Action closeAndExit = () => { Ui.CloseWindow(); onExit(); };
 				if (OriginalSoundDevice != current.Sound.Device ||
-					OriginalSoundEngine != current.Sound.Engine ||
 					OriginalGraphicsMode != current.Graphics.Mode ||
-					OriginalGraphicsRenderer != current.Graphics.Renderer ||
 					OriginalGraphicsWindowedSize != current.Graphics.WindowedSize ||
-					OriginalGraphicsFullscreenSize != current.Graphics.FullscreenSize)
+					OriginalGraphicsFullscreenSize != current.Graphics.FullscreenSize ||
+					OriginalServerDiscoverNatDevices != current.Server.DiscoverNatDevices)
 					ConfirmationDialogs.ButtonPrompt(
 						title: "Restart Now?",
 						text: "Some changes will not be applied until\nthe game is restarted. Restart now?",
@@ -168,7 +165,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			var windowModeDropdown = panel.Get<DropDownButtonWidget>("MODE_DROPDOWN");
 			windowModeDropdown.OnMouseDown = _ => ShowWindowModeDropdown(windowModeDropdown, ds);
 			windowModeDropdown.GetText = () => ds.Mode == WindowMode.Windowed ?
-				"Windowed" : ds.Mode == WindowMode.Fullscreen ? "Fullscreen" : "Pseudo-Fullscreen";
+				"Windowed" : ds.Mode == WindowMode.Fullscreen ? "Fullscreen (Legacy)" : "Fullscreen";
 
 			var statusBarsDropDown = panel.Get<DropDownButtonWidget>("STATUS_BAR_DROPDOWN");
 			statusBarsDropDown.OnMouseDown = _ => ShowStatusBarsDropdown(statusBarsDropDown, gs);
@@ -336,7 +333,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			}
 
 			var devices = Game.Sound.AvailableDevices();
-			soundDevice = devices.FirstOrDefault(d => d.Engine == ss.Engine && d.Device == ss.Device) ?? devices.First();
+			soundDevice = devices.FirstOrDefault(d => d.Device == ss.Device) ?? devices.First();
 
 			var audioDeviceDropdown = panel.Get<DropDownButtonWidget>("AUDIO_DEVICE");
 			audioDeviceDropdown.OnMouseDown = _ => ShowAudioDeviceDropdown(audioDeviceDropdown, devices);
@@ -349,7 +346,6 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			return () =>
 			{
 				ss.Device = soundDevice.Device;
-				ss.Engine = soundDevice.Engine;
 			};
 		}
 
@@ -365,7 +361,6 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				ss.CashTicks = dss.CashTicks;
 				ss.Mute = dss.Mute;
 				ss.Device = dss.Device;
-				ss.Engine = dss.Engine;
 
 				panel.Get<SliderWidget>("SOUND_VOLUME").Value = ss.SoundVolume;
 				Game.Sound.SoundVolume = ss.SoundVolume;
@@ -753,8 +748,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		{
 			var options = new Dictionary<string, WindowMode>()
 			{
-				{ "Pseudo-Fullscreen", WindowMode.PseudoFullscreen },
-				{ "Fullscreen", WindowMode.Fullscreen },
+				{ "Fullscreen", WindowMode.PseudoFullscreen },
+				{ "Fullscreen (Legacy)", WindowMode.Fullscreen },
 				{ "Windowed", WindowMode.Windowed },
 			};
 

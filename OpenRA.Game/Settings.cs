@@ -102,8 +102,6 @@ namespace OpenRA
 
 	public class GraphicSettings
 	{
-		public string Renderer = "Default";
-
 		[Desc("This can be set to Windowed, Fullscreen or PseudoFullscreen.")]
 		public WindowMode Mode = WindowMode.PseudoFullscreen;
 
@@ -142,7 +140,6 @@ namespace OpenRA
 		public bool Shuffle = false;
 		public bool Repeat = false;
 
-		public string Engine = "Default";
 		public string Device = null;
 
 		public bool CashTicks = true;
@@ -162,6 +159,8 @@ namespace OpenRA
 		public string Mod = "modchooser";
 		public string PreviousMod = "ra";
 
+		public string Platform = "Default";
+
 		public bool ShowShellmap = true;
 
 		public bool ViewportEdgeScroll = true;
@@ -172,7 +171,7 @@ namespace OpenRA
 		public float ViewportEdgeScrollStep = 10f;
 		public float UIScrollSpeed = 50f;
 		public int SelectionDeadzone = 24;
-		public int JoystickScrollDeadzone = 8;
+		public int MouseScrollDeadzone = 8;
 
 		public bool UseClassicMouseStyle = false;
 		public StatusBarsType StatusBars = StatusBarsType.Standard;

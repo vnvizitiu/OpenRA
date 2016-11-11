@@ -2,11 +2,8 @@ carryall.reinforce:
 	Inherits: ^Plane
 	Valued:
 		Cost: 1100
-	CustomBuildTimeValue:
-		Value: 648
 	Tooltip:
 		Name: Carryall
-		Description: Large winged, planet-bound ship\n  Automatically lifts harvesters.
 	Health:
 		HP: 4800
 	Armor:
@@ -18,7 +15,6 @@ carryall.reinforce:
 		TurnSpeed: 4
 		LandableTerrainTypes: Sand, Rock, Transition, Spice, SpiceSand, Dune
 		Repulsable: False
-		LandAltitude: 100
 		LandWhenIdle: False
 		AirborneUpgrades: airborne
 		CanHover: True
@@ -33,18 +29,27 @@ carryall.reinforce:
 	SpawnActorOnDeath:
 		Actor: carryall.husk
 	Carryall:
-		Automatic: False
+		LoadingDelay: 10
+		UnloadingDelay: 15
+		LocalOffset: 0, 0, -128
 	RenderSprites:
 		Image: carryall
 	SelfHealing:
 		Step: 5
 		Delay: 3
 		HealIfBelow: 50
+	Buildable:
+		BuildDuration: 648
+		BuildDurationModifier: 40
+		Description: Large winged, planet-bound ship\n  Automatically lifts harvesters.
 
 carryall:
 	Inherits: carryall.reinforce
-	Carryall:
-		Automatic: True
+	-Carryall:
+	AutoCarryall:
+		LoadingDelay: 10
+		UnloadingDelay: 15
+		LocalOffset: 0, 0, -128
 	Buildable:
 		Queue: Aircraft
 		BuildPaletteOrder: 120
@@ -55,7 +60,6 @@ frigate:
 		DropRange: 1c0
 	Tooltip:
 		Name: Frigate
-		Description: Supply spacecraft
 	Aircraft:
 		Speed: 189 # 126 * ~1.5 for balance reasons
 		TurnSpeed: 1
@@ -67,6 +71,8 @@ frigate:
 		PipCount: 10
 	FlyAwayOnIdle:
 	RejectsOrders:
+	Buildable:
+		Description: Supply spacecraft
 
 ornithopter:
 	Inherits: ^Plane

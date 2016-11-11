@@ -296,11 +296,11 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 			searchStatus = SearchStatus.Fetching;
 
-			Action<DownloadDataCompletedEventArgs, bool> onComplete = (i, cancelled) =>
+			Action<DownloadDataCompletedEventArgs> onComplete = i =>
 			{
 				currentQuery = null;
 
-				if (i.Error != null || cancelled)
+				if (i.Error != null)
 				{
 					RefreshServerListInner(null);
 					return;
@@ -316,9 +316,9 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			};
 
 			var queryURL = Game.Settings.Server.MasterServer + "games?version={0}&mod={1}&modversion={2}".F(
-				Uri.EscapeUriString(ModMetadata.AllMods["modchooser"].Version),
-				Uri.EscapeUriString(Game.ModData.Manifest.Mod.Id),
-				Uri.EscapeUriString(Game.ModData.Manifest.Mod.Version));
+				Uri.EscapeUriString(Game.Mods["modchooser"].Metadata.Version),
+				Uri.EscapeUriString(Game.ModData.Manifest.Id),
+				Uri.EscapeUriString(Game.ModData.Manifest.Metadata.Version));
 
 			currentQuery = new Download(queryURL, _ => { }, onComplete);
 		}
@@ -330,7 +330,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				return 0;
 
 			// Games for the current mod+version are sorted first
-			if (testEntry.ModId == modData.Manifest.Mod.Id)
+			if (testEntry.ModId == modData.Manifest.Id)
 				return 2;
 
 			// Followed by games for different mods that are joinable

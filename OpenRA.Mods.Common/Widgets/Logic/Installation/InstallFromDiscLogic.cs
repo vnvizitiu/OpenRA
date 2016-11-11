@@ -13,8 +13,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
+using OpenRA;
 using OpenRA.FileFormats;
 using OpenRA.Mods.Common.FileFormats;
 using OpenRA.Widgets;
@@ -29,6 +29,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		enum Mode { Progress, Message, List }
 
 		readonly ModContent content;
+		readonly Dictionary<string, ModContent.ModSource> sources;
 
 		readonly Widget panel;
 		readonly LabelWidget titleLabel;
@@ -54,9 +55,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		Mode visible = Mode.Progress;
 
 		[ObjectCreator.UseCtor]
-		public InstallFromDiscLogic(Widget widget, ModContent content, Action afterInstall)
+		public InstallFromDiscLogic(Widget widget, ModContent content, Dictionary<string, ModContent.ModSource> sources, Action afterInstall)
 		{
 			this.content = content;
+			this.sources = sources;
 
 			Log.AddChannel("install", "install.log");
 
@@ -94,6 +96,18 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			DetectContentDisks();
 		}
 
+		static bool IsValidDrive(DriveInfo d)
+		{
+			if (d.DriveType == DriveType.CDRom && d.IsReady)
+				return true;
+
+			// HACK: the "TFD" DVD is detected as a fixed udf-formatted drive on OSX
+			if (d.DriveType == DriveType.Fixed && d.DriveFormat == "udf")
+				return true;
+
+			return false;
+		}
+
 		void DetectContentDisks()
 		{
 			var message = "Detecting drives";
@@ -103,10 +117,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			new Task(() =>
 			{
 				var volumes = DriveInfo.GetDrives()
-					.Where(v => v.DriveType == DriveType.CDRom && v.IsReady)
+					.Where(IsValidDrive)
 					.Select(v => v.RootDirectory.FullName);
 
-				foreach (var kv in content.Sources)
+				foreach (var kv in sources)
 				{
 					message = "Searching for " + kv.Value.Title;
 
@@ -131,12 +145,12 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					}
 				}
 
-				var sources = content.Packages.Values
+				var missingSources = content.Packages.Values
 					.Where(p => !p.IsInstalled())
 					.SelectMany(p => p.Sources)
-					.Select(d => content.Sources[d]);
+					.Select(d => sources[d]);
 
-				var discs = sources
+				var discs = missingSources
 					.Where(s => s.Type == ModContent.SourceType.Disc)
 					.Select(s => s.Title)
 					.Distinct();
@@ -148,7 +162,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 				if (Platform.CurrentPlatform == PlatformType.Windows)
 				{
-					var installations = sources
+					var installations = missingSources
 						.Where(s => s.Type == ModContent.SourceType.Install)
 						.Select(s => s.Title)
 						.Distinct();
@@ -493,12 +507,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 						return false;
 
 					using (var fileStream = File.OpenRead(filePath))
-					using (var csp = SHA1.Create())
-					{
-						var hash = new string(csp.ComputeHash(fileStream).SelectMany(a => a.ToString("x2")).ToArray());
-						if (hash != kv.Value)
+						if (CryptoUtil.SHA1Hash(fileStream) != kv.Value)
 							return false;
-					}
 				}
 			}
 			catch (Exception)

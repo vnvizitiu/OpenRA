@@ -9,6 +9,7 @@
  */
 #endregion
 
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.RA.Traits
@@ -18,7 +19,7 @@ namespace OpenRA.Mods.RA.Traits
 
 	class InfiltrateForExploration : INotifyInfiltrated
 	{
-		public void Infiltrated(Actor self, Actor infiltrator)
+		void INotifyInfiltrated.Infiltrated(Actor self, Actor infiltrator)
 		{
 			infiltrator.Owner.Shroud.Explore(self.Owner.Shroud);
 			if (!self.Owner.HasFogVisibility)

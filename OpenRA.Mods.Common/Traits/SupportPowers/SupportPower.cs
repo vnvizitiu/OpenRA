@@ -44,7 +44,8 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly string IncomingSound = null;
 		public readonly string IncomingSpeechNotification = null;
 
-		public readonly bool DisplayTimer = false;
+		[Desc("Defines to which players the timer is shown.")]
+		public readonly Stance DisplayTimerStances = Stance.None;
 
 		[Desc("Palette used for the icon.")]
 		[PaletteReference] public readonly string IconPalette = "chrome";
@@ -118,6 +119,18 @@ namespace OpenRA.Mods.Common.Traits
 					order.Player.Color.RGB,
 					Info.RadarPingDuration);
 			}
+		}
+
+		public virtual void PlayLaunchSounds()
+		{
+			var renderPlayer = Self.World.RenderPlayer;
+			var isAllied = Self.Owner.IsAlliedWith(renderPlayer);
+			Game.Sound.Play(isAllied ? Info.LaunchSound : Info.IncomingSound);
+
+			// IsAlliedWith returns true if renderPlayer is null, so we are safe here.
+			var toPlayer = isAllied ? renderPlayer ?? Self.Owner : renderPlayer;
+			var speech = isAllied ? Info.LaunchSpeechNotification : Info.IncomingSpeechNotification;
+			Game.Sound.PlayNotification(Self.World.Map.Rules, toPlayer, "Speech", speech, toPlayer.Faction.InternalName);
 		}
 	}
 }

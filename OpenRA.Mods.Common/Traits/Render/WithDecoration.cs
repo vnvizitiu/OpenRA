@@ -55,45 +55,46 @@ namespace OpenRA.Mods.Common.Traits.Render
 		public override object Create(ActorInitializer init) { return new WithDecoration(init.Self, this); }
 	}
 
-	public class WithDecoration : UpgradableTrait<WithDecorationInfo>, ITick, IRender, IPostRenderSelection
+	public class WithDecoration : UpgradableTrait<WithDecorationInfo>, ITick, IRenderAboveShroud, IRenderAboveShroudWhenSelected
 	{
 		protected readonly Animation Anim;
 
 		readonly string image;
-		readonly Actor self;
 
 		public WithDecoration(Actor self, WithDecorationInfo info)
 			: base(info)
 		{
-			this.self = self;
 			image = info.Image ?? self.Info.Name;
 			Anim = new Animation(self.World, image, () => self.World.Paused);
 			Anim.PlayRepeating(info.Sequence);
 		}
 
-		public virtual bool ShouldRender(Actor self) { return true; }
-
-		public IEnumerable<IRenderable> Render(Actor self, WorldRenderer wr)
+		protected virtual bool ShouldRender(Actor self)
 		{
-			return !Info.RequiresSelection ? RenderInner(self, wr) : Enumerable.Empty<IRenderable>();
+			if (self.World.RenderPlayer != null)
+			{
+				var stance = self.Owner.Stances[self.World.RenderPlayer];
+				if (!Info.ValidStances.HasStance(stance))
+					return false;
+			}
+
+			return true;
 		}
 
-		public IEnumerable<IRenderable> RenderAfterWorld(WorldRenderer wr)
+		IEnumerable<IRenderable> IRenderAboveShroud.RenderAboveShroud(Actor self, WorldRenderer wr)
 		{
-			return Info.RequiresSelection ? RenderInner(self, wr) : Enumerable.Empty<IRenderable>();
+			return !Info.RequiresSelection ? RenderInner(self, wr) : SpriteRenderable.None;
+		}
+
+		IEnumerable<IRenderable> IRenderAboveShroudWhenSelected.RenderAboveShroud(Actor self, WorldRenderer wr)
+		{
+			return Info.RequiresSelection ? RenderInner(self, wr) : SpriteRenderable.None;
 		}
 
 		IEnumerable<IRenderable> RenderInner(Actor self, WorldRenderer wr)
 		{
 			if (IsTraitDisabled || self.IsDead || !self.IsInWorld || Anim == null)
 				return Enumerable.Empty<IRenderable>();
-
-			if (self.World.RenderPlayer != null)
-			{
-				var stance = self.Owner.Stances[self.World.RenderPlayer];
-				if (!Info.ValidStances.HasStance(stance))
-					return Enumerable.Empty<IRenderable>();
-			}
 
 			if (!ShouldRender(self) || self.World.FogObscures(self))
 				return Enumerable.Empty<IRenderable>();
@@ -129,6 +130,6 @@ namespace OpenRA.Mods.Common.Traits.Render
 			return new IRenderable[] { new UISpriteRenderable(Anim.Image, self.CenterPosition, pxPos, Info.ZOffset, wr.Palette(Info.Palette), 1f) };
 		}
 
-		public void Tick(Actor self) { Anim.Tick(); }
+		void ITick.Tick(Actor self) { Anim.Tick(); }
 	}
 }

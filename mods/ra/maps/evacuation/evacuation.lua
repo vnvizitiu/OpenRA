@@ -5,10 +5,8 @@ DeathThreshold =
 }
 
 TanyaType = "e7"
-TanyaStance = "AttackAnything"
 if Map.LobbyOption("difficulty") ~= "easy" then
 	TanyaType = "e7.noautotarget"
-	TanyaStance = "HoldFire"
 end
 
 RepairTriggerThreshold =
@@ -25,7 +23,7 @@ TownUnits =
 	TownUnit08, TownUnit09, TownUnit10, TownUnit11, TownUnit12, TownUnit13, TownUnit14,
 }
 
-ParabombDelay = DateTime.Seconds(30) 
+ParabombDelay = DateTime.Seconds(30)
 ParatroopersDelay = DateTime.Minutes(5)
 Paratroopers =
 {
@@ -75,16 +73,16 @@ SpawnAlliedReinforcements = function()
 end
 
 Yak = nil
-YakAttack = function(yak)
+YakAttack = function()
 	local targets = Map.ActorsInCircle(YakAttackPoint.CenterPosition, WDist.FromCells(10), function(a)
-		return a.Owner == allies1 and not a.IsDead and a ~= Einstein and a ~= Tanya and a ~= Engineer
+		return a.Owner == allies1 and not a.IsDead and a ~= Einstein and a ~= Tanya and a ~= Engineer and Yak.CanTarget(a)
 	end)
 
 	if (#targets > 0) then
-		yak.Attack(Utils.Random(targets))
+		Yak.Attack(Utils.Random(targets))
 	end
-	yak.Move(Map.ClosestEdgeCell(yak.Location))
-	yak.Destroy()
+	Yak.Move(Map.ClosestEdgeCell(Yak.Location))
+	Yak.Destroy()
 	Trigger.OnRemovedFromWorld(Yak, function()
 		Yak = nil
 	end)
@@ -271,7 +269,9 @@ SetupTriggers = function()
 			return
 		end
 
-		Yak = Reinforcements.Reinforce(soviets, { "yak" }, { YakEntryPoint.Location, YakAttackPoint.Location + CVec.New(0, -10) }, 0, YakAttack)[1]
+		Yak = Actor.Create("yak", true, { Owner = soviets, Location = YakEntryPoint.Location, CenterPosition = YakEntryPoint.CenterPosition + WVec.New(0, 0, Actor.CruiseAltitude("yak")) })
+		Yak.Move(YakAttackPoint.Location + CVec.New(0, -10))
+		Yak.CallFunc(YakAttack)
 	end)
 
 	Trigger.AfterDelay(ParabombDelay, SendParabombs)
@@ -281,7 +281,6 @@ end
 
 SpawnTanya = function()
 	Tanya = Actor.Create(TanyaType, true, { Owner = allies1, Location = TanyaLocation.Location })
-	Tanya.Stance = TanyaStance
 
 	if Map.LobbyOption("difficulty") ~= "easy" and allies1.IsLocalPlayer then
 		Trigger.AfterDelay(DateTime.Seconds(2), function()

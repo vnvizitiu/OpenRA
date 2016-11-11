@@ -18,13 +18,16 @@ using OpenRA.Scripting;
 
 namespace OpenRA.Mods.TS.Effects
 {
-	public class AnimatedBeacon : IEffect
+	public class AnimatedBeacon : IEffect, IEffectAboveShroud
 	{
 		readonly Player owner;
 		readonly WPos position;
 		readonly string beaconPalette;
 		readonly bool isPlayerPalette;
 		readonly Animation beacon;
+		readonly int duration;
+
+		int tick;
 
 		public AnimatedBeacon(Player owner, WPos position, int duration, string beaconPalette, bool isPlayerPalette, string beaconImage, string beaconSequence)
 		{
@@ -32,6 +35,7 @@ namespace OpenRA.Mods.TS.Effects
 			this.position = position;
 			this.beaconPalette = beaconPalette;
 			this.isPlayerPalette = isPlayerPalette;
+			this.duration = duration;
 
 			if (!string.IsNullOrEmpty(beaconSequence))
 			{
@@ -43,19 +47,24 @@ namespace OpenRA.Mods.TS.Effects
 				owner.World.Add(new DelayedAction(duration, () => owner.World.Remove(this)));
 		}
 
-		public void Tick(World world)
+		void IEffect.Tick(World world)
 		{
 			if (beacon != null)
 				beacon.Tick();
+
+			if (duration > 0 && duration <= tick++)
+				owner.World.AddFrameEndTask(w => w.Remove(this));
 		}
 
-		public IEnumerable<IRenderable> Render(WorldRenderer r)
+		IEnumerable<IRenderable> IEffect.Render(WorldRenderer r) { return SpriteRenderable.None; }
+
+		IEnumerable<IRenderable> IEffectAboveShroud.RenderAboveShroud(WorldRenderer r)
 		{
 			if (beacon == null)
-				return Enumerable.Empty<IRenderable>();
+				return SpriteRenderable.None;
 
 			if (!owner.IsAlliedWith(owner.World.RenderPlayer))
-				return Enumerable.Empty<IRenderable>();
+				return SpriteRenderable.None;
 
 			var palette = r.Palette(isPlayerPalette ? beaconPalette + owner.InternalName : beaconPalette);
 			return beacon.Render(position, palette);

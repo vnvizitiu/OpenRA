@@ -176,8 +176,8 @@ namespace OpenRA
 
 			gameInfo = new GameInformation
 			{
-				Mod = Game.ModData.Manifest.Mod.Id,
-				Version = Game.ModData.Manifest.Mod.Version,
+				Mod = Game.ModData.Manifest.Id,
+				Version = Game.ModData.Manifest.Metadata.Version,
 
 				MapUid = Map.Uid,
 				MapTitle = Map.Title
@@ -238,6 +238,11 @@ namespace OpenRA
 
 			if (rc != null)
 				rc.Metadata = new ReplayMetadata(gameInfo);
+		}
+
+		public void SetWorldOwner(Player p)
+		{
+			WorldActor.Owner = p;
 		}
 
 		public Actor CreateActor(string name, TypeDictionary initDict)

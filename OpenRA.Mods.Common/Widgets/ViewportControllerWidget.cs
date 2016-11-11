@@ -13,15 +13,18 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Traits;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
 {
-	public enum WorldTooltipType { None, Unexplored, Actor, FrozenActor }
+	public enum WorldTooltipType { None, Unexplored, Actor, FrozenActor, Resource }
 
 	public class ViewportControllerWidget : Widget
 	{
+		readonly ResourceLayer resourceLayer;
+
 		public readonly string TooltipTemplate = "WORLD_TOOLTIP";
 		public readonly string TooltipContainer;
 		Lazy<TooltipContainerWidget> tooltipContainer;
@@ -30,11 +33,14 @@ namespace OpenRA.Mods.Common.Widgets
 		public ITooltip ActorTooltip { get; private set; }
 		public IProvideTooltipInfo[] ActorTooltipExtra { get; private set; }
 		public FrozenActor FrozenActorTooltip { get; private set; }
+		public ResourceType ResourceTooltip { get; private set; }
 
 		public int EdgeScrollThreshold = 15;
 		public int EdgeCornerScrollThreshold = 35;
 
 		int2? joystickScrollStart, joystickScrollEnd;
+		int2? standardScrollStart;
+		bool isStandardScrolling;
 
 		static readonly Dictionary<ScrollDirection, string> ScrollCursors = new Dictionary<ScrollDirection, string>
 		{
@@ -103,6 +109,8 @@ namespace OpenRA.Mods.Common.Widgets
 			this.worldRenderer = worldRenderer;
 			tooltipContainer = Exts.Lazy(() =>
 				Ui.Root.Get<TooltipContainerWidget>(TooltipContainer));
+
+			resourceLayer = world.WorldActor.TraitOrDefault<ResourceLayer>();
 		}
 
 		public override void MouseEntered()
@@ -122,7 +130,7 @@ namespace OpenRA.Mods.Common.Widgets
 			tooltipContainer.Value.RemoveTooltip();
 		}
 
-		int lastScrollTime = 0;
+		long lastScrollTime = 0;
 		public override void Draw()
 		{
 			if (IsJoystickScrolling)
@@ -183,9 +191,13 @@ namespace OpenRA.Mods.Common.Widgets
 
 			if (underCursor != null)
 			{
-				ActorTooltip = underCursor.TraitsImplementing<ITooltip>().First();
-				ActorTooltipExtra = underCursor.TraitsImplementing<IProvideTooltipInfo>().ToArray();
-				TooltipType = WorldTooltipType.Actor;
+				ActorTooltip = underCursor.TraitsImplementing<ITooltip>().FirstOrDefault(Exts.IsTraitEnabled);
+				if (ActorTooltip != null)
+				{
+					ActorTooltipExtra = underCursor.TraitsImplementing<IProvideTooltipInfo>().ToArray();
+					TooltipType = WorldTooltipType.Actor;
+				}
+
 				return;
 			}
 
@@ -196,25 +208,36 @@ namespace OpenRA.Mods.Common.Widgets
 			if (frozen != null)
 			{
 				var actor = frozen.Actor;
-				if (actor != null && actor.TraitsImplementing<IVisibilityModifier>().Any(t => !t.IsVisible(actor, world.RenderPlayer)))
+				if (actor != null && actor.TraitsImplementing<IVisibilityModifier>().All(t => t.IsVisible(actor, world.RenderPlayer)))
+				{
+					FrozenActorTooltip = frozen;
+					if (frozen.Actor != null)
+						ActorTooltipExtra = frozen.Actor.TraitsImplementing<IProvideTooltipInfo>().ToArray();
+					TooltipType = WorldTooltipType.FrozenActor;
 					return;
+				}
+			}
 
-				FrozenActorTooltip = frozen;
-				if (frozen.Actor != null)
-					ActorTooltipExtra = frozen.Actor.TraitsImplementing<IProvideTooltipInfo>().ToArray();
-				TooltipType = WorldTooltipType.FrozenActor;
+			if (resourceLayer != null)
+			{
+				var resource = resourceLayer.GetRenderedResource(cell);
+				if (resource != null)
+				{
+					TooltipType = WorldTooltipType.Resource;
+					ResourceTooltip = resource;
+				}
 			}
 		}
 
 		public override string GetCursor(int2 pos)
 		{
-			if (!IsJoystickScrolling &&
+			if (!(IsJoystickScrolling || isStandardScrolling) &&
 				(!Game.Settings.Game.ViewportEdgeScroll || Ui.MouseOverWidget != this))
 				return null;
 
 			var blockedDirections = worldRenderer.Viewport.GetBlockedDirections();
 
-			if (IsJoystickScrolling)
+			if (IsJoystickScrolling || isStandardScrolling)
 			{
 				foreach (var dir in JoystickCursors)
 					if (blockedDirections.Includes(dir.Key))
@@ -234,7 +257,7 @@ namespace OpenRA.Mods.Common.Widgets
 			get
 			{
 				return joystickScrollStart.HasValue && joystickScrollEnd.HasValue &&
-					(joystickScrollStart.Value - joystickScrollEnd.Value).Length > Game.Settings.Game.JoystickScrollDeadzone;
+					(joystickScrollStart.Value - joystickScrollEnd.Value).Length > Game.Settings.Game.MouseScrollDeadzone;
 			}
 		}
 
@@ -285,11 +308,24 @@ namespace OpenRA.Mods.Common.Widgets
 
 			if (scrollType == MouseScrollType.Standard || scrollType == MouseScrollType.Inverted)
 			{
-				if (mi.Event == MouseInputEvent.Move)
+				if (mi.Event == MouseInputEvent.Down && !isStandardScrolling)
+					standardScrollStart = mi.Location;
+				else if (mi.Event == MouseInputEvent.Move && (isStandardScrolling ||
+					(standardScrollStart.HasValue && ((standardScrollStart.Value - mi.Location).Length > Game.Settings.Game.MouseScrollDeadzone))))
 				{
+					isStandardScrolling = true;
 					var d = scrollType == MouseScrollType.Inverted ? -1 : 1;
 					worldRenderer.Viewport.Scroll((Viewport.LastMousePos - mi.Location) * d, false);
 					return true;
+				}
+				else if (mi.Event == MouseInputEvent.Up)
+				{
+					var wasStandardScrolling = isStandardScrolling;
+					isStandardScrolling = false;
+					standardScrollStart = null;
+
+					if (wasStandardScrolling)
+						return true;
 				}
 			}
 

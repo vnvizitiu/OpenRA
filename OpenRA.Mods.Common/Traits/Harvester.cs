@@ -78,6 +78,7 @@ namespace OpenRA.Mods.Common.Traits
 		readonly Mobile mobile;
 		Dictionary<ResourceTypeInfo, int> contents = new Dictionary<ResourceTypeInfo, int>();
 		bool idleSmart = true;
+		int idleDuration;
 
 		[Sync] public Actor OwnerLinkedProc = null;
 		[Sync] public Actor LastLinkedProc = null;
@@ -104,13 +105,13 @@ namespace OpenRA.Mods.Common.Traits
 			self.QueueActivity(new CallFunc(() => ChooseNewProc(self, null)));
 		}
 
-		public void Created(Actor self)
+		void INotifyCreated.Created(Actor self)
 		{
 			if (Info.SearchOnCreation)
 				self.QueueActivity(new FindResources(self));
 		}
 
-		public void BuildingComplete(Actor self)
+		void INotifyBuildComplete.BuildingComplete(Actor self)
 		{
 			if (Info.SearchOnCreation)
 				self.QueueActivity(new FindResources(self));
@@ -150,7 +151,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		public void ContinueHarvesting(Actor self)
 		{
-			// Move out of the refinery dock and continue harvesting:
+			// Move out of the refinery dock and continue harvesting
 			UnblockRefinery(self);
 			self.QueueActivity(new FindResources(self));
 		}
@@ -220,13 +221,20 @@ namespace OpenRA.Mods.Common.Traits
 					// Get out of the way:
 					var unblockCell = LastHarvestedCell ?? (deliveryLoc + Info.UnblockCell);
 					var moveTo = mobile.NearestMoveableCell(unblockCell, 1, 5);
+
+					// TODO: The harvest-deliver-return sequence is a horrible mess of duplicated code and edge-cases
+					var notify = self.TraitsImplementing<INotifyHarvesterAction>();
+					var findResources = new FindResources(self);
+					foreach (var n in notify)
+						n.MovingToResources(self, moveTo, findResources);
+
 					self.QueueActivity(mobile.MoveTo(moveTo, 1));
 					self.SetTargetLine(Target.FromCell(self.World, moveTo), Color.Gray, false);
 				}
 			}
 		}
 
-		public void OnNotifyBlockingMove(Actor self, Actor blocking)
+		void INotifyBlockingMove.OnNotifyBlockingMove(Actor self, Actor blocking)
 		{
 			// I'm blocking someone else from moving to my location:
 			var act = self.GetCurrentActivity();
@@ -246,8 +254,7 @@ namespace OpenRA.Mods.Common.Traits
 			}
 		}
 
-		int idleDuration;
-		public void TickIdle(Actor self)
+		void INotifyIdle.TickIdle(Actor self)
 		{
 			// Should we be intelligent while idle?
 			if (!idleSmart) return;
@@ -363,13 +370,13 @@ namespace OpenRA.Mods.Common.Traits
 					loc = self.Location;
 				}
 
-				var next = new FindResources(self);
-				self.QueueActivity(next);
+				var findResources = new FindResources(self);
+				self.QueueActivity(findResources);
 				self.SetTargetLine(Target.FromCell(self.World, loc.Value), Color.Red);
 
 				var notify = self.TraitsImplementing<INotifyHarvesterAction>();
 				foreach (var n in notify)
-					n.MovingToResources(self, loc.Value, next);
+					n.MovingToResources(self, loc.Value, findResources);
 
 				LastOrderLocation = loc;
 
@@ -392,12 +399,12 @@ namespace OpenRA.Mods.Common.Traits
 
 				self.CancelActivity();
 
-				var next = new DeliverResources(self);
-				self.QueueActivity(next);
+				var deliver = new DeliverResources(self);
+				self.QueueActivity(deliver);
 
 				var notify = self.TraitsImplementing<INotifyHarvesterAction>();
 				foreach (var n in notify)
-					n.MovingToRefinery(self, order.TargetLocation, next);
+					n.MovingToRefinery(self, order.TargetLocation, deliver);
 			}
 			else if (order.OrderString == "Stop" || order.OrderString == "Move")
 			{
@@ -440,9 +447,9 @@ namespace OpenRA.Mods.Common.Traits
 				yield return GetPipAt(i);
 		}
 
-		public bool ShouldExplode(Actor self) { return !IsEmpty; }
+		bool IExplodeModifier.ShouldExplode(Actor self) { return !IsEmpty; }
 
-		public int GetSpeedModifier()
+		int ISpeedModifier.GetSpeedModifier()
 		{
 			return 100 - (100 - Info.FullyLoadedSpeed) * contents.Values.Sum() / Info.Capacity;
 		}
@@ -471,7 +478,7 @@ namespace OpenRA.Mods.Common.Traits
 				var res = self.World.WorldActor.Trait<ResourceLayer>().GetRenderedResource(location);
 				var info = self.Info.TraitInfo<HarvesterInfo>();
 
-				if (res == null || !info.Resources.Contains(res.Info.Name))
+				if (res == null || !info.Resources.Contains(res.Info.Type))
 					return false;
 
 				cursor = "harvest";

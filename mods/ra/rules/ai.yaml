@@ -19,8 +19,6 @@ Player:
 			kenn: 1
 			dome: 1
 			weap: 1
-			hpad: 4
-			afld: 4
 			atek: 1
 			stek: 1
 			fix: 1
@@ -35,6 +33,7 @@ Player:
 			pbox: 7%
 			gun: 7%
 			tsla: 5%
+			gap: 2%
 			ftur: 10%
 			agun: 5%
 			sam: 5%
@@ -42,13 +41,18 @@ Player:
 			stek: 1%
 			fix: 0.1%
 			dome: 10%
+		CapturingActorTypes: e6
+		CapturableActorTypes: mslo, gap, iron, pdox, atek, weap, fact, proc, silo, hpad, afld, powr, apwr, stek, barr, kenn, tent, fix, oilb
+		CheckCaptureTargetsForVisibility: false
+		MaximumCaptureTargetOptions: 15
 		UnitsToBuild:
-			e1: 50%
-			e2: 20%
-			e3: 10%
-			e4: 2%
-			dog: 2%
-			shok: 2%
+			e1: 65%
+			e2: 25%
+			e3: 40%
+			e4: 15%
+			e6: 5%
+			dog: 15%
+			shok: 15%
 			harv: 10%
 			apc: 30%
 			jeep: 40%
@@ -63,6 +67,7 @@ Player:
 			stnk: 5%
 		UnitLimits:
 			dog: 4
+			e6: 3
 			harv: 8
 		SquadSize: 20
 		SupportPowerDecision@spyplane:
@@ -157,6 +162,7 @@ Player:
 			gun: 7%
 			ftur: 10%
 			tsla: 5%
+			gap: 2%
 			fix: 1%
 			agun: 5%
 			sam: 1%
@@ -164,12 +170,14 @@ Player:
 			stek: 1%
 			mslo: 1%
 		UnitsToBuild:
-			e1: 50%
-			e2: 10%
-			e3: 10%
-			e4: 5%
-			dog: 3%
-			shok: 5%
+			e1: 65%
+			e2: 25%
+			e3: 40%
+			e4: 15%
+			medi: 3%
+			mech: 3%
+			dog: 15%
+			shok: 15%
 			harv: 10%
 			apc: 30%
 			jeep: 40%
@@ -193,6 +201,8 @@ Player:
 			pt: 10%
 		UnitLimits:
 			dog: 4
+			medi: 3
+			mech: 3
 			harv: 8
 		SquadSize: 40
 		SupportPowerDecision@spyplane:
@@ -286,6 +296,7 @@ Player:
 			gun: 10%
 			ftur: 10%
 			tsla: 7%
+			gap: 3%
 			fix: 0.1%
 			dome: 10%
 			agun: 5%
@@ -294,12 +305,14 @@ Player:
 			stek: 1%
 			mslo: 1%
 		UnitsToBuild:
-			e1: 50%
-			e2: 10%
-			e3: 10%
-			e4: 8%
-			dog: 4%
-			shok: 8%
+			e1: 65%
+			e2: 25%
+			e3: 40%
+			e4: 15%
+			medi: 5%
+			mech: 5%
+			dog: 15%
+			shok: 15%
 			harv: 10%
 			apc: 30%
 			jeep: 40%
@@ -323,6 +336,8 @@ Player:
 			pt: 10%
 		UnitLimits:
 			dog: 4
+			medi: 4
+			mech: 4
 			harv: 8
 		SquadSize: 10
 		SupportPowerDecision@spyplane:
@@ -389,6 +404,8 @@ Player:
 		BuildingLimits:
 			proc: 4
 			dome: 1
+			barr: 1
+			tent: 1
 			spen: 1
 			syrd: 1
 			hpad: 8

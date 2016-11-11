@@ -367,7 +367,15 @@ namespace OpenRA
 						spawns[j / 2] = new CPos(r.spawnpoints[j], r.spawnpoints[j + 1]);
 					newData.SpawnPoints = spawns;
 					newData.GridType = r.map_grid_type;
-					newData.Preview = new Bitmap(new MemoryStream(Convert.FromBase64String(r.minimap)));
+					try
+					{
+						newData.Preview = new Bitmap(new MemoryStream(Convert.FromBase64String(r.minimap)));
+					}
+					catch (Exception e)
+					{
+						Log.Write("debug", "Failed parsing mapserver minimap response: {0}", e);
+						newData.Preview = null;
+					}
 
 					var playersString = Encoding.UTF8.GetString(Convert.FromBase64String(r.players_block));
 					newData.Players = new MapPlayers(MiniYaml.FromString(playersString));
@@ -389,7 +397,10 @@ namespace OpenRA
 						return Pair.New(rules, flagged);
 					});
 				}
-				catch (Exception) { }
+				catch (Exception e)
+				{
+					Log.Write("debug", "Failed parsing mapserver response: {0}", e);
+				}
 
 				// Commit updated data before running the callbacks
 				innerData = newData;
@@ -444,13 +455,13 @@ namespace OpenRA
 					}
 
 					Action<DownloadProgressChangedEventArgs> onDownloadProgress = i => { DownloadBytes = i.BytesReceived; DownloadPercentage = i.ProgressPercentage; };
-					Action<DownloadDataCompletedEventArgs, bool> onDownloadComplete = (i, cancelled) =>
+					Action<DownloadDataCompletedEventArgs> onDownloadComplete = i =>
 					{
 						download = null;
 
-						if (cancelled || i.Error != null)
+						if (i.Error != null)
 						{
-							Log.Write("debug", "Remote map download failed with error: {0}", i.Error != null ? i.Error.Message : "cancelled");
+							Log.Write("debug", "Remote map download failed with error: {0}", Download.FormatErrorMessage(i.Error));
 							Log.Write("debug", "URL was: {0}", mapUrl);
 
 							innerData.Status = MapStatus.DownloadError;
@@ -487,7 +498,7 @@ namespace OpenRA
 			if (download == null)
 				return;
 
-			download.Cancel();
+			download.CancelAsync();
 			download = null;
 		}
 

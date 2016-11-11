@@ -56,6 +56,15 @@ C10:
 	Voiced:
 		VoiceSet: CivilianFemaleVoice
 
+TECN:
+	Inherits@1: ^CivInfantry
+	Inherits@2: ^ArmedCivilian
+	AutoTarget:
+	Tooltip:
+		Name: Technician
+	RenderSprites:
+		Image: C1
+
 FCOM:
 	Inherits: ^TechBuilding
 	Building:
@@ -100,6 +109,8 @@ HOSP:
 	WithBuildingExplosion:
 		Delay: 1
 	ProvidesPrerequisite@buildingname:
+	GpsDot:
+		String: Hospital
 
 V01:
 	Inherits: ^CivBuilding
@@ -238,12 +249,16 @@ V19.Husk:
 		StartSequence: fire-start
 		Sequence: fire-loop
 	-Selectable:
+	SelectionDecorations:
+		RenderSelectionBars: False
 	-Targetable:
 	-Demolishable:
 
 BARL:
 	Inherits: ^TechBuilding
 	-Selectable:
+	SelectionDecorations:
+		RenderSelectionBars: False
 	CustomSelectionSize:
 		CustomBounds: 24,24
 	Health:
@@ -265,6 +280,8 @@ BARL:
 BRL3:
 	Inherits: ^TechBuilding
 	-Selectable:
+	SelectionDecorations:
+		RenderSelectionBars: False
 	CustomSelectionSize:
 		CustomBounds: 24,24
 	Health:
@@ -335,6 +352,8 @@ BIO:
 	WithBuildingExplosion:
 		Delay: 1
 	ProvidesPrerequisite@buildingname:
+	GpsDot:
+		String: Biohazard
 
 OILB:
 	Inherits: ^TechBuilding
@@ -358,6 +377,8 @@ OILB:
 		Name: Oil Derrick
 	Explodes:
 		Weapon: BarrelExplode
+	GpsDot:
+		String: Oil
 
 BR1:
 	Inherits: ^Bridge

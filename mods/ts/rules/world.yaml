@@ -22,35 +22,38 @@
 		Name: Nod
 		InternalName: nod
 	ResourceType@Tiberium:
-		ResourceType: 1
-		Palette: greentiberium
-		Variants: tib01, tib02, tib03, tib04, tib05, tib06, tib07, tib08, tib09, tib10, tib11, tib12, tib13, tib14, tib15, tib16, tib17, tib18, tib19, tib20
-		MaxDensity: 12
-		ValuePerUnit: 50
+		Type: Tiberium
 		Name: Tiberium
 		PipColor: Green
+		ResourceType: 1
+		Palette: greentiberium
+		Sequences: tib01, tib02, tib03, tib04, tib05, tib06, tib07, tib08, tib09, tib10, tib11, tib12
+		MaxDensity: 12
+		ValuePerUnit: 50
 		AllowedTerrainTypes: Clear, Rough, DirtRoad
 		AllowUnderActors: true
 		TerrainType: Tiberium
 	ResourceType@BlueTiberium:
+		Type: BlueTiberium
+		Name: Tiberium
+		PipColor: Blue
 		ResourceType: 2
 		Palette: bluetiberium
-		Variants: tib01, tib02, tib03, tib04, tib05, tib06, tib07, tib08, tib09, tib10, tib11, tib12, tib13, tib14, tib15, tib16, tib17, tib18, tib19, tib20
+		Sequences: tib01, tib02, tib03, tib04, tib05, tib06, tib07, tib08, tib09, tib10, tib11, tib12
 		MaxDensity: 12
 		ValuePerUnit: 100
-		Name: BlueTiberium
-		PipColor: Blue
 		AllowedTerrainTypes: Clear, Rough, DirtRoad
 		AllowUnderActors: true
 		TerrainType: BlueTiberium
 	ResourceType@Veins:
-		ResourceType: 3
-		Palette: player
-		Variants: veins
-		MaxDensity: 1
-		ValuePerUnit: 0
+		Type: Veins
 		Name: Veins
 		PipColor: Red
+		ResourceType: 3
+		Palette: player
+		Sequences: veins
+		MaxDensity: 1
+		ValuePerUnit: 0
 		AllowedTerrainTypes: Clear
 		AllowUnderActors: true
 		TerrainType: Veins
@@ -97,7 +100,6 @@ World:
 	ResourceLayer:
 	CustomTerrainDebugOverlay:
 	ResourceClaimLayer:
-	PathfinderDebugOverlay:
 	WarheadDebugOverlay:
 	MapCreeps:
 	SpawnMapActors:
@@ -114,7 +116,7 @@ World:
 		ClassName: Light
 		Factions: gdi
 		BaseActor: mcv
-		SupportActors: e1,e1,e1,e2,e2
+		SupportActors: e1,e1,e1,smech
 		InnerSupportRadius: 3
 		OuterSupportRadius: 5
 	MPStartUnits@light.nod:
@@ -122,7 +124,7 @@ World:
 		ClassName: Light
 		Factions: nod
 		BaseActor: mcv
-		SupportActors: e1,e1,e1,e3,e3
+		SupportActors: e1,e1,e1,bggy
 		InnerSupportRadius: 3
 		OuterSupportRadius: 5
 	MPStartUnits@med.gdi:
@@ -130,7 +132,7 @@ World:
 		ClassName: Medium
 		Factions: gdi
 		BaseActor: mcv
-		SupportActors: e1,e1,e2,jumpjet,smech
+		SupportActors: e1,e1,e2,e2,jumpjet,smech
 		InnerSupportRadius: 3
 		OuterSupportRadius: 5
 	MPStartUnits@med.nod:
@@ -138,7 +140,7 @@ World:
 		ClassName: Medium
 		Factions: nod
 		BaseActor: mcv
-		SupportActors: e1,e1,e3,cyborg,bggy
+		SupportActors: e1,e1,e3,e3,cyborg,bggy
 		InnerSupportRadius: 3
 		OuterSupportRadius: 5
 	MPStartUnits@heavy.gdi:
@@ -146,7 +148,7 @@ World:
 		ClassName: Heavy
 		Factions: gdi
 		BaseActor: mcv
-		SupportActors: e1,e2,e2,smech,mmch
+		SupportActors: e1,e1,e2,e2,jumpjet,smech,smech,mmch
 		InnerSupportRadius: 3
 		OuterSupportRadius: 5
 	MPStartUnits@heavy.nod:
@@ -154,7 +156,7 @@ World:
 		ClassName: Heavy
 		Factions: nod
 		BaseActor: mcv
-		SupportActors: e1,e3,bggy,bike,ttnk
+		SupportActors: e1,e1,e3,e3,cyborg,bggy,bike,ttnk
 		InnerSupportRadius: 3
 		OuterSupportRadius: 5
 	MPStartLocations:

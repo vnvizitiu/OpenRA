@@ -327,6 +327,7 @@ namespace OpenRA.Mods.Common.Traits
 		readonly Actor self;
 		readonly Lazy<IEnumerable<int>> speedModifiers;
 		public bool IsMoving { get; set; }
+		public bool IsMovingVertically { get { return false; } set { } }
 
 		int facing;
 		CPos fromCell, toCell;
@@ -769,7 +770,7 @@ namespace OpenRA.Mods.Common.Traits
 		public Activity MoveFollow(Actor self, Target target, WDist minRange, WDist maxRange) { return new Follow(self, target, minRange, maxRange); }
 		public Activity MoveTo(Func<List<CPos>> pathFunc) { return new Move(self, pathFunc); }
 
-		public void OnNotifyBlockingMove(Actor self, Actor blocking)
+		void INotifyBlockingMove.OnNotifyBlockingMove(Actor self, Actor blocking)
 		{
 			if (self.IsIdle && self.AppearsFriendlyTo(blocking))
 				Nudge(self, blocking, true);

@@ -24,12 +24,6 @@
     <PlatformTarget>x86</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
-    <CustomCommands>
-      <CustomCommands>
-        <Command type="AfterBuild" command="cp ${TargetFile} ../mods/common" workingdir="${ProjectDir}" />
-        <Command type="AfterBuild" command="cp ${TargetFile}.mdb ../mods/common" workingdir="${ProjectDir}" />
-      </CustomCommands>
-    </CustomCommands>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
     <DebugSymbols>true</DebugSymbols>
@@ -41,12 +35,6 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
     <Optimize>true</Optimize>
-    <CustomCommands>
-      <CustomCommands>
-        <Command type="AfterBuild" command="cp ${TargetFile} ../mods/common" workingdir="${ProjectDir}" />
-        <Command type="AfterBuild" command="cp ${TargetFile}.mdb ../mods/common" workingdir="${ProjectDir}" />
-      </CustomCommands>
-    </CustomCommands>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="FuzzyLogicLibrary">
@@ -83,6 +71,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Activities\Air\AllowYieldingReservation.cs" />
     <Compile Include="Activities\Air\FallToEarth.cs" />
     <Compile Include="Activities\Air\Fly.cs" />
     <Compile Include="Activities\Air\FlyAttack.cs" />
@@ -179,6 +168,7 @@
     <Compile Include="HitShapes\Capsule.cs" />
     <Compile Include="HitShapes\Circle.cs" />
     <Compile Include="Lint\CheckBuildingFootprint.cs" />
+    <Compile Include="Lint\CheckAngle.cs" />
     <Compile Include="Lint\CheckSequences.cs" />
     <Compile Include="Lint\CheckPalettes.cs" />
     <Compile Include="Lint\CheckPlayers.cs" />
@@ -187,6 +177,7 @@
     <Compile Include="Lint\CheckActorReferences.cs" />
     <Compile Include="Lint\CheckSyncAnnotations.cs" />
     <Compile Include="Lint\CheckTraitPrerequisites.cs" />
+    <Compile Include="Lint\CheckTooltips.cs" />
     <Compile Include="Lint\CheckDeathTypes.cs" />
     <Compile Include="Lint\CheckRangeLimit.cs" />
     <Compile Include="Lint\CheckVoiceReferences.cs" />
@@ -252,6 +243,7 @@
     <Compile Include="Scripting\Properties\ProductionProperties.cs" />
     <Compile Include="Scripting\Properties\RepairableBuildingProperties.cs" />
     <Compile Include="Scripting\Properties\ResourceProperties.cs" />
+    <Compile Include="Scripting\Properties\SellableProperties.cs" />
     <Compile Include="Scripting\Properties\TransformProperties.cs" />
     <Compile Include="Scripting\Properties\TransportProperties.cs" />
     <Compile Include="Scripting\Properties\UpgradeProperties.cs" />
@@ -323,7 +315,6 @@
     <Compile Include="Traits\Crates\RevealMapCrateAction.cs" />
     <Compile Include="Traits\Crates\SupportPowerCrateAction.cs" />
     <Compile Include="Traits\Crushable.cs" />
-    <Compile Include="Traits\CustomBuildTimeValue.cs" />
     <Compile Include="Traits\CustomSellValue.cs" />
     <Compile Include="Traits\CustomSelectionSize.cs" />
     <Compile Include="Traits\DamagedByTerrain.cs" />
@@ -453,6 +444,7 @@
     <Compile Include="Traits\Render\WithParachute.cs" />
     <Compile Include="Traits\Render\WithRangeCircle.cs" />
     <Compile Include="Traits\Render\WithRankDecoration.cs" />
+    <Compile Include="Traits\Render\WithRearmAnimation.cs" />
     <Compile Include="Traits\Render\WithRepairAnimation.cs" />
     <Compile Include="Traits\Render\WithRepairOverlay.cs" />
     <Compile Include="Traits\Render\WithResources.cs" />
@@ -474,6 +466,8 @@
     <Compile Include="Traits\SeedsResource.cs" />
     <Compile Include="Traits\StoresResources.cs" />
     <Compile Include="Traits\Render\SelectionDecorations.cs" />
+    <Compile Include="Traits\Render\WithSpriteControlGroupDecoration.cs" />
+    <Compile Include="Traits\Render\WithTextControlGroupDecoration.cs" />
     <Compile Include="Traits\SelfHealing.cs" />
     <Compile Include="Traits\Sellable.cs" />
     <Compile Include="Traits\ShakeOnDeath.cs" />
@@ -505,8 +499,9 @@
     <Compile Include="Traits\Upgrades\DisableOnUpgrade.cs" />
     <Compile Include="Traits\Upgrades\UpgradableTrait.cs" />
     <Compile Include="Traits\Upgrades\UpgradeActorsNear.cs" />
-    <Compile Include="Traits\Upgrades\UpgradeOnDamage.cs" />
+    <Compile Include="Traits\Upgrades\UpgradeOnDamageState.cs" />
     <Compile Include="Traits\Upgrades\UpgradeOnTerrain.cs" />
+    <Compile Include="Traits\Upgrades\UpgradeOnMovement.cs" />
     <Compile Include="Traits\Upgrades\UpgradeManager.cs" />
     <Compile Include="Traits\Valued.cs" />
     <Compile Include="Traits\Voiced.cs" />
@@ -529,7 +524,6 @@
     <Compile Include="Pathfinder\PathFinderUnitPathCacheDecorator.cs" />
     <Compile Include="Pathfinder\PathCacheStorage.cs" />
     <Compile Include="Traits\World\PathFinder.cs" />
-    <Compile Include="Traits\World\PathfinderDebugOverlay.cs" />
     <Compile Include="Pathfinder\PathSearch.cs" />
     <Compile Include="Pathfinder\BasePathSearch.cs" />
     <Compile Include="Traits\World\PlayerPaletteFromCurrentTileset.cs" />
@@ -558,6 +552,7 @@
     <Compile Include="UtilityCommands\ExtractSettingsDocsCommand.cs" />
     <Compile Include="UtilityCommands\ExtractTraitDocsCommand.cs" />
     <Compile Include="Widgets\Logic\Ingame\MusicControllerLogic.cs" />
+    <Compile Include="Widgets\UnitCommandWidget.cs" />
     <Compile Include="WorldExtensions.cs" />
     <Compile Include="UtilityCommands\GetMapHashCommand.cs" />
     <Compile Include="UtilityCommands\Glob.cs" />
@@ -778,18 +773,34 @@
     <Compile Include="Activities\Air\FlyCircleTimed.cs" />
     <Compile Include="UtilityCommands\ListInstallShieldCabContentsCommand.cs" />
     <Compile Include="FileFormats\InstallShieldCABCompression.cs" />
+    <Compile Include="ModContent.cs" />
+    <Compile Include="Traits\AutoCarryable.cs" />
+    <Compile Include="Traits\AutoCarryall.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <PropertyGroup>
-    <PostBuildEvent>mkdir "$(SolutionDir)mods/common/"
-copy "$(TargetPath)" "$(SolutionDir)mods/common/"
-cd "$(SolutionDir)"</PostBuildEvent>
-  </PropertyGroup>
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
-  </Target>
   <Target Name="AfterBuild">
+    <MakeDir Directories="$(SolutionDir)mods/common/"/>
+    <Copy
+      SourceFiles="$(TargetPath)"
+      DestinationFolder="$(SolutionDir)mods/common/"/>
+    <!--
+        We need to copy OpenRA.Mods.Common.pdb (not `.dll.pdb`). This is only necessary on Windows.
+        Mono outputs a `.dll.mdb` so we can just append `.mdb` directly.
+    -->
+    <Copy
+      SourceFiles="$(TargetDir)$(TargetName).pdb"
+      DestinationFolder="$(SolutionDir)mods/common/"
+      Condition="'$(OS)' == 'Windows_NT'"/>
+    <Copy
+      SourceFiles="$(TargetPath).mdb"
+      DestinationFolder="$(SolutionDir)mods/common/"
+      Condition="'$(OS)' == 'Unix'"/>
+    <!-- Uncomment these lines when debugging or adding to this target
+    <Message Text="DEBUG OS:                     $(OS)"/>
+    <Message Text="DEBUG SolutionDir:            $(SolutionDir)"/>
+    <Message Text="DEBUG TargetPath:             $(TargetPath)"/>
+    <Message Text="DEBUG TargetDir:              $(TargetDir)"/>
+    <Message Text="DEBUG TargetName:             $(TargetName)"/>
+    -->
   </Target>
-  -->
 </Project>

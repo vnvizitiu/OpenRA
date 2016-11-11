@@ -17,7 +17,7 @@ using OpenRA.Scripting;
 
 namespace OpenRA.Mods.Common.Effects
 {
-	public class Beacon : IEffect, IScriptBindable
+	public class Beacon : IEffect, IScriptBindable, IEffectAboveShroud
 	{
 		static readonly int MaxArrowHeight = 512;
 
@@ -30,9 +30,11 @@ namespace OpenRA.Mods.Common.Effects
 		readonly Animation circles;
 		readonly Animation poster;
 		readonly Animation clock;
+		readonly int duration;
 
 		int arrowHeight = MaxArrowHeight;
 		int arrowSpeed = 50;
+		int tick;
 
 		// Player-placed beacons are removed after a delay
 		public Beacon(Player owner, WPos position, int duration, string beaconPalette, bool isPlayerPalette, string beaconCollection, string arrowSprite, string circleSprite)
@@ -41,6 +43,7 @@ namespace OpenRA.Mods.Common.Effects
 			this.position = position;
 			this.beaconPalette = beaconPalette;
 			this.isPlayerPalette = isPlayerPalette;
+			this.duration = duration;
 
 			if (!string.IsNullOrEmpty(arrowSprite))
 			{
@@ -53,9 +56,6 @@ namespace OpenRA.Mods.Common.Effects
 				circles = new Animation(owner.World, beaconCollection);
 				circles.Play(circleSprite);
 			}
-
-			if (duration > 0)
-				owner.World.AddFrameEndTask(w => w.Add(new DelayedAction(duration, () => owner.World.Remove(this))));
 		}
 
 		// Support power beacons are expected to clean themselves up
@@ -78,7 +78,7 @@ namespace OpenRA.Mods.Common.Effects
 			}
 		}
 
-		public void Tick(World world)
+		void IEffect.Tick(World world)
 		{
 			arrowHeight += arrowSpeed;
 			var clamped = arrowHeight.Clamp(0, MaxArrowHeight);
@@ -96,9 +96,14 @@ namespace OpenRA.Mods.Common.Effects
 
 			if (clock != null)
 				clock.Tick();
+
+			if (duration > 0 && duration <= tick++)
+				owner.World.AddFrameEndTask(w => w.Remove(this));
 		}
 
-		public IEnumerable<IRenderable> Render(WorldRenderer r)
+		IEnumerable<IRenderable> IEffect.Render(WorldRenderer r) { return SpriteRenderable.None; }
+
+		IEnumerable<IRenderable> IEffectAboveShroud.RenderAboveShroud(WorldRenderer r)
 		{
 			if (!owner.IsAlliedWith(owner.World.RenderPlayer))
 				yield break;

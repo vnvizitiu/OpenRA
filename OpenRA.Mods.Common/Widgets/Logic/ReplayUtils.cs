@@ -24,7 +24,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				onCancel = DoNothing;
 
 			if (replayMeta == null)
-				return IncompatibleReplayDialog("outdated engine", null, onCancel);
+			{
+				ConfirmationDialogs.ButtonPrompt("Incompatible Replay", "Replay metadata could not be read.", onCancel: onCancel);
+				return false;
+			}
 
 			var version = replayMeta.GameInfo.Version;
 			if (version == null)
@@ -34,10 +37,10 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			if (mod == null)
 				return IncompatibleReplayDialog("unknown mod", mod, onCancel);
 
-			var allMods = ModMetadata.AllMods;
-			if (!allMods.ContainsKey(mod))
+			if (!Game.Mods.ContainsKey(mod))
 				return IncompatibleReplayDialog("unavailable mod", mod, onCancel);
-			else if (allMods[mod].Version != version)
+
+			if (Game.Mods[mod].Metadata.Version != version)
 				return IncompatibleReplayDialog("incompatible version", version, onCancel);
 
 			if (replayMeta.GameInfo.MapPreview.Status != MapStatus.Available)

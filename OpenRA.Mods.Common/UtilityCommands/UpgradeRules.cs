@@ -270,6 +270,171 @@ namespace OpenRA.Mods.Common.UtilityCommands
 					}
 				}
 
+				if (engineVersion < 20160717)
+				{
+					if (depth == 0)
+					{
+						var selectionDecorations = node.Value.Nodes.FirstOrDefault(n => n.Key == "SelectionDecorations");
+						if (selectionDecorations != null)
+							node.Value.Nodes.Add(selectionDecorations = new MiniYamlNode("WithSpriteControlGroup", ""));
+					}
+				}
+
+				if (engineVersion < 20160818)
+				{
+					if (depth == 1 && node.Key.StartsWith("UpgradeOnDamage"))
+					{
+						var parts = node.Key.Split('@');
+						node.Key = "UpgradeOnDamageState";
+						if (parts.Length > 1)
+							node.Key += "@" + parts[1];
+					}
+				}
+
+				// DisplayTimer was replaced by DisplayTimerStances
+				if (engineVersion < 20160820)
+				{
+					if (node.Key == "DisplayTimer")
+					{
+						node.Key = "DisplayTimerStances";
+
+						if (node.Value.Value.ToLower() == "false")
+							node.Value.Value = "None";
+						else
+							node.Value.Value = "Ally, Neutral, Enemy";
+					}
+				}
+
+				if (engineVersion < 20160821)
+				{
+					// Shifted custom build time properties to Buildable
+					if (depth == 0)
+					{
+						var cbtv = node.Value.Nodes.FirstOrDefault(n => n.Key == "CustomBuildTimeValue");
+						if (cbtv != null)
+						{
+							var bi = node.Value.Nodes.FirstOrDefault(n => n.Key == "Buildable");
+
+							if (bi == null)
+								node.Value.Nodes.Add(bi = new MiniYamlNode("Buildable", ""));
+
+							var value = cbtv.Value.Nodes.First(n => n.Key == "Value");
+							value.Key = "BuildDuration";
+							bi.Value.Nodes.Add(value);
+							bi.Value.Nodes.Add(new MiniYamlNode("BuildDurationModifier", "40"));
+						}
+
+						node.Value.Nodes.RemoveAll(n => n.Key == "CustomBuildTimeValue");
+						node.Value.Nodes.RemoveAll(n => n.Key == "-CustomBuildTimeValue");
+					}
+
+					// rename ProductionQueue.BuildSpeed
+					if (node.Key == "BuildSpeed")
+					{
+						node.Key = "BuildDurationModifier";
+						var oldValue = FieldLoader.GetValue<int>(node.Key, node.Value.Value);
+						oldValue = oldValue * 100 / 40;
+						node.Value.Value = oldValue.ToString();
+					}
+				}
+
+				if (engineVersion < 20160826 && depth == 0)
+				{
+					// Removed debug visualization
+					node.Value.Nodes.RemoveAll(n => n.Key == "PathfinderDebugOverlay");
+				}
+
+				// AlliedMissiles on JamsMissiles was changed from a boolean to a Stances field and renamed
+				if (engineVersion < 20160827)
+				{
+					if (node.Key == "JamsMissiles")
+					{
+						var alliedMissiles = node.Value.Nodes.FirstOrDefault(n => n.Key == "AlliedMissiles");
+						if (alliedMissiles != null)
+						{
+							alliedMissiles.Value.Value = FieldLoader.GetValue<bool>("AlliedMissiles", alliedMissiles.Value.Value) ? "Ally, Neutral, Enemy" : "Neutral, Enemy";
+							alliedMissiles.Key = "DeflectionStances";
+						}
+					}
+				}
+
+				// Add a warning to add WithRearmAnimation to actors that might need it.
+				// Update rule added during prep-1609 stable period, date needs fixing after release.
+				if (engineVersion < 20160918 && depth == 2)
+				{
+					if (node.Key == "RearmBuildings")
+						foreach (var host in node.Value.Value.Split(','))
+							Console.WriteLine("Actor type `{0}` is denoted as a RearmBuilding. Consider adding the `WithRearmAnimation` trait to it.".F(host));
+				}
+
+				// Resource type properties were renamed, and support for tooltips added
+				if (engineVersion < 20160925)
+				{
+					if (node.Key.StartsWith("ResourceType"))
+					{
+						var image = node.Value.Nodes.FirstOrDefault(n => n.Key == "Sequence");
+						if (image != null)
+							image.Key = "Image";
+
+						var sequences = node.Value.Nodes.FirstOrDefault(n => n.Key == "Variants");
+						if (sequences != null)
+							sequences.Key = "Sequences";
+
+						var name = node.Value.Nodes.FirstOrDefault(n => n.Key == "Name");
+						if (name != null)
+							node.Value.Nodes.Add(new MiniYamlNode("Type", name.Value.Value));
+					}
+				}
+
+				// Renamed AttackSequence to DefaultAttackSequence in WithInfantryBody.
+				if (engineVersion < 20161014)
+				{
+					if (node.Key == "WithInfantryBody")
+					{
+						var attackSequence = node.Value.Nodes.FirstOrDefault(n => n.Key == "AttackSequence");
+						if (attackSequence != null)
+							attackSequence.Key = "DefaultAttackSequence";
+					}
+				}
+
+				// Move production description from Tooltip to Buildable
+				if (engineVersion < 20161016)
+				{
+					var tooltipChild = node.Value.Nodes.FirstOrDefault(n => n.Key == "Tooltip" || n.Key == "DisguiseToolTip");
+					if (tooltipChild != null)
+					{
+						var descNode = tooltipChild.Value.Nodes.FirstOrDefault(n => n.Key == "Description");
+						if (descNode != null)
+						{
+							var buildableNode = node.Value.Nodes.FirstOrDefault(n => n.Key == "Buildable");
+							if (buildableNode == null)
+								node.Value.Nodes.Add(buildableNode = new MiniYamlNode("Buildable", ""));
+
+							buildableNode.Value.Nodes.Add(descNode);
+							tooltipChild.Value.Nodes.Remove(descNode);
+						}
+					}
+				}
+
+				// Move production icon sequence from Tooltip to Buildable
+				if (engineVersion < 20161022)
+				{
+					var tooltipChild = node.Value.Nodes.FirstOrDefault(n => n.Key == "Tooltip" || n.Key == "DisguiseToolTip");
+					if (tooltipChild != null)
+					{
+						var iconNode = tooltipChild.Value.Nodes.FirstOrDefault(n => n.Key == "Icon");
+						if (iconNode != null)
+						{
+							var buildableNode = node.Value.Nodes.FirstOrDefault(n => n.Key == "Buildable");
+							if (buildableNode == null)
+								node.Value.Nodes.Add(buildableNode = new MiniYamlNode("Buildable", ""));
+
+							buildableNode.Value.Nodes.Add(iconNode);
+							tooltipChild.Value.Nodes.Remove(iconNode);
+						}
+					}
+				}
+
 				UpgradeActorRules(modData, engineVersion, ref node.Value.Nodes, node, depth + 1);
 			}
 
@@ -325,6 +490,20 @@ namespace OpenRA.Mods.Common.UtilityCommands
 						node.Key = "Speed";
 				}
 
+				// Rename LaserZap BeamDuration to just Duration
+				if (engineVersion < 20161009)
+				{
+					if (node.Key == "BeamDuration")
+						node.Key = "Duration";
+				}
+
+				// Rename Bullet Angle to LaunchAngle
+				if (engineVersion < 20161016)
+				{
+					if (node.Key == "Angle")
+						node.Key = "LaunchAngle";
+				}
+
 				UpgradeWeaponRules(modData, engineVersion, ref node.Value.Nodes, node, depth + 1);
 			}
 		}
@@ -346,7 +525,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 		{
 			foreach (var node in nodes)
 			{
-				if (engineVersion < 20160730 && modData.Manifest.Mod.Id == "d2k" && depth == 2)
+				if (engineVersion < 20160730 && modData.Manifest.Id == "d2k" && depth == 2)
 				{
 					if (node.Key == "Start")
 						node.Value.Value = RemapD2k106Sequence(FieldLoader.GetValue<int>("", node.Value.Value)).ToString();
@@ -416,7 +595,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 			foreach (var node in nodes)
 			{
 				// Fix RA building footprints to not use _ when it's not necessary
-				if (engineVersion < 20160619 && modData.Manifest.Mod.Id == "ra" && depth == 1)
+				if (engineVersion < 20160619 && modData.Manifest.Id == "ra" && depth == 1)
 				{
 					var buildings = new List<string>() { "tsla", "gap", "agun", "apwr", "fapw" };
 					if (buildings.Contains(parent.Value.Value) && node.Key == "Location")
@@ -424,7 +603,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 				}
 
 				// Fix TD building footprints to not use _ when it's not necessary
-				if (engineVersion < 20160619 && modData.Manifest.Mod.Id == "cnc" && depth == 1)
+				if (engineVersion < 20160619 && modData.Manifest.Id == "cnc" && depth == 1)
 				{
 					var buildings = new List<string>() { "atwr", "obli", "tmpl", "weap", "hand" };
 					if (buildings.Contains(parent.Value.Value) && node.Key == "Location")

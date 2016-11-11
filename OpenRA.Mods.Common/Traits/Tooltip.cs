@@ -13,12 +13,9 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public abstract class TooltipInfoBase : ITraitInfo
+	public abstract class TooltipInfoBase : UpgradableTraitInfo
 	{
-		[Translate] public readonly string Description = "";
 		[Translate] public readonly string Name = "";
-
-		public abstract object Create(ActorInitializer init);
 	}
 
 	[Desc("Shown in map editor.")]
@@ -43,9 +40,6 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Show the actor's owner and their faction flag")]
 		public readonly bool ShowOwnerRow = true;
 
-		[Desc("Sequence of the actor that contains the cameo.")]
-		public readonly string Icon = "icon";
-
 		public override object Create(ActorInitializer init) { return new Tooltip(init.Self, this); }
 
 		public string TooltipForPlayerStance(Stance stance)
@@ -65,7 +59,7 @@ namespace OpenRA.Mods.Common.Traits
 		public bool IsOwnerRowVisible { get { return ShowOwnerRow; } }
 	}
 
-	public class Tooltip : ITooltip
+	public class Tooltip : UpgradableTrait<TooltipInfo>, ITooltip
 	{
 		readonly Actor self;
 		readonly TooltipInfo info;
@@ -74,6 +68,7 @@ namespace OpenRA.Mods.Common.Traits
 		public Player Owner { get { return self.Owner; } }
 
 		public Tooltip(Actor self, TooltipInfo info)
+			: base(info)
 		{
 			this.self = self;
 			this.info = info;

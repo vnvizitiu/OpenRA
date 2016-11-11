@@ -5,7 +5,6 @@
 		PlayerExperienceModifier: 1
 	ScriptTriggers:
 	UpgradeManager:
-	Huntable:
 	RenderDebugState:
 
 ^SpriteActor:
@@ -68,6 +67,7 @@
 	Inherits@2: ^GainsExperience
 	Inherits@3: ^IronCurtainable
 	Inherits@4: ^SpriteActor
+	Huntable:
 	DrawLineToTarget:
 	UpdatesPlayerStatistics:
 	Mobile:
@@ -82,6 +82,7 @@
 			Beach: 40
 		TurnSpeed: 5
 	SelectionDecorations:
+	WithSpriteControlGroupDecoration:
 	Selectable:
 		Bounds: 24, 24
 	Targetable:
@@ -166,6 +167,7 @@
 	Inherits@1: ^ExistsInWorld
 	Inherits@2: ^GainsExperience
 	Inherits@3: ^SpriteActor
+	Huntable:
 	DrawLineToTarget:
 	Health:
 		HP: 25
@@ -188,6 +190,7 @@
 			Gems: 80
 			Beach: 80
 	SelectionDecorations:
+	WithSpriteControlGroupDecoration:
 	Selectable:
 		Bounds: 12,18,0,-8
 	Targetable:
@@ -300,13 +303,14 @@
 		Weapon: Pistol
 	AttackFrontal:
 	WithInfantryBody:
-		AttackSequence: shoot
+		DefaultAttackSequence: shoot
 
 ^Ship:
 	Inherits@1: ^ExistsInWorld
 	Inherits@2: ^GainsExperience
 	Inherits@3: ^IronCurtainable
 	Inherits@4: ^SpriteActor
+	Huntable:
 	DrawLineToTarget:
 	UpdatesPlayerStatistics:
 	Mobile:
@@ -314,6 +318,7 @@
 		TerrainSpeeds:
 			Water: 100
 	SelectionDecorations:
+	WithSpriteControlGroupDecoration:
 	Selectable:
 		Bounds: 24,24
 	Targetable:
@@ -349,11 +354,13 @@
 	Inherits@2: ^GainsExperience
 	Inherits@3: ^IronCurtainable
 	Inherits@4: ^SpriteActor
+	Huntable:
 	DrawLineToTarget:
 	UpdatesPlayerStatistics:
 	AppearsOnRadar:
 		UseLocation: true
 	SelectionDecorations:
+	WithSpriteControlGroupDecoration:
 	Selectable:
 		Bounds: 24,24
 	Aircraft:
@@ -417,6 +424,7 @@
 	Inherits@2: ^IronCurtainable
 	Inherits@3: ^SpriteActor
 	SelectionDecorations:
+	WithSpriteControlGroupDecoration:
 	Selectable:
 		Priority: 3
 	Targetable:
@@ -447,6 +455,7 @@
 
 ^Building:
 	Inherits: ^BasicBuilding
+	Huntable:
 	UpdatesPlayerStatistics:
 	GivesBuildableArea:
 	RepairableBuilding:
@@ -457,7 +466,7 @@
 	ExternalCapturable:
 	ExternalCapturableBar:
 	EmitInfantryOnSell:
-		ActorTypes: e1,e1,e1,e1,e1,e1,e1,e1,e1,e1,e1,e1,e1,e1,e1,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,e6,e6,e6,e6,e6
+		ActorTypes: e1,e1,e1,tecn,tecn
 	MustBeDestroyed:
 		RequiredForShortGame: true
 	GpsDot:
@@ -468,7 +477,7 @@
 ^ScienceBuilding:
 	Inherits: ^Building
 	EmitInfantryOnSell:
-		ActorTypes: e1,e1,e1,e1,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,e6,e6,e6,e6,e6,chan,chan,chan,chan
+		ActorTypes: e1,e1,e1,e1,tecn,tecn,tecn,tecn,tecn,tecn,tecn,tecn,tecn,tecn,e6,e6,e6,e6,e6,chan,chan,chan,chan
 
 ^Defense:
 	Inherits: ^Building
@@ -533,7 +542,6 @@
 	WithGateSpriteBody:
 	Tooltip:
 		Name: Gate
-		Description: Automated barrier that opens for allied units.
 	Gate:
 		Adjacent: 4
 		BlocksProjectilesHeight: 0
@@ -544,6 +552,7 @@
 
 ^TechBuilding:
 	Inherits: ^BasicBuilding
+	Huntable:
 	Health:
 		HP: 400
 	Armor:
@@ -572,9 +581,21 @@
 	-EmitInfantryOnSell:
 	-MustBeDestroyed:
 
+^InfiltratableFake:
+	Targetable:
+		TargetTypes: Ground, Structure, C4, DetonateAttack, SpyInfiltrate
+	InfiltrateForDecoration:
+		RequiresSelection: true
+		Image: pips
+		Sequence: tag-fake
+		ReferencePoint: Top
+		ZOffset: 256
+
 ^AmmoBox:
 	Inherits: ^TechBuilding
 	-Selectable:
+	SelectionDecorations:
+		RenderSelectionBars: False
 	CustomSelectionSize:
 		CustomBounds: 24,24
 	Health:
@@ -599,6 +620,7 @@
 ^CivField:
 	Inherits: ^CivBuilding
 	-Selectable:
+	-SelectionDecorations:
 	Tooltip:
 		Name: Field
 	-Targetable:
@@ -804,8 +826,7 @@
 ^Mine:
 	Inherits: ^SpriteActor
 	WithSpriteBody:
-	HiddenUnderShroud:
-		Type: CenterPosition
+	HiddenUnderFog:
 	Mine:
 		CrushClasses: mine
 		DetonateClasses: mine
@@ -820,6 +841,7 @@
 		UncloakSound:
 		Palette:
 		CloakTypes: Mine
+		InitialDelay: 0
 	Tooltip:
 		Name: Mine
 	Targetable:

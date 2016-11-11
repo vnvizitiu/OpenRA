@@ -18,7 +18,7 @@ using OpenRA.Mods.Common.Graphics;
 
 namespace OpenRA.Mods.Common.Effects
 {
-	public class FloatingText : IEffect
+	public class FloatingText : IEffect, IEffectAboveShroud
 	{
 		static readonly WVec Velocity = new WVec(0, 0, 86);
 
@@ -45,9 +45,11 @@ namespace OpenRA.Mods.Common.Effects
 			pos += Velocity;
 		}
 
-		public IEnumerable<IRenderable> Render(WorldRenderer wr)
+		public IEnumerable<IRenderable> Render(WorldRenderer wr) { return SpriteRenderable.None; }
+
+		public IEnumerable<IRenderable> RenderAboveShroud(WorldRenderer wr)
 		{
-			if (wr.World.FogObscures(pos))
+			if (wr.World.FogObscures(pos) || wr.World.ShroudObscures(pos))
 				yield break;
 
 			// Arbitrary large value used for the z-offset to try and ensure the text displays above everything else.

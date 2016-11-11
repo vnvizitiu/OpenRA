@@ -48,7 +48,7 @@ namespace OpenRA.Mods.Common.Graphics
 			}
 			catch (Exception e)
 			{
-				throw new Exception("Error occurred while parsing {0}".F(node.Key), e);
+				throw new InvalidDataException("Error occurred while parsing {0}".F(node.Key), e);
 			}
 
 			foreach (var kvp in nodes)
@@ -252,6 +252,11 @@ namespace OpenRA.Mods.Common.Graphics
 				if (Length > Stride)
 					throw new InvalidOperationException(
 						"{0}: Sequence {1}.{2}: Length must be <= stride"
+						.F(info.Nodes[0].Location, sequence, animation));
+
+				if (Frames != null && Length > Frames.Length)
+					throw new InvalidOperationException(
+						"{0}: Sequence {1}.{2}: Length must be <= Frames.Length"
 						.F(info.Nodes[0].Location, sequence, animation));
 
 				if (Start < 0 || Start + Facings * Stride > sprites.Length)

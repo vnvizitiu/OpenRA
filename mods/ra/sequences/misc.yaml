@@ -93,6 +93,7 @@ pips:
 	groups:
 		Start: 8
 		Length: 10
+		Offset: 9, 5
 	medic:
 		Start: 20
 #	ready:
@@ -144,16 +145,16 @@ beacon:
 	circles: fpls
 		Length: *
 		ZOffset: 2047
-	atomicon: lores-atomicon
+	atomicon: lores|atomicon
 		Length: *
 		Offset: 0,-42
-	pbmbicon: lores-pbmbicon
+	pbmbicon: lores|pbmbicon
 		Length: *
 		Offset: 0,-42
-	camicon: lores-camicon
+	camicon: lores|camicon
 		Length: *
 		Offset: 0,-42
-	pinficon: lores-pinficon
+	pinficon: lores|pinficon
 		Length: *
 		Offset: 0,-42
 	clock: beaconclock
@@ -211,7 +212,7 @@ litning:
 		ZOffset: 1023
 
 fb1:
-	idle: 
+	idle:
 		Length: *
 		ZOffset: 1023
 
@@ -469,6 +470,12 @@ gpsdot:
 		Start: 5
 	Structure:
 		Start: 6
+	Oil:
+		Start: 7
+	Hospital:
+		Start: 8
+	Biohazard:
+		Start: 9
 
 icon:
 	abomb: atomicon

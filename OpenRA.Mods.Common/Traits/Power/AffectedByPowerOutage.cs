@@ -42,7 +42,9 @@ namespace OpenRA.Mods.Common.Traits
 			return Color.Yellow;
 		}
 
-		public int GetPowerModifier()
+		bool ISelectionBar.DisplayWhenEmpty { get { return false; } }
+
+		int IPowerModifier.GetPowerModifier()
 		{
 			return playerPower.PowerOutageRemainingTicks > 0 ? 0 : 100;
 		}
@@ -52,7 +54,7 @@ namespace OpenRA.Mods.Common.Traits
 			get { return playerPower.PowerOutageRemainingTicks > 0; }
 		}
 
-		public void OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
+		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
 		{
 			playerPower = newOwner.PlayerActor.Trait<PowerManager>();
 		}

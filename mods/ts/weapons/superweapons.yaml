@@ -63,21 +63,37 @@ IonCannon:
 		Falloff: 1000, 368, 135, 50, 18, 7, 0
 		ValidTargets: Ground, Air
 		DamageTypes: Prone100Percent, TriggerProne, EnergyDeath
-	Warhead@2Eff_impact: CreateEffect
-		Explosions: ionring
-		ImpactSounds: ion1.aud
-	Warhead@3Dam_area: SpreadDamage
+	Warhead@2Dam_area: SpreadDamage
 		Spread: 1c0
 		Damage: 250
 		Falloff: 100, 50, 25, 0
 		Delay: 3
 		ValidTargets: Ground, Air
 		DamageTypes: Prone50Percent, TriggerProne, EnergyDeath
-	Warhead@4Smu_area: LeaveSmudge
+	Warhead@3Smu_area: LeaveSmudge
 		SmudgeType: SmallScorch
 		InvalidTargets: Vehicle, Building, Wall
 		Size: 2
 		Delay: 3
+	Warhead@4Effect: CreateEffect
+		Explosions: ionbeam
+		ExplosionPalette: effectalpha75
+		ImpactSounds: ion1.aud
+	Warhead@5Effect: CreateEffect
+		Explosions: ionbeam2
+		ExplosionPalette: effectalpha75
+	Warhead@6Effect: CreateEffect
+		Explosions: ionbeam3
+		ExplosionPalette: effectalpha75
+	Warhead@7Effect: CreateEffect
+		Explosions: ionbeam4
+		ExplosionPalette: effectalpha75
+	Warhead@8Effect: CreateEffect
+		Explosions: ionbeam5
+		ExplosionPalette: effectalpha75
+	Warhead@9Effect: CreateEffect
+		Explosions: ionbeam6
+		ExplosionPalette: effectalpha75
 
 EMPulseCannon:
 	ReloadDelay: 100
@@ -87,7 +103,7 @@ EMPulseCannon:
 		Speed: 425
 		Blockable: false
 		Shadow: true
-		Angle: 62
+		LaunchAngle: 62
 		Image: pulsball
 	Warhead@1Eff: CreateEffect
 		Explosions: pulse_explosion

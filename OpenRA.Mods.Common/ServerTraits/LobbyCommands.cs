@@ -126,7 +126,7 @@ namespace OpenRA.Mods.Common.Server
 						if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer &&
 							server.LobbyInfo.Clients.Where(c => c.Bot == null && c.Slot != null).Count() == 1)
 						{
-							server.SendOrderTo(conn, "Message", "This server requires at least two human players to start match.");
+							server.SendOrderTo(conn, "Message", server.TwoHumansRequiredText);
 							return true;
 						}
 
@@ -404,9 +404,13 @@ namespace OpenRA.Mods.Common.Server
 								server.SendMessage("This map contains custom rules. Game experience may change.");
 
 							if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer)
-								server.SendMessage("This server requires at least two human players to start match.");
+								server.SendMessage(server.TwoHumansRequiredText);
 							else if (server.Map.Players.Players.Where(p => p.Value.Playable).All(p => !p.Value.AllowBots))
 								server.SendMessage("Bots have been disabled on this map.");
+
+							var briefing = MissionBriefingOrDefault(server);
+							if (briefing != null)
+								server.SendMessage(briefing);
 						};
 
 						Action queryFailed = () =>
@@ -756,7 +760,7 @@ namespace OpenRA.Mods.Common.Server
 			var uid = server.LobbyInfo.GlobalSettings.Map;
 			server.Map = server.ModData.MapCache[uid];
 			if (server.Map.Status != MapStatus.Available)
-				throw new Exception("Map {0} not found".F(uid));
+				throw new InvalidOperationException("Map {0} not found".F(uid));
 
 			server.LobbyInfo.Slots = server.Map.Players.Players
 				.Select(p => MakeSlotFromPlayerReference(p.Value))
@@ -817,8 +821,8 @@ namespace OpenRA.Mods.Common.Server
 				if (o.Id == "gamespeed")
 				{
 					var speed = server.ModData.Manifest.Get<GameSpeeds>().Speeds[value];
-					server.LobbyInfo.GlobalSettings.Timestep = speed.Timestep;
-					server.LobbyInfo.GlobalSettings.OrderLatency = speed.OrderLatency;
+					gs.Timestep = speed.Timestep;
+					gs.OrderLatency = speed.OrderLatency;
 				}
 			}
 		}
@@ -842,6 +846,15 @@ namespace OpenRA.Mods.Common.Server
 			return validator.MakeValid(askColor.RGB, server.Random, terrainColors, playerColors, onError);
 		}
 
+		static string MissionBriefingOrDefault(S server)
+		{
+			var missionData = server.Map.Rules.Actors["world"].TraitInfoOrDefault<MissionDataInfo>();
+			if (missionData != null && !string.IsNullOrEmpty(missionData.Briefing))
+				return missionData.Briefing.Replace("\\n", "\n");
+
+			return null;
+		}
+
 		public void ClientJoined(S server, Connection conn)
 		{
 			var client = server.GetClient(conn);
@@ -849,6 +862,13 @@ namespace OpenRA.Mods.Common.Server
 			// Validate whether color is allowed and get an alternative if it isn't
 			if (client.Slot == null || !server.LobbyInfo.Slots[client.Slot].LockColor)
 				client.Color = SanitizePlayerColor(server, client.Color, client.Index);
+
+			// Report any custom map details
+			// HACK: this isn't the best place for this to live, but if we move it somewhere else
+			// then we need a larger hack to hook the map change event.
+			var briefing = MissionBriefingOrDefault(server);
+			if (briefing != null)
+				server.SendOrderTo(conn, "Message", briefing);
 		}
 
 		public PlayerReference PlayerReferenceForSlot(S server, Session.Slot slot)

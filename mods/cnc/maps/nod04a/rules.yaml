@@ -13,6 +13,7 @@ World:
 		InitialSmudges:
 			37,24: sc6,0
 			36,18: sc6,0
+
 Player:
 	EnemyWatcher:
 	PlayerResources:
@@ -92,14 +93,6 @@ MLRS:
 		Prerequisites: ~disabled
 
 MCV:
-	Buildable:
-		Prerequisites: ~disabled
-
-LST:
-	Buildable:
-		Prerequisites: ~disabled
-
-C17:
 	Buildable:
 		Prerequisites: ~disabled
 

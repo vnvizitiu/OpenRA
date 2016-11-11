@@ -34,11 +34,23 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Force a specific faction variant, overriding the faction of the producing actor.")]
 		public readonly string ForceFaction = null;
 
+		[Desc("Sequence of the actor that contains the icon.")]
+		[SequenceReference] public readonly string Icon = "icon";
+
 		[Desc("Palette used for the production icon.")]
 		[PaletteReference] public readonly string IconPalette = "chrome";
 
+		[Desc("Base build time in frames (-1 indicates to use the unit's Value).")]
+		public readonly int BuildDuration = -1;
+
+		[Desc("Percentage modifier to apply to the build duration.")]
+		public readonly int BuildDurationModifier = 60;
+
 		// TODO: UI fluff; doesn't belong here
 		public readonly int BuildPaletteOrder = 9999;
+
+		[Desc("Text shown in the production tooltip.")]
+		[Translate] public readonly string Description = "";
 	}
 
 	public class Buildable { }

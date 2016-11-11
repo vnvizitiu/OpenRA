@@ -114,7 +114,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (CanRearmAt(order.TargetActor) && CanRearm())
 				self.QueueActivity(new Rearm(self));
 
-			self.QueueActivity(new Repair(order.TargetActor));
+			self.QueueActivity(new Repair(self, order.TargetActor));
 
 			var rp = order.TargetActor.TraitOrDefault<RallyPoint>();
 			if (rp != null)
@@ -149,7 +149,7 @@ namespace OpenRA.Mods.Common.Traits
 			if ((self.CenterPosition - target.CenterPosition).LengthSquared < transport.MinimumDistance.LengthSquared)
 				return;
 
-			transport.RequestTransport(targetCell, nextActivity);
+			transport.RequestTransport(self, targetCell, nextActivity);
 		}
 	}
 }
