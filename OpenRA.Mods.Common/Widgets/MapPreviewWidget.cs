@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,18 +11,17 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Network;
+using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
 {
 	public class SpawnOccupant
 	{
-		public readonly HSLColor Color;
-		public readonly int ClientIndex;
+		public readonly Color Color;
 		public readonly string PlayerName;
 		public readonly int Team;
 		public readonly string Faction;
@@ -31,8 +30,7 @@ namespace OpenRA.Mods.Common.Widgets
 		public SpawnOccupant(Session.Client client)
 		{
 			Color = client.Color;
-			ClientIndex = client.Index;
-			PlayerName = client.Name;
+			PlayerName = client.IsBot ? FluentProvider.GetString(client.Name) : client.Name;
 			Team = client.Team;
 			Faction = client.Faction;
 			SpawnPoint = client.SpawnPoint;
@@ -41,16 +39,26 @@ namespace OpenRA.Mods.Common.Widgets
 		public SpawnOccupant(GameInformation.Player player)
 		{
 			Color = player.Color;
-			ClientIndex = player.ClientIndex;
-			PlayerName = player.Name;
+			PlayerName = player.IsBot ? FluentProvider.GetString(player.Name) : player.Name;
 			Team = player.Team;
 			Faction = player.FactionId;
+			SpawnPoint = player.SpawnPoint;
+		}
+
+		public SpawnOccupant(GameClient player, bool suppressFaction)
+		{
+			Color = player.Color;
+			PlayerName = player.IsBot ? FluentProvider.GetString(player.Name) : player.Name;
+			Team = player.Team;
+			Faction = !suppressFaction ? player.Faction : null;
 			SpawnPoint = player.SpawnPoint;
 		}
 	}
 
 	public class MapPreviewWidget : Widget
 	{
+		static readonly int[] NoDisabledSpawnPoints = Array.Empty<int>();
+
 		public readonly bool IgnoreMouseInput = false;
 		public readonly bool ShowSpawnPoints = true;
 
@@ -58,15 +66,17 @@ namespace OpenRA.Mods.Common.Widgets
 		public readonly string TooltipTemplate = "SPAWN_TOOLTIP";
 		readonly Lazy<TooltipContainerWidget> tooltipContainer;
 
-		readonly Sprite spawnClaimed, spawnUnclaimed;
+		readonly Sprite spawnClaimed, spawnUnclaimed, spawnDisabled;
 		readonly SpriteFont spawnFont;
 		readonly Color spawnColor, spawnContrastColor;
 		readonly int2 spawnLabelOffset;
 
 		public Func<MapPreview> Preview = () => null;
-		public Func<Dictionary<CPos, SpawnOccupant>> SpawnOccupants = () => new Dictionary<CPos, SpawnOccupant>();
+		public Func<Dictionary<int, SpawnOccupant>> SpawnOccupants = () => new Dictionary<int, SpawnOccupant>();
+		public Func<IEnumerable<int>> DisabledSpawnPoints = () => NoDisabledSpawnPoints;
 		public Action<MouseInput> OnMouseDown = _ => { };
 		public int TooltipSpawnIndex = -1;
+		public bool ShowUnoccupiedSpawnpoints = true;
 
 		Rectangle mapRect;
 		float previewScale = 0;
@@ -78,6 +88,7 @@ namespace OpenRA.Mods.Common.Widgets
 
 			spawnClaimed = ChromeProvider.GetImage("lobby-bits", "spawn-claimed");
 			spawnUnclaimed = ChromeProvider.GetImage("lobby-bits", "spawn-unclaimed");
+			spawnDisabled = ChromeProvider.GetImage("lobby-bits", "spawn-disabled") ?? spawnUnclaimed;
 			spawnFont = Game.Renderer.Fonts[ChromeMetrics.Get<string>("SpawnFont")];
 			spawnColor = ChromeMetrics.Get<Color>("SpawnColor");
 			spawnContrastColor = ChromeMetrics.Get<Color>("SpawnContrastColor");
@@ -122,7 +133,11 @@ namespace OpenRA.Mods.Common.Widgets
 		public override void MouseEntered()
 		{
 			if (TooltipContainer != null)
-				tooltipContainer.Value.SetTooltip(TooltipTemplate, new WidgetArgs() { { "preview", this } });
+				tooltipContainer.Value.SetTooltip(TooltipTemplate, new WidgetArgs()
+					{
+						{ "preview", this },
+						{ "showUnoccupiedSpawnpoints", ShowUnoccupiedSpawnpoints }
+					});
 		}
 
 		public override void MouseExited()
@@ -141,7 +156,7 @@ namespace OpenRA.Mods.Common.Widgets
 
 			// Odd rows are shifted right by 1px
 			if ((point.V & 1) == 1)
-				dx += 1;
+				dx++;
 
 			return new int2(mapRect.X + dx, mapRect.Y + dy);
 		}
@@ -166,37 +181,55 @@ namespace OpenRA.Mods.Common.Widgets
 			var y = RenderBounds.Y + (RenderBounds.Height - h) / 2;
 			mapRect = new Rectangle(x, y, w, h);
 
-			Game.Renderer.RgbaSpriteRenderer.DrawSprite(minimap, new float2(mapRect.Location), new float2(mapRect.Size));
+			WidgetUtils.DrawSprite(minimap, mapRect.Location, mapRect.Size);
 
 			TooltipSpawnIndex = -1;
 			if (ShowSpawnPoints)
 			{
-				var colors = SpawnOccupants().ToDictionary(c => c.Key, c => c.Value.Color.RGB);
-
 				var spawnPoints = preview.SpawnPoints;
+				var occupants = SpawnOccupants();
+				var disabledSpawnPoints = DisabledSpawnPoints();
 				var gridType = preview.GridType;
-				foreach (var p in spawnPoints)
+				for (var i = 0; i < spawnPoints.Length; i++)
 				{
-					var owned = colors.ContainsKey(p);
+					var p = spawnPoints[i];
+
+					// Spawn numbers are 1 indexed with 0 meaning "random spawn".
+					var occupied = occupants.TryGetValue(i + 1, out var occupant);
+					var disabled = disabledSpawnPoints.Contains(i + 1);
 					var pos = ConvertToPreview(p, gridType);
-					var sprite = owned ? spawnClaimed : spawnUnclaimed;
-					var offset = new int2(sprite.Bounds.Width, sprite.Bounds.Height) / 2;
 
-					if (owned)
-						WidgetUtils.FillEllipseWithColor(new Rectangle(pos.X - offset.X + 1, pos.Y - offset.Y + 1, sprite.Bounds.Width - 2, sprite.Bounds.Height - 2), colors[p]);
+					var sprite = disabled ? spawnDisabled : occupied ? spawnClaimed : spawnUnclaimed;
+					var offset = sprite.Size.XY.ToInt2() / 2;
 
-					Game.Renderer.RgbaSpriteRenderer.DrawSprite(sprite, pos - offset);
+					if (((pos - Viewport.LastMousePos).ToFloat2() / offset.ToFloat2()).LengthSquared <= 1)
+						TooltipSpawnIndex = spawnPoints.IndexOf(p) + 1;
+
+					if (disabled)
+					{
+						WidgetUtils.DrawSprite(spawnDisabled, pos - offset);
+						continue;
+					}
+
+					if (occupied)
+						WidgetUtils.FillEllipseWithColor(
+							new Rectangle(
+								pos.X - offset.X + 1,
+								pos.Y - offset.Y + 1,
+								(int)sprite.Size.X - 2,
+								(int)sprite.Size.Y - 2),
+							occupant.Color);
+
+					WidgetUtils.DrawSprite(sprite, pos - offset);
+
 					var number = Convert.ToChar('A' + spawnPoints.IndexOf(p)).ToString();
 					var textOffset = spawnFont.Measure(number) / 2 + spawnLabelOffset;
 
 					spawnFont.DrawTextWithContrast(number, pos - textOffset, spawnColor, spawnContrastColor, 1);
-
-					if (((pos - Viewport.LastMousePos).ToFloat2() / offset.ToFloat2()).LengthSquared <= 1)
-						TooltipSpawnIndex = spawnPoints.IndexOf(p) + 1;
 				}
 			}
 		}
 
-		public bool Loaded { get { return minimap != null; } }
+		public bool Loaded => minimap != null;
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -16,25 +16,18 @@ namespace OpenRA.Activities
 	public class CallFunc : Activity
 	{
 		public CallFunc(Action a) { this.a = a; }
-		public CallFunc(Action a, bool interruptable)
+		public CallFunc(Action a, bool interruptible)
 		{
 			this.a = a;
-			this.interruptable = interruptable;
+			IsInterruptible = interruptible;
 		}
 
-		Action a;
-		bool interruptable;
+		readonly Action a;
 
-		public override Activity Tick(Actor self)
+		public override bool Tick(Actor self)
 		{
-			if (a != null) a();
-			return NextActivity;
-		}
-
-		public override void Cancel(Actor self)
-		{
-			if (interruptable)
-				base.Cancel(self);
+			a.Invoke();
+			return true;
 		}
 	}
 }

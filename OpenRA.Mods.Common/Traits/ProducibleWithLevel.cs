@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,16 +9,16 @@
  */
 #endregion
 
+using System;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Actors possessing this trait should define the GainsExperience trait. When the prerequisites are fulfilled, ",
-		"this trait grants a level-up to newly spawned actors. If additionally the actor's owning player defines the ProductionIconOverlay ",
-		"trait, the production queue icon renders with an overlay defined in that trait.")]
-	public class ProducibleWithLevelInfo : ITraitInfo, Requires<GainsExperienceInfo>
+		"this trait grants a level-up to newly spawned actors.")]
+	public class ProducibleWithLevelInfo : TraitInfo, Requires<GainsExperienceInfo>
 	{
-		public readonly string[] Prerequisites = { };
+		public readonly string[] Prerequisites = Array.Empty<string>();
 
 		[Desc("Number of levels to give to the actor on creation.")]
 		public readonly int InitialLevels = 1;
@@ -26,19 +26,19 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Should the level-up animation be suppressed when actor is created?")]
 		public readonly bool SuppressLevelupAnimation = true;
 
-		public object Create(ActorInitializer init) { return new ProducibleWithLevel(init, this); }
+		public override object Create(ActorInitializer init) { return new ProducibleWithLevel(this); }
 	}
 
 	public class ProducibleWithLevel : INotifyCreated
 	{
 		readonly ProducibleWithLevelInfo info;
 
-		public ProducibleWithLevel(ActorInitializer init, ProducibleWithLevelInfo info)
+		public ProducibleWithLevel(ProducibleWithLevelInfo info)
 		{
 			this.info = info;
 		}
 
-		public void Created(Actor self)
+		void INotifyCreated.Created(Actor self)
 		{
 			if (!self.Owner.PlayerActor.Trait<TechTree>().HasPrerequisites(info.Prerequisites))
 				return;

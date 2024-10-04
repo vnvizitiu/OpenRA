@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,7 +9,6 @@
  */
 #endregion
 
-using System;
 using System.Linq;
 
 namespace OpenRA.Scripting
@@ -18,14 +17,14 @@ namespace OpenRA.Scripting
 	{
 		readonly Actor actor;
 
-		protected override string DuplicateKeyError(string memberName) { return "Actor '{0}' defines the command '{1}' on multiple traits".F(actor.Info.Name, memberName); }
+		protected override string DuplicateKeyError(string memberName) { return $"Actor '{actor.Info.Name}' defines the command '{memberName}' on multiple traits"; }
 		protected override string MemberNotFoundError(string memberName)
 		{
 			var actorName = actor.Info.Name;
 			if (actor.IsDead)
 				actorName += " (dead)";
 
-			return "Actor '{0}' does not define a property '{1}'".F(actorName, memberName);
+			return $"Actor '{actorName}' does not define a property '{memberName}'";
 		}
 
 		public ScriptActorInterface(ScriptContext context, Actor actor)
@@ -38,26 +37,21 @@ namespace OpenRA.Scripting
 
 		void InitializeBindings()
 		{
-			var commandClasses = Context.ActorCommands[actor.Info].AsEnumerable();
+			var commandClasses = Context.ActorCommands[actor.Info];
 
-			// Destroyed actors cannot have their traits queried
+			// Destroyed actors cannot have their traits queried. In rare cases the actor may have already been destroyed.
 			if (actor.Disposed)
-				commandClasses = commandClasses.Where(c => c.HasAttribute<ExposedForDestroyedActors>());
+				commandClasses = commandClasses.Where(c => c.HasAttribute<ExposedForDestroyedActors>()).ToArray();
 
-			var args = new object[] { Context, actor };
-			var objects = commandClasses.Select(cg =>
-			{
-				var groupCtor = cg.GetConstructor(new Type[] { typeof(ScriptContext), typeof(Actor) });
-				return groupCtor.Invoke(args);
-			});
-
-			Bind(objects);
+			Bind(CreateObjects(commandClasses, new object[] { Context, actor }));
 		}
 
 		public void OnActorDestroyed()
 		{
-			// Regenerate bindings to remove access to bogus trait state
-			InitializeBindings();
+			// Remove bindings not available to destroyed actors.
+			foreach (var commandClass in Context.ActorCommands[actor.Info])
+				if (!commandClass.HasAttribute<ExposedForDestroyedActors>())
+					Unbind(commandClass);
 		}
 	}
 }

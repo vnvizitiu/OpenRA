@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,9 +9,10 @@
  */
 #endregion
 
-using System.Drawing;
-using OpenRA.Graphics;
+using System.Collections.Generic;
+using Eluant;
 using OpenRA.Mods.Common.Widgets;
+using OpenRA.Primitives;
 using OpenRA.Scripting;
 using OpenRA.Widgets;
 
@@ -24,13 +25,40 @@ namespace OpenRA.Mods.Common.Scripting.Global
 			: base(context) { }
 
 		[Desc("Displays a text message at the top center of the screen.")]
-		public void SetMissionText(string text, HSLColor? color = null)
+		public void SetMissionText(string text, Color? color = null)
 		{
 			var luaLabel = Ui.Root.Get("INGAME_ROOT").Get<LabelWidget>("MISSION_TEXT");
 			luaLabel.GetText = () => text;
 
-			Color c = color.HasValue ? HSLColor.RGBFromHSL(color.Value.H / 255f, color.Value.S / 255f, color.Value.L / 255f) : Color.White;
+			var c = color ?? Color.White;
 			luaLabel.GetColor = () => c;
+		}
+
+		[Desc("Formats a language string for a given string key defined in the language files (*.ftl). " +
+			"Args can be passed to be substituted into the resulting message.")]
+		public string Translate(string key, [ScriptEmmyTypeOverride("{ string: any }")] LuaTable args = null)
+		{
+			if (args != null)
+			{
+				var argumentDictionary = new Dictionary<string, object>();
+				foreach (var kv in args)
+				{
+					using (kv.Key)
+					using (kv.Value)
+					{
+						if (!kv.Key.TryGetClrValue<string>(out var variable) || !kv.Value.TryGetClrValue<object>(out var value))
+							throw new LuaException(
+								"String arguments requires a table of [\"string\"]=value pairs. " +
+								$"Received {kv.Key.WrappedClrType().Name},{kv.Value.WrappedClrType().Name}");
+
+						argumentDictionary.Add(variable, value);
+					}
+				}
+
+				return FluentProvider.GetString(key, argumentDictionary);
+			}
+
+			return FluentProvider.GetString(key);
 		}
 	}
 }

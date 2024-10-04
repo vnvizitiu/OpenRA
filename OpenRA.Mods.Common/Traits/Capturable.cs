@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,64 +9,42 @@
  */
 #endregion
 
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	[Desc("This actor can be captured by a unit with Captures: trait.")]
-	public class CapturableInfo : ITraitInfo
+	[Desc("This actor can be captured by a unit with Captures: trait.",
+		"This trait should not be disabled if the actor also uses FrozenUnderFog.")]
+	public class CapturableInfo : ConditionalTraitInfo, Requires<CaptureManagerInfo>
 	{
-		[Desc("Type listed under Types in Captures: trait of actors that can capture this).")]
-		public readonly string Type = "building";
-		public readonly bool AllowAllies = false;
-		public readonly bool AllowNeutral = true;
-		public readonly bool AllowEnemies = true;
-		[Desc("Health percentage the target must be at (or below) before it can be captured.")]
-		public readonly int CaptureThreshold = 50;
+		[FieldLoader.Require]
+		[Desc("CaptureTypes (from the Captures trait) that are able to capture this.")]
+		public readonly BitSet<CaptureType> Types = default;
+
+		[Desc("Cancel the actor's current activity when getting captured.")]
 		public readonly bool CancelActivity = false;
 
-		public object Create(ActorInitializer init) { return new Capturable(this); }
-
-		public bool CanBeTargetedBy(Actor captor, Player owner)
-		{
-			var c = captor.Info.TraitInfoOrDefault<CapturesInfo>();
-			if (c == null)
-				return false;
-
-			var playerRelationship = owner.Stances[captor.Owner];
-			if (playerRelationship == Stance.Ally && !AllowAllies)
-				return false;
-
-			if (playerRelationship == Stance.Enemy && !AllowEnemies)
-				return false;
-
-			if (playerRelationship == Stance.Neutral && !AllowNeutral)
-				return false;
-
-			if (!c.CaptureTypes.Contains(Type))
-				return false;
-
-			return true;
-		}
+		public override object Create(ActorInitializer init) { return new Capturable(init.Self, this); }
 	}
 
-	public class Capturable : INotifyCapture
+	public class Capturable : ConditionalTrait<CapturableInfo>, INotifyCapture
 	{
-		public readonly CapturableInfo Info;
-		public bool BeingCaptured { get; private set; }
-		public Capturable(CapturableInfo info) { Info = info; }
+		readonly CaptureManager captureManager;
 
-		public void OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner)
+		public Capturable(Actor self, CapturableInfo info)
+			: base(info)
 		{
-			BeingCaptured = true;
-			self.World.AddFrameEndTask(w => BeingCaptured = false);
-
-			if (Info.CancelActivity)
-			{
-				var stop = new Order("Stop", self, false);
-				foreach (var t in self.TraitsImplementing<IResolveOrder>())
-					t.ResolveOrder(self, stop);
-			}
+			captureManager = self.Trait<CaptureManager>();
 		}
+
+		void INotifyCapture.OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner, BitSet<CaptureType> captureTypes)
+		{
+			if (Info.CancelActivity)
+				self.CancelActivity();
+		}
+
+		protected override void TraitEnabled(Actor self) { captureManager.RefreshCapturable(); }
+		protected override void TraitDisabled(Actor self) { captureManager.RefreshCapturable(); }
 	}
 }

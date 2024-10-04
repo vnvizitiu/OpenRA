@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,14 +9,13 @@
  */
 #endregion
 
-using System;
 using System.Linq;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Lets the actor spread resources around it in a circle.")]
-	class SeedsResourceInfo : UpgradableTraitInfo
+	sealed class SeedsResourceInfo : ConditionalTraitInfo
 	{
 		public readonly int Interval = 75;
 		public readonly string ResourceType = "Ore";
@@ -25,30 +24,21 @@ namespace OpenRA.Mods.Common.Traits
 		public override object Create(ActorInitializer init) { return new SeedsResource(init.Self, this); }
 	}
 
-	class SeedsResource : UpgradableTrait<SeedsResourceInfo>, ITick, ISeedableResource
+	sealed class SeedsResource : ConditionalTrait<SeedsResourceInfo>, ITick, ISeedableResource
 	{
 		readonly SeedsResourceInfo info;
-
-		readonly ResourceType resourceType;
-		readonly ResourceLayer resLayer;
+		readonly IResourceLayer resourceLayer;
 
 		public SeedsResource(Actor self, SeedsResourceInfo info)
 			: base(info)
 		{
 			this.info = info;
-
-			resourceType = self.World.WorldActor.TraitsImplementing<ResourceType>()
-				.FirstOrDefault(t => t.Info.Type == info.ResourceType);
-
-			if (resourceType == null)
-				throw new InvalidOperationException("No such resource type `{0}`".F(info.ResourceType));
-
-			resLayer = self.World.WorldActor.Trait<ResourceLayer>();
+			resourceLayer = self.World.WorldActor.Trait<IResourceLayer>();
 		}
 
 		int ticks;
 
-		public void Tick(Actor self)
+		void ITick.Tick(Actor self)
 		{
 			if (IsTraitDisabled)
 				return;
@@ -64,12 +54,11 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			var cell = Util.RandomWalk(self.Location, self.World.SharedRandom)
 				.Take(info.MaxRange)
-				.SkipWhile(p => !self.World.Map.Contains(p) ||
-					(resLayer.GetResource(p) == resourceType && resLayer.IsFull(p)))
+				.SkipWhile(p => resourceLayer.GetResource(p).Type == info.ResourceType && !resourceLayer.CanAddResource(info.ResourceType, p))
 				.Cast<CPos?>().FirstOrDefault();
 
-			if (cell != null && resLayer.CanSpawnResourceAt(resourceType, cell.Value))
-				resLayer.AddResource(resourceType, cell.Value, 1);
+			if (cell != null && resourceLayer.CanAddResource(info.ResourceType, cell.Value))
+				resourceLayer.AddResource(info.ResourceType, cell.Value);
 		}
 	}
 }

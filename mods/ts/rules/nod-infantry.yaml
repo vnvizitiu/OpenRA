@@ -1,51 +1,67 @@
 E3:
 	Inherits: ^Soldier
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@EXPHOSPITAL: ^InfantryExperienceHospitalOverrides
+	Inherits@AUTOTARGET: ^AutoTargetAllAssaultMove
 	Buildable:
 		Queue: Infantry
-		BuildPaletteOrder: 20
-		Prerequisites: ~nahand
-		Description: Anti-tank infantry.\n  Strong vs Vehicles, Aircraft, Buildings\n  Weak vs Infantry
+		BuildPaletteOrder: 30
+		Prerequisites: ~nahand, ~techlevel.low
+		Description: actor-e3.description
 	Valued:
 		Cost: 250
 	Tooltip:
-		Name: Rocket Infantry
+		Name: actor-e3.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Voiced:
 		VoiceSet: Rocket
 	Health:
-		HP: 100
+		HP: 10000
 	Mobile:
-		Speed: 42
-	Armament@PRIMARY:
+		Speed: 56
+	Armament:
 		Weapon: Bazooka
-		LocalOffset: 252,0,684
+		LocalOffset: 356,0,967
+	TakeCover:
+		ProneOffset: 52,64,-652
 	AttackFrontal:
 		Voice: Attack
-	WithInfantryBody:
+		FacingTolerance: 0
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
+	RevealsShroud:
+		Range: 7c0
 	ProducibleWithLevel:
 		Prerequisites: barracks.upgraded
 
 CYBORG:
 	Inherits: ^Cyborg
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@EXPHOSPITAL: ^InfantryExperienceHospitalOverrides
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
 	Armor:
 		Type: Light
 	Valued:
 		Cost: 650
 	Tooltip:
-		Name: Cyborg Infantry
+		Name: actor-cyborg.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		Queue: Infantry
-		BuildPaletteOrder: 40
-		Prerequisites: ~nahand
-		Description: Cybernetic infantry unit.\n  Strong vs Infantry, Light armor\n  Weak vs Vehicles, Aircraft
+		BuildPaletteOrder: 60
+		Prerequisites: ~nahand, ~techlevel.medium
+		Description: actor-cyborg.description
 	Selectable:
-		Bounds: 16,31,0,-10
+		Bounds: 482, 1870, 0, -603
+		DecorationBounds: 482, 1870, 0, -603
 	Voiced:
 		VoiceSet: Cyborg
 	Mobile:
 		Speed: 56
 	Health:
-		HP: 300
+		HP: 30000
 	Passenger:
 	RevealsShroud:
 		Range: 5c0
@@ -53,43 +69,47 @@ CYBORG:
 		Weapon: Vulcan3
 	AttackFrontal:
 		Voice: Attack
-	SelectionDecorations:
-		VisualBounds: 16,31,0,-10
+		FacingTolerance: 0
 	ProducibleWithLevel:
 		Prerequisites: barracks.upgraded
 
 CYC2:
 	Inherits: ^Cyborg
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@EXPHOSPITAL: ^InfantryExperienceHospitalOverrides
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
 	Armor:
 		Type: Heavy
 	Valued:
 		Cost: 2000
 	Tooltip:
-		Name: Cyborg Commando
+		Name: actor-cyc2.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		Queue: Infantry
-		BuildPaletteOrder: 50
-		Prerequisites: ~nahand, natmpl
+		BuildPaletteOrder: 100
+		Prerequisites: ~nahand, natmpl, ~techlevel.high
 		BuildLimit: 1
-		Description: Elite cybernetic infantry unit.\n  Strong vs Infantry, Vehicles, Buildings\n  Weak vs Aircraft\nMaximum 1 can be trained.
+		Description: actor-cyc2.description
 	Selectable:
-		Bounds: 16,32,-1,-12
+		Bounds: 482, 1930, -30, -724
+		DecorationBounds: 482, 1930, -30, -724
 	Voiced:
 		VoiceSet: CyborgCommando
 	Mobile:
 		Speed: 56
 	Health:
-		HP: 500
+		HP: 50000
 	Passenger:
 	RevealsShroud:
 		Range: 7c0
 	Armament:
 		Weapon: CyCannon
-		LocalOffset: 170,85,683
+		LocalOffset: 240,120,966
 	AttackFrontal:
 		Voice: Attack
-	SelectionDecorations:
-		VisualBounds: 16,32,-1,-12
+		FacingTolerance: 0
 	ProducibleWithLevel:
 		Prerequisites: barracks.upgraded
 
@@ -98,24 +118,26 @@ MHIJACK:
 	Inherits@2: ^HealsOnTiberium
 	Buildable:
 		Queue: Infantry
-		BuildPaletteOrder: 60
-		Prerequisites: ~nahand, natmpl
-		Description: Hijacks enemy vehicles.\n  Unarmed
+		BuildPaletteOrder: 80
+		Prerequisites: ~nahand, natmpl, ~techlevel.high
+		BuildLimit: 1
+		Description: actor-mhijack.description
 	Valued:
 		Cost: 1850
 	Tooltip:
-		Name: Mutant Hijacker
-		BuildLimit: 1
+		Name: actor-mhijack.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Voiced:
 		VoiceSet: Hijacker
 	Health:
-		HP: 300
+		HP: 30000
 	Mobile:
 		Speed: 99
 	-Crushable:
+	CaptureManager:
 	Captures:
 		CaptureTypes: Vehicle
-		PlayerExperience: 50
+		PlayerExperience: 10
 	RevealsShroud:
 		Range: 6c0
-	-AutoTarget:

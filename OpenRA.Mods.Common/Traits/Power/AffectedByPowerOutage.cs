@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,29 +9,39 @@
  */
 #endregion
 
-using System.Drawing;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Disables the actor when a power outage is triggered (see `InfiltrateForPowerOutage` for more information).")]
-	public class AffectedByPowerOutageInfo : ITraitInfo
+	public class AffectedByPowerOutageInfo : ConditionalTraitInfo
 	{
-		public object Create(ActorInitializer init) { return new AffectedByPowerOutage(init.Self); }
+		[GrantedConditionReference]
+		[Desc("The condition to grant while there is a power outage.")]
+		public readonly string Condition = null;
+
+		public override object Create(ActorInitializer init) { return new AffectedByPowerOutage(init.Self, this); }
 	}
 
-	public class AffectedByPowerOutage : INotifyOwnerChanged, ISelectionBar, IPowerModifier, IDisable
+	public class AffectedByPowerOutage : ConditionalTrait<AffectedByPowerOutageInfo>, INotifyOwnerChanged, ISelectionBar, INotifyCreated, INotifyAddedToWorld
 	{
 		PowerManager playerPower;
+		int token = Actor.InvalidConditionToken;
 
-		public AffectedByPowerOutage(Actor self)
+		public AffectedByPowerOutage(Actor self, AffectedByPowerOutageInfo info)
+			: base(info)
 		{
 			playerPower = self.Owner.PlayerActor.Trait<PowerManager>();
 		}
 
+		void INotifyAddedToWorld.AddedToWorld(Actor self) { UpdateStatus(self); }
+		protected override void TraitEnabled(Actor self) { UpdateStatus(self); }
+		protected override void TraitDisabled(Actor self) { Revoke(self); }
+
 		float ISelectionBar.GetValue()
 		{
-			if (playerPower.PowerOutageRemainingTicks <= 0)
+			if (IsTraitDisabled || playerPower.PowerOutageRemainingTicks <= 0)
 				return 0;
 
 			return (float)playerPower.PowerOutageRemainingTicks / playerPower.PowerOutageTotalTicks;
@@ -42,21 +52,32 @@ namespace OpenRA.Mods.Common.Traits
 			return Color.Yellow;
 		}
 
-		bool ISelectionBar.DisplayWhenEmpty { get { return false; } }
+		bool ISelectionBar.DisplayWhenEmpty => false;
 
-		int IPowerModifier.GetPowerModifier()
+		public void UpdateStatus(Actor self)
 		{
-			return playerPower.PowerOutageRemainingTicks > 0 ? 0 : 100;
+			if (!IsTraitDisabled && playerPower.PowerOutageRemainingTicks > 0)
+				Grant(self);
+			else
+				Revoke(self);
 		}
 
-		public bool Disabled
+		void Grant(Actor self)
 		{
-			get { return playerPower.PowerOutageRemainingTicks > 0; }
+			if (token == Actor.InvalidConditionToken)
+				token = self.GrantCondition(Info.Condition);
+		}
+
+		void Revoke(Actor self)
+		{
+			if (token != Actor.InvalidConditionToken)
+				token = self.RevokeCondition(token);
 		}
 
 		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
 		{
 			playerPower = newOwner.PlayerActor.Trait<PowerManager>();
+			UpdateStatus(self);
 		}
 	}
 }

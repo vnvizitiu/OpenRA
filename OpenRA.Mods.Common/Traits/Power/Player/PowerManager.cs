@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -15,32 +15,52 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[TraitLocation(SystemActors.Player)]
 	[Desc("Attach this to the player actor.")]
-	public class PowerManagerInfo : ITraitInfo, Requires<DeveloperModeInfo>
+	public class PowerManagerInfo : TraitInfo, Requires<DeveloperModeInfo>
 	{
-		public readonly int AdviceInterval = 250;
-		public readonly string SpeechNotification = "LowPower";
+		[Desc("Interval (in milliseconds) at which to warn the player of low power.")]
+		public readonly int AdviceInterval = 10000;
 
-		public object Create(ActorInitializer init) { return new PowerManager(init.Self, this); }
+		[Desc("The speech notification to play when the player is low power.")]
+		[NotificationReference("Speech")]
+		public readonly string SpeechNotification = null;
+
+		[Desc("The text notification to display when the player is low power.")]
+		[FluentReference(optional: true)]
+		public readonly string TextNotification = null;
+
+		public override object Create(ActorInitializer init) { return new PowerManager(init.Self, this); }
 	}
 
-	public class PowerManager : ITick, ISync
+	public class PowerManager : INotifyCreated, ITick, ISync, IResolveOrder
 	{
 		readonly Actor self;
 		readonly PowerManagerInfo info;
 		readonly DeveloperMode devMode;
 
-		readonly Dictionary<Actor, int> powerDrain = new Dictionary<Actor, int>();
-		[Sync] int totalProvided;
-		public int PowerProvided { get { return totalProvided; } }
+		readonly Dictionary<Actor, int> powerDrain = new();
 
-		[Sync] int totalDrained;
-		public int PowerDrained { get { return totalDrained; } }
+		[Sync]
+		int totalProvided;
 
-		public int ExcessPower { get { return totalProvided - totalDrained; } }
+		public int PowerProvided => totalProvided;
+
+		[Sync]
+		int totalDrained;
+
+		public int PowerDrained => totalDrained;
+
+		public int ExcessPower => totalProvided - totalDrained;
 
 		public int PowerOutageRemainingTicks { get; private set; }
 		public int PowerOutageTotalTicks { get; private set; }
+		public bool PlayLowPowerNotification { get; set; }
+
+		long lastPowerAdviceTime;
+		bool isLowPower;
+		bool wasLowPower;
+		bool wasHackEnabled;
 
 		public PowerManager(Actor self, PowerManagerInfo info)
 		{
@@ -49,30 +69,52 @@ namespace OpenRA.Mods.Common.Traits
 
 			devMode = self.Trait<DeveloperMode>();
 			wasHackEnabled = devMode.UnlimitedPower;
+			PlayLowPowerNotification = info.AdviceInterval > 0;
+		}
+
+		void INotifyCreated.Created(Actor self)
+		{
+			// Map placed actors will query an inconsistent power state when they are created
+			// (it will depend on the order that they are spawned by the world)
+			// Tell them to query the correct state once the world has been fully created
+			self.World.AddFrameEndTask(_ => UpdatePowerRequiringActors());
 		}
 
 		public void UpdateActor(Actor a)
 		{
-			int old;
-			powerDrain.TryGetValue(a, out old); // old is 0 if a is not in powerDrain
-			var amount = a.TraitsImplementing<Power>().Where(t => !t.IsTraitDisabled).Aggregate(0, (v, p) => v + p.GetEnabledPower());
+			// Do not add power from actors that are not in the world
+			if (!a.IsInWorld)
+				return;
+
+			// Old is 0 if a is not in powerDrain
+			powerDrain.TryGetValue(a, out var old);
+
+			var amount = a.TraitsImplementing<Power>().Where(t => !t.IsTraitDisabled).Sum(p => p.GetEnabledPower());
 			powerDrain[a] = amount;
+
 			if (amount == old || devMode.UnlimitedPower)
 				return;
+
 			if (old > 0)
 				totalProvided -= old;
 			else if (old < 0)
 				totalDrained += old;
+
 			if (amount > 0)
 				totalProvided += amount;
 			else if (amount < 0)
 				totalDrained -= amount;
+
+			UpdatePowerState();
 		}
 
 		public void RemoveActor(Actor a)
 		{
-			int amount;
-			if (!powerDrain.TryGetValue(a, out amount))
+			// Do not remove power from actors that are still in the world
+			if (a.IsInWorld)
+				return;
+
+			if (!powerDrain.TryGetValue(a, out var amount))
 				return;
 			powerDrain.Remove(a);
 
@@ -83,13 +125,25 @@ namespace OpenRA.Mods.Common.Traits
 				totalProvided -= amount;
 			else if (amount < 0)
 				totalDrained += amount;
+
+			UpdatePowerState();
 		}
 
-		int nextPowerAdviceTime = 0;
-		bool wasLowPower = false;
-		bool wasHackEnabled;
+		void UpdatePowerState()
+		{
+			isLowPower = ExcessPower < 0;
 
-		public void Tick(Actor self)
+			if (isLowPower != wasLowPower)
+				UpdatePowerRequiringActors();
+
+			// Force the notification to play immediately
+			if (isLowPower && !wasLowPower)
+				lastPowerAdviceTime = -info.AdviceInterval;
+
+			wasLowPower = isLowPower;
+		}
+
+		void ITick.Tick(Actor self)
 		{
 			if (wasHackEnabled != devMode.UnlimitedPower)
 			{
@@ -97,25 +151,26 @@ namespace OpenRA.Mods.Common.Traits
 				totalDrained = 0;
 
 				if (!devMode.UnlimitedPower)
+				{
 					foreach (var kv in powerDrain)
+					{
 						if (kv.Value > 0)
 							totalProvided += kv.Value;
 						else if (kv.Value < 0)
 							totalDrained -= kv.Value;
+					}
+				}
 
 				wasHackEnabled = devMode.UnlimitedPower;
+				UpdatePowerState();
 			}
 
-			var lowPower = totalProvided < totalDrained;
-			if (lowPower && !wasLowPower)
-				nextPowerAdviceTime = 0;
-			wasLowPower = lowPower;
-
-			if (--nextPowerAdviceTime <= 0)
+			if (PlayLowPowerNotification && isLowPower && Game.RunTime > lastPowerAdviceTime + info.AdviceInterval)
 			{
-				if (lowPower)
-					Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Speech", info.SpeechNotification, self.Owner.Faction.InternalName);
-				nextPowerAdviceTime = info.AdviceInterval;
+				Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Speech", info.SpeechNotification, self.Owner.Faction.InternalName);
+				TextNotificationsManager.AddTransientLine(self.Owner, info.TextNotification);
+
+				lastPowerAdviceTime = Game.RunTime;
 			}
 
 			if (PowerOutageRemainingTicks > 0 && --PowerOutageRemainingTicks == 0)
@@ -126,8 +181,12 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			get
 			{
-				if (PowerProvided >= PowerDrained) return PowerState.Normal;
-				if (PowerProvided > PowerDrained / 2) return PowerState.Low;
+				if (PowerProvided >= PowerDrained)
+					return PowerState.Normal;
+
+				if (PowerProvided > PowerDrained / 2)
+					return PowerState.Low;
+
 				return PowerState.Critical;
 			}
 		}
@@ -140,11 +199,26 @@ namespace OpenRA.Mods.Common.Traits
 
 		void UpdatePowerOutageActors()
 		{
-			var actors = self.World.ActorsHavingTrait<AffectedByPowerOutage>()
-				.Where(a => !a.IsDead && a.IsInWorld && a.Owner == self.Owner);
+			var traitPairs = self.World.ActorsWithTrait<AffectedByPowerOutage>()
+				.Where(p => !p.Actor.IsDead && p.Actor.IsInWorld && p.Actor.Owner == self.Owner);
 
-			foreach (var a in actors)
-				UpdateActor(a);
+			foreach (var p in traitPairs)
+				p.Trait.UpdateStatus(p.Actor);
+		}
+
+		void UpdatePowerRequiringActors()
+		{
+			var traitPairs = self.World.ActorsWithTrait<INotifyPowerLevelChanged>()
+				.Where(p => !p.Actor.IsDead && p.Actor.IsInWorld && p.Actor.Owner == self.Owner);
+
+			foreach (var p in traitPairs)
+				p.Trait.PowerLevelChanged(p.Actor);
+		}
+
+		void IResolveOrder.ResolveOrder(Actor self, Order order)
+		{
+			if (devMode.Enabled && order.OrderString == "PowerOutage")
+				TriggerPowerOutage((int)order.ExtraData);
 		}
 	}
 }

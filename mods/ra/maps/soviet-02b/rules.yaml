@@ -4,7 +4,7 @@ Player:
 
 World:
 	LuaScript:
-		Scripts: soviet02b.lua
+		Scripts: campaign.lua, utils.lua, soviet02b.lua
 	MissionData:
 		Briefing: Tomorrow, the attack on Germany begins, but today, we must protect our facility from Allied attacks.\n\nKeep the Command Center intact at all costs, and destroy any Allied fortification you might find.
 		BriefingVideo: soviet2.vqa
@@ -58,7 +58,7 @@ MSLO:
 
 E3:
 	Buildable:
-		Prerequisites: ~disabled
+		Prerequisites: ~tent
 
 E4:
 	Buildable:
@@ -72,23 +72,13 @@ SHOK:
 	Buildable:
 		Prerequisites: ~disabled
 
-SNIPER:
-	Buildable:
-		Prerequisites: ~disabled
-
-HIJACKER:
+THF:
 	Buildable:
 		Prerequisites: ~disabled
 
 MIG:
 	Buildable:
 		Prerequisites: ~disabled
-
-GUN:
-	-RepairableBuilding:
-
-FCOM:
-	RepairableBuilding:
 
 AFLD:
 	Buildable:
@@ -98,32 +88,9 @@ AFLD:
 	ParatroopersPower@paratroopers:
 		Prerequisites: ~disabled
 
-DOG:
-	Health:
-		HP: 25
-	AutoTarget:
-		ScanRadius: 5
-
-HARV:
-	Harvester:
-		SearchFromProcRadius: 50
-		SearchFromOrderRadius: 50
-
-BARL:
-	Health:
-		HP: 1
-	Explodes:
-		Weapon: MissionBarrelExplode
-
-BRL3:
-	Health:
-		HP: 1
-	Explodes:
-		Weapon: MissionBarrelExplode
-
-MONEYCRATE:
-	GiveCashCrateAction:
-		Amount: 2000
+GUN:
+	-RepairableBuilding:
+	-WithBuildingRepairDecoration:
 
 powerproxy.paratroopers:
 	ParatroopersPower:

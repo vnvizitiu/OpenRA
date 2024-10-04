@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,6 +12,7 @@
 using System;
 using System.Collections.Generic;
 using OpenRA.Graphics;
+using OpenRA.Primitives;
 
 namespace OpenRA.Mods.Common.Graphics
 {
@@ -21,22 +22,30 @@ namespace OpenRA.Mods.Common.Graphics
 		readonly Func<WVec> offset;
 		readonly Func<int> zOffset;
 		readonly PaletteReference pr;
-		readonly float scale;
 
-		public SpriteActorPreview(Animation animation, Func<WVec> offset, Func<int> zOffset, PaletteReference pr, float scale)
+		public SpriteActorPreview(Animation animation, Func<WVec> offset, Func<int> zOffset, PaletteReference pr)
 		{
 			this.animation = animation;
 			this.offset = offset;
 			this.zOffset = zOffset;
 			this.pr = pr;
-			this.scale = scale;
 		}
 
-		public void Tick() { animation.Tick(); }
+		void IActorPreview.Tick() { animation.Tick(); }
 
-		public IEnumerable<IRenderable> Render(WorldRenderer wr, WPos pos)
+		IEnumerable<IRenderable> IActorPreview.RenderUI(WorldRenderer wr, int2 pos, float scale)
 		{
-			return animation.Render(pos, offset(), zOffset(), pr, scale);
+			return animation.RenderUI(wr, pos, offset(), zOffset(), pr, scale);
+		}
+
+		IEnumerable<IRenderable> IActorPreview.Render(WorldRenderer wr, WPos pos)
+		{
+			return animation.Render(pos, offset(), zOffset(), pr);
+		}
+
+		IEnumerable<Rectangle> IActorPreview.ScreenBounds(WorldRenderer wr, WPos pos)
+		{
+			yield return animation.ScreenBounds(wr, pos, offset());
 		}
 	}
 }

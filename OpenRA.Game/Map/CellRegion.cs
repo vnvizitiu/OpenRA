@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,7 +12,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace OpenRA
 {
@@ -40,6 +39,21 @@ namespace OpenRA
 			mapBottomRight = BottomRight.ToMPos(gridType);
 		}
 
+		public CellRegion(MapGridType gridType, MPos topLeft, MPos bottomRight)
+		{
+			this.gridType = gridType;
+			mapTopLeft = topLeft;
+			mapBottomRight = bottomRight;
+
+			TopLeft = topLeft.ToCPos(gridType);
+			BottomRight = bottomRight.ToCPos(gridType);
+		}
+
+		public override string ToString()
+		{
+			return $"{TopLeft}->{BottomRight}";
+		}
+
 		/// <summary>Expand the specified region with an additional cordon. This may expand the region outside the map borders.</summary>
 		public static CellRegion Expand(CellRegion region, int cordon)
 		{
@@ -49,10 +63,10 @@ namespace OpenRA
 		}
 
 		/// <summary>Returns the minimal region that covers at least the specified cells.</summary>
-		public static CellRegion BoundingRegion(MapGridType shape, IEnumerable<CPos> cells)
+		public static CellRegion BoundingRegion(MapGridType shape, IReadOnlyCollection<CPos> cells)
 		{
-			if (cells == null || !cells.Any())
-				throw new ArgumentException("cells must not be null or empty.", "cells");
+			if (cells == null || cells.Count == 0)
+				throw new ArgumentException("cells must not be null or empty.", nameof(cells));
 
 			var minU = int.MaxValue;
 			var minV = int.MaxValue;
@@ -87,10 +101,8 @@ namespace OpenRA
 			return uv.U >= mapTopLeft.U && uv.U <= mapBottomRight.U && uv.V >= mapTopLeft.V && uv.V <= mapBottomRight.V;
 		}
 
-		public MapCoordsRegion MapCoords
-		{
-			get { return new MapCoordsRegion(mapTopLeft, mapBottomRight); }
-		}
+		public MapCoordsRegion MapCoords => new(mapTopLeft, mapBottomRight);
+		public CellCoordsRegion CellCoords => new(TopLeft, BottomRight);
 
 		public CellRegionEnumerator GetEnumerator()
 		{
@@ -107,30 +119,29 @@ namespace OpenRA
 			return GetEnumerator();
 		}
 
-		public sealed class CellRegionEnumerator : IEnumerator<CPos>
+		public struct CellRegionEnumerator : IEnumerator<CPos>
 		{
 			readonly CellRegion r;
 
 			// Current position, in map coordinates
 			int u, v;
 
-			// Current position, in cell coordinates
-			CPos current;
-
 			public CellRegionEnumerator(CellRegion region)
+				: this()
 			{
 				r = region;
 				Reset();
+				Current = new MPos(u, v).ToCPos(r.gridType);
 			}
 
 			public bool MoveNext()
 			{
-				u += 1;
+				u++;
 
 				// Check for column overflow
 				if (u > r.mapBottomRight.U)
 				{
-					v += 1;
+					v++;
 					u = r.mapTopLeft.U;
 
 					// Check for row overflow
@@ -138,7 +149,8 @@ namespace OpenRA
 						return false;
 				}
 
-				current = new MPos(u, v).ToCPos(r.gridType);
+				// Current position, in cell coordinates
+				Current = new MPos(u, v).ToCPos(r.gridType);
 				return true;
 			}
 
@@ -149,9 +161,9 @@ namespace OpenRA
 				v = r.mapTopLeft.V;
 			}
 
-			public CPos Current { get { return current; } }
-			object IEnumerator.Current { get { return Current; } }
-			public void Dispose() { }
+			public CPos Current { get; private set; }
+			readonly object IEnumerator.Current => Current;
+			public readonly void Dispose() { }
 		}
 	}
 }

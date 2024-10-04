@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: gdi05a.lua
+		Scripts: campaign.lua, utils.lua, gdi05a.lua
 	MusicPlaylist:
 		StartingMusic: rain
 	MissionData:
@@ -11,8 +11,8 @@ World:
 		WinVideo: nodlose.vqa
 		LossVideo: gdilose.vqa
 	MapOptions:
-		ShortGameLocked: True
-		ShortGameEnabled: False
+		ShortGameCheckboxLocked: True
+		ShortGameCheckboxEnabled: False
 	SmudgeLayer@SCORCH:
 		InitialSmudges:
 			41,55: sc4,0
@@ -28,12 +28,13 @@ World:
 			11,51: cr1,0
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
-		Default: easy
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+		Default: normal
 
 Player:
 	EnemyWatcher:
@@ -72,14 +73,8 @@ RMBO:
 		Prerequisites: ~disabled
 
 HARV:
-	Harvester:
-		SearchFromOrderRadius: 24
 	Buildable:
 		Prerequisites: ~disabled
-
-LTNK:
-	Buildable:
-		Prerequisites: ~afld
 
 MCV:
 	Buildable:
@@ -137,7 +132,23 @@ GUN:
 	Buildable:
 		Prerequisites: ~disabled
 
+GTWR:
+	Buildable:
+		Prerequisites: ~disabled
+
 ATWR:
+	Buildable:
+		Prerequisites: ~disabled
+
+SBAG:
+	Buildable:
+		Prerequisites: ~disabled
+
+CYCL:
+	Buildable:
+		Prerequisites: ~disabled
+
+BRIK:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -150,27 +161,9 @@ OBLI:
 		Prerequisites: ~disabled
 
 MoneyCrate:
-	Inherits: ^Crate
 	GiveCashCrateAction:
 		Amount: 500
-		UseCashTick: yes
 
 airstrike.proxy:
-	AlwaysVisible:
 	AirstrikePower:
-		Icon: airstrike
-		StartFullyCharged: True
-		ChargeTime: 120
 		SquadSize: 1
-		QuantizedFacings: 8
-		Description: Air Strike
-		LongDesc: Deploy an aerial napalm strike.\nBurns buildings and infantry along a line.
-		EndChargeSound: airredy1.aud
-		SelectTargetSound: select1.aud
-		InsufficientPowerSound: nopower1.aud
-		IncomingSound: enemya.aud
-		UnitType: a10
-		DisplayBeacon: True
-		BeaconPoster: airstrike
-		DisplayRadarPing: True
-		CameraActor: camera

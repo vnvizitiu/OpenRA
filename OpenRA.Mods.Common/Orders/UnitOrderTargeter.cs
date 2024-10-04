@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System.Collections.Generic;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Orders
@@ -19,7 +20,7 @@ namespace OpenRA.Mods.Common.Orders
 		readonly string cursor;
 		readonly bool targetEnemyUnits, targetAllyUnits;
 
-		public UnitOrderTargeter(string order, int priority, string cursor, bool targetEnemyUnits, bool targetAllyUnits)
+		protected UnitOrderTargeter(string order, int priority, string cursor, bool targetEnemyUnits, bool targetAllyUnits)
 		{
 			OrderID = order;
 			OrderPriority = priority;
@@ -28,15 +29,15 @@ namespace OpenRA.Mods.Common.Orders
 			this.targetAllyUnits = targetAllyUnits;
 		}
 
-		public string OrderID { get; private set; }
-		public int OrderPriority { get; private set; }
+		public string OrderID { get; }
+		public int OrderPriority { get; }
 		public bool? ForceAttack = null;
-		public bool TargetOverridesSelection(TargetModifiers modifiers) { return true; }
+		public bool TargetOverridesSelection(Actor self, in Target target, List<Actor> actorsAt, CPos xy, TargetModifiers modifiers) { return true; }
 
 		public abstract bool CanTargetActor(Actor self, Actor target, TargetModifiers modifiers, ref string cursor);
 		public abstract bool CanTargetFrozenActor(Actor self, FrozenActor target, TargetModifiers modifiers, ref string cursor);
 
-		public bool CanTarget(Actor self, Target target, List<Actor> othersAtTarget, ref TargetModifiers modifiers, ref string cursor)
+		public bool CanTarget(Actor self, in Target target, ref TargetModifiers modifiers, ref string cursor)
 		{
 			var type = target.Type;
 			if (type != TargetType.Actor && type != TargetType.FrozenActor)
@@ -49,12 +50,11 @@ namespace OpenRA.Mods.Common.Orders
 				return false;
 
 			var owner = type == TargetType.FrozenActor ? target.FrozenActor.Owner : target.Actor.Owner;
-			var playerRelationship = self.Owner.Stances[owner];
-
-			if (!modifiers.HasModifier(TargetModifiers.ForceAttack) && playerRelationship == Stance.Ally && !targetAllyUnits)
+			var playerRelationship = self.Owner.RelationshipWith(owner);
+			if (!modifiers.HasModifier(TargetModifiers.ForceAttack) && playerRelationship == PlayerRelationship.Ally && !targetAllyUnits)
 				return false;
 
-			if (!modifiers.HasModifier(TargetModifiers.ForceAttack) && playerRelationship == Stance.Enemy && !targetEnemyUnits)
+			if (!modifiers.HasModifier(TargetModifiers.ForceAttack) && playerRelationship == PlayerRelationship.Enemy && !targetEnemyUnits)
 				return false;
 
 			return type == TargetType.FrozenActor ?
@@ -67,9 +67,9 @@ namespace OpenRA.Mods.Common.Orders
 
 	public class TargetTypeOrderTargeter : UnitOrderTargeter
 	{
-		readonly HashSet<string> targetTypes;
+		readonly BitSet<TargetableType> targetTypes;
 
-		public TargetTypeOrderTargeter(HashSet<string> targetTypes, string order, int priority, string cursor, bool targetEnemyUnits, bool targetAllyUnits)
+		public TargetTypeOrderTargeter(BitSet<TargetableType> targetTypes, string order, int priority, string cursor, bool targetEnemyUnits, bool targetAllyUnits)
 			: base(order, priority, cursor, targetEnemyUnits, targetAllyUnits)
 		{
 			this.targetTypes = targetTypes;

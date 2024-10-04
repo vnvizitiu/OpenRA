@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,8 @@
  */
 #endregion
 
+using System.Collections.Generic;
+using System.Linq;
 using OpenRA.Activities;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Traits;
@@ -20,37 +22,61 @@ namespace OpenRA.Mods.Common.Activities
 		readonly Harvester harv;
 		readonly HarvesterInfo harvInfo;
 		readonly IFacing facing;
-		readonly ResourceClaimLayer territory;
-		readonly ResourceLayer resLayer;
+		readonly ResourceClaimLayer claimLayer;
+		readonly IResourceLayer resourceLayer;
 		readonly BodyOrientation body;
+		readonly IMove move;
+		readonly CPos targetCell;
+		readonly INotifyHarvestAction[] notifyHarvestActions;
+		readonly MoveCooldownHelper moveCooldownHelper;
 
-		public HarvestResource(Actor self)
+		public HarvestResource(Actor self, CPos targetCell)
 		{
 			harv = self.Trait<Harvester>();
 			harvInfo = self.Info.TraitInfo<HarvesterInfo>();
 			facing = self.Trait<IFacing>();
 			body = self.Trait<BodyOrientation>();
-			territory = self.World.WorldActor.TraitOrDefault<ResourceClaimLayer>();
-			resLayer = self.World.WorldActor.Trait<ResourceLayer>();
+			move = self.Trait<IMove>();
+			claimLayer = self.World.WorldActor.Trait<ResourceClaimLayer>();
+			resourceLayer = self.World.WorldActor.Trait<IResourceLayer>();
+			this.targetCell = targetCell;
+			notifyHarvestActions = self.TraitsImplementing<INotifyHarvestAction>().ToArray();
+			moveCooldownHelper = new MoveCooldownHelper(self.World, move as Mobile);
 		}
 
-		public override Activity Tick(Actor self)
+		protected override void OnFirstRun(Actor self)
 		{
-			if (IsCanceled)
+			// We can safely assume the claim is successful, since this is only called in the
+			// same actor-tick as the targetCell is selected. Therefore no other harvester
+			// would have been able to claim.
+			claimLayer.TryClaimCell(self, targetCell);
+		}
+
+		public override bool Tick(Actor self)
+		{
+			if (harv.IsTraitDisabled)
+				Cancel(self, true);
+
+			if (IsCanceling || harv.IsFull)
+				return true;
+
+			var result = moveCooldownHelper.Tick(false);
+			if (result != null)
+				return result.Value;
+
+			// Move towards the target cell
+			if (self.Location != targetCell)
 			{
-				if (territory != null)
-					territory.UnclaimByActor(self);
-				return NextActivity;
+				foreach (var n in notifyHarvestActions)
+					n.MovingToResources(self, targetCell);
+
+				moveCooldownHelper.NotifyMoveQueued();
+				QueueChild(move.MoveTo(targetCell, 0));
+				return false;
 			}
 
-			harv.LastHarvestedCell = self.Location;
-
-			if (harv.IsFull)
-			{
-				if (territory != null)
-					territory.UnclaimByActor(self);
-				return NextActivity;
-			}
+			if (!harv.CanHarvestCell(self.Location))
+				return true;
 
 			// Turn to one of the harvestable facings
 			if (harvInfo.HarvestFacings != 0)
@@ -58,23 +84,41 @@ namespace OpenRA.Mods.Common.Activities
 				var current = facing.Facing;
 				var desired = body.QuantizeFacing(current, harvInfo.HarvestFacings);
 				if (desired != current)
-					return ActivityUtils.SequenceActivities(new Turn(self, desired), this);
+				{
+					QueueChild(new Turn(self, desired));
+					return false;
+				}
 			}
 
-			var resource = resLayer.Harvest(self.Location);
-			if (resource == null)
-			{
-				if (territory != null)
-					territory.UnclaimByActor(self);
-				return NextActivity;
-			}
+			var resource = resourceLayer.GetResource(self.Location);
+			if (resource.Type == null || resourceLayer.RemoveResource(resource.Type, self.Location) != 1)
+				return true;
 
-			harv.AcceptResource(resource);
+			harv.AddResource(self, resource.Type);
 
-			foreach (var t in self.TraitsImplementing<INotifyHarvesterAction>())
-				t.Harvested(self, resource);
+			foreach (var t in notifyHarvestActions)
+				t.Harvested(self, resource.Type);
 
-			return ActivityUtils.SequenceActivities(new Wait(harvInfo.BaleLoadDelay), this);
+			QueueChild(new Wait(harvInfo.BaleLoadDelay));
+			return false;
+		}
+
+		protected override void OnLastRun(Actor self)
+		{
+			claimLayer.RemoveClaim(self);
+		}
+
+		public override void Cancel(Actor self, bool keepQueue = false)
+		{
+			foreach (var n in notifyHarvestActions)
+				n.MovementCancelled(self);
+
+			base.Cancel(self, keepQueue);
+		}
+
+		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
+		{
+			yield return new TargetLineNode(Target.FromCell(self.World, targetCell), harvInfo.HarvestLineColor);
 		}
 	}
 }

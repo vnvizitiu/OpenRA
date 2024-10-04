@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,84 +10,122 @@
 #endregion
 
 using System;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Terrain;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
 {
-	public class TileSelectorLogic : ChromeLogic
+	public class TileSelectorLogic : CommonSelectorLogic
 	{
-		readonly EditorViewportControllerWidget editor;
-		readonly ScrollPanelWidget panel;
-		readonly ScrollItemWidget itemTemplate;
-
-		[ObjectCreator.UseCtor]
-		public TileSelectorLogic(Widget widget, WorldRenderer worldRenderer)
+		sealed class TileSelectorTemplate
 		{
-			var rules = worldRenderer.World.Map.Rules;
-			var tileset = rules.TileSet;
+			public readonly TerrainTemplateInfo Template;
+			public readonly string[] Categories;
+			public readonly string[] SearchTerms;
+			public readonly string Tooltip;
 
-			editor = widget.Parent.Get<EditorViewportControllerWidget>("MAP_EDITOR");
-			panel = widget.Get<ScrollPanelWidget>("TILETEMPLATE_LIST");
-			itemTemplate = panel.Get<ScrollItemWidget>("TILEPREVIEW_TEMPLATE");
-			panel.Layout = new GridLayout(panel);
-
-			var tileCategorySelector = widget.Get<DropDownButtonWidget>("TILE_CATEGORY");
-			var categories = tileset.EditorTemplateOrder;
-			Func<string, ScrollItemWidget, ScrollItemWidget> setupItem = (option, template) =>
+			public TileSelectorTemplate(TerrainTemplateInfo template)
 			{
-				var item = ScrollItemWidget.Setup(template,
-					() => tileCategorySelector.Text == option,
-					() => { tileCategorySelector.Text = option; IntializeTilePreview(widget, worldRenderer, tileset, option); });
-
-				item.Get<LabelWidget>("LABEL").GetText = () => option;
-				return item;
-			};
-
-			tileCategorySelector.OnClick = () =>
-				tileCategorySelector.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 270, categories, setupItem);
-
-			tileCategorySelector.Text = categories.First();
-			IntializeTilePreview(widget, worldRenderer, tileset, categories.First());
+				Template = template;
+				Categories = template.Categories;
+				Tooltip = template.Id.ToString(NumberFormatInfo.CurrentInfo);
+				SearchTerms = new[] { Tooltip };
+			}
 		}
 
-		void IntializeTilePreview(Widget widget, WorldRenderer worldRenderer, TileSet tileset, string category)
+		readonly ITemplatedTerrainInfo terrainInfo;
+		readonly TileSelectorTemplate[] allTemplates;
+
+		[ObjectCreator.UseCtor]
+		public TileSelectorLogic(Widget widget, ModData modData, World world, WorldRenderer worldRenderer)
+			: base(widget, modData, world, worldRenderer, "TILETEMPLATE_LIST", "TILEPREVIEW_TEMPLATE")
 		{
-			panel.RemoveChildren();
+			terrainInfo = world.Map.Rules.TerrainInfo as ITemplatedTerrainInfo;
+			if (terrainInfo == null)
+				throw new InvalidDataException("TileSelectorLogic requires a template-based tileset.");
 
-			var tileIds = tileset.Templates
-				.Where(t => t.Value.Category == category)
-				.Select(t => t.Value.Id);
+			allTemplates = terrainInfo.Templates.Values.Select(t => new TileSelectorTemplate(t)).ToArray();
 
-			foreach (var t in tileIds)
+			allCategories = allTemplates.SelectMany(t => t.Categories)
+				.Distinct()
+				.OrderBy(CategoryOrder)
+				.ToArray();
+
+			foreach (var c in allCategories)
 			{
-				var tileId = t;
-				var item = ScrollItemWidget.Setup(itemTemplate,
-					() => { var brush = editor.CurrentBrush as EditorTileBrush; return brush != null && brush.Template == tileId; },
-					() => editor.SetBrush(new EditorTileBrush(editor, tileId, worldRenderer)));
+				SelectedCategories.Add(c);
+				FilteredCategories.Add(c);
+			}
+
+			SearchTextField.OnTextEdited = () =>
+			{
+				searchFilter = SearchTextField.Text.Trim();
+				FilteredCategories.Clear();
+
+				if (!string.IsNullOrEmpty(searchFilter))
+					FilteredCategories.AddRange(
+						allTemplates.Where(t => t.SearchTerms.Any(
+							s => s.Contains(searchFilter, StringComparison.CurrentCultureIgnoreCase)))
+						.SelectMany(t => t.Categories)
+						.Distinct()
+						.OrderBy(CategoryOrder));
+				else
+					FilteredCategories.AddRange(allCategories);
+
+				InitializePreviews();
+			};
+
+			InitializePreviews();
+		}
+
+		int CategoryOrder(string category)
+		{
+			var i = terrainInfo.EditorTemplateOrder.IndexOf(category);
+			return i >= 0 ? i : int.MaxValue;
+		}
+
+		protected override void InitializePreviews()
+		{
+			Panel.RemoveChildren();
+			if (SelectedCategories.Count == 0)
+				return;
+
+			foreach (var t in allTemplates)
+			{
+				if (!SelectedCategories.Overlaps(t.Categories))
+					continue;
+
+				if (!string.IsNullOrEmpty(searchFilter) &&
+					!t.SearchTerms.Any(s => s.Contains(searchFilter, StringComparison.CurrentCultureIgnoreCase)))
+					continue;
+
+				var tileId = t.Template.Id;
+				var item = ScrollItemWidget.Setup(ItemTemplate,
+					() => Editor.CurrentBrush is EditorTileBrush editorCursor && editorCursor.TerrainTemplate.Id == tileId,
+					() => Editor.SetBrush(new EditorTileBrush(Editor, tileId, WorldRenderer)));
 
 				var preview = item.Get<TerrainTemplatePreviewWidget>("TILE_PREVIEW");
-				var template = tileset.Templates[tileId];
-				var grid = worldRenderer.World.Map.Grid;
-				var bounds = worldRenderer.Theater.TemplateBounds(template, grid.TileSize, grid.Type);
+				preview.SetTemplate(terrainInfo.Templates[tileId]);
 
 				// Scale templates to fit within the panel
 				var scale = 1f;
-				while (scale * bounds.Width > itemTemplate.Bounds.Width)
-					scale /= 2;
+				if (scale * preview.IdealPreviewSize.X > ItemTemplate.Bounds.Width)
+					scale = (ItemTemplate.Bounds.Width - Panel.ItemSpacing) / (float)preview.IdealPreviewSize.X;
 
-				preview.Template = template;
 				preview.GetScale = () => scale;
-				preview.Bounds.Width = (int)(scale * bounds.Width);
-				preview.Bounds.Height = (int)(scale * bounds.Height);
+				preview.Bounds.Width = (int)(scale * preview.IdealPreviewSize.X);
+				preview.Bounds.Height = (int)(scale * preview.IdealPreviewSize.Y);
 
 				item.Bounds.Width = preview.Bounds.Width + 2 * preview.Bounds.X;
 				item.Bounds.Height = preview.Bounds.Height + 2 * preview.Bounds.Y;
 				item.IsVisible = () => true;
-				item.GetTooltipText = () => tileId.ToString();
+				item.GetTooltipText = () => t.Tooltip;
 
-				panel.AddChild(item);
+				Panel.AddChild(item);
 			}
 		}
 	}

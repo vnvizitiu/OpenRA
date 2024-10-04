@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -17,24 +17,25 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Derive facings from sprite body sequence.")]
-	public class QuantizeFacingsFromSequenceInfo : UpgradableTraitInfo, IQuantizeBodyOrientationInfo, Requires<RenderSpritesInfo>
+	public class QuantizeFacingsFromSequenceInfo : ConditionalTraitInfo, IQuantizeBodyOrientationInfo, Requires<RenderSpritesInfo>
 	{
-		[Desc("Defines sequence to derive facings from."), SequenceReference]
+		[SequenceReference]
+		[Desc("Defines sequence to derive facings from.")]
 		public readonly string Sequence = "idle";
 
-		public int QuantizedBodyFacings(ActorInfo ai, SequenceProvider sequenceProvider, string race)
+		public int QuantizedBodyFacings(ActorInfo ai, SequenceSet sequences, string faction)
 		{
 			if (string.IsNullOrEmpty(Sequence))
-				throw new InvalidOperationException("Actor " + ai.Name + " is missing sequence to quantize facings from.");
+				throw new InvalidOperationException($"Actor {ai.Name} is missing sequence to quantize facings from.");
 
 			var rsi = ai.TraitInfo<RenderSpritesInfo>();
-			return sequenceProvider.GetSequence(rsi.GetImage(ai, sequenceProvider, race), Sequence).Facings;
+			return sequences.GetSequence(rsi.GetImage(ai, faction), Sequence).Facings;
 		}
 
 		public override object Create(ActorInitializer init) { return new QuantizeFacingsFromSequence(this); }
 	}
 
-	public class QuantizeFacingsFromSequence : UpgradableTrait<QuantizeFacingsFromSequenceInfo>
+	public class QuantizeFacingsFromSequence : ConditionalTrait<QuantizeFacingsFromSequenceInfo>
 	{
 		public QuantizeFacingsFromSequence(QuantizeFacingsFromSequenceInfo info)
 			: base(info) { }

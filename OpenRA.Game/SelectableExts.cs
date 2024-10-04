@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,63 +11,87 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
+using OpenRA.Primitives;
 
 namespace OpenRA.Traits
 {
 	public static class SelectableExts
 	{
-		public static int SelectionPriority(this ActorInfo a)
+		public static int SelectionPriority(this ActorInfo a, Modifiers modifiers)
 		{
-			var selectableInfo = a.TraitInfoOrDefault<SelectableInfo>();
-			return selectableInfo != null ? selectableInfo.Priority : int.MinValue;
+			var selectableInfo = a.TraitInfoOrDefault<ISelectableInfo>();
+			return selectableInfo != null ? BaseSelectionPriority(selectableInfo, modifiers) : int.MinValue;
 		}
 
 		const int PriorityRange = 30;
 
-		public static int SelectionPriority(this Actor a)
+		public static int SelectionPriority(this Actor a, Modifiers modifiers)
 		{
-			var basePriority = a.Info.TraitInfo<SelectableInfo>().Priority;
-			var lp = a.World.LocalPlayer;
+			var info = a.Info.TraitInfo<ISelectableInfo>();
+			var basePriority = BaseSelectionPriority(info, modifiers);
 
-			if (a.Owner == lp || lp == null)
+			var viewer = (a.World.LocalPlayer == null || a.World.LocalPlayer.Spectating) ? a.World.RenderPlayer : a.World.LocalPlayer;
+
+			if (a.Owner == viewer || viewer == null)
 				return basePriority;
 
-			switch (lp.Stances[a.Owner])
+			switch (viewer.RelationshipWith(a.Owner))
 			{
-				case Stance.Ally: return basePriority - PriorityRange;
-				case Stance.Neutral: return basePriority - 2 * PriorityRange;
-				case Stance.Enemy: return basePriority - 3 * PriorityRange;
+				case PlayerRelationship.Ally: return basePriority - PriorityRange;
+				case PlayerRelationship.Neutral: return basePriority - 2 * PriorityRange;
+				case PlayerRelationship.Enemy: return basePriority - 3 * PriorityRange;
 
 				default:
 					throw new InvalidOperationException();
 			}
 		}
 
-		public static Actor WithHighestSelectionPriority(this IEnumerable<Actor> actors, int2 selectionPixel)
+		static int BaseSelectionPriority(ISelectableInfo info, Modifiers modifiers)
 		{
-			return actors.MaxByOrDefault(a => CalculateActorSelectionPriority(a.Info, a.Bounds, selectionPixel));
+			var priority = info.Priority;
+
+			if (modifiers.HasModifier(Modifiers.Ctrl) && !modifiers.HasModifier(Modifiers.Alt) && info.PriorityModifiers.HasFlag(SelectionPriorityModifiers.Ctrl))
+				priority = int.MaxValue;
+
+			if (modifiers.HasModifier(Modifiers.Alt) && !modifiers.HasModifier(Modifiers.Ctrl) && info.PriorityModifiers.HasFlag(SelectionPriorityModifiers.Alt))
+				priority = int.MaxValue;
+
+			return priority;
 		}
 
-		public static FrozenActor WithHighestSelectionPriority(this IEnumerable<FrozenActor> actors, int2 selectionPixel)
+		public static Actor WithHighestSelectionPriority(this IEnumerable<ActorBoundsPair> actors, int2 selectionPixel, Modifiers modifiers)
 		{
-			return actors.MaxByOrDefault(a => CalculateActorSelectionPriority(a.Info, a.Bounds, selectionPixel));
+			return actors.MaxByOrDefault(a => CalculateActorSelectionPriority(a.Actor.Info, a.Bounds, selectionPixel, modifiers)).Actor;
 		}
 
-		static long CalculateActorSelectionPriority(ActorInfo info, Rectangle bounds, int2 selectionPixel)
+		public static FrozenActor WithHighestSelectionPriority(this IEnumerable<FrozenActor> actors, int2 selectionPixel, Modifiers modifiers)
 		{
-			var centerPixel = new int2(bounds.X, bounds.Y);
+			return actors.MaxByOrDefault(a => CalculateActorSelectionPriority(a.Info, a.MouseBounds, selectionPixel, modifiers));
+		}
+
+		static long CalculateActorSelectionPriority(ActorInfo info, in Polygon bounds, int2 selectionPixel, Modifiers modifiers)
+		{
+			if (bounds.IsEmpty)
+				return info.SelectionPriority(modifiers);
+
+			// Assume that the center of the polygon is the same as the center of the bounding box
+			// This isn't necessarily true for arbitrary polygons, but is fine for the hexagonal and diamond
+			// shapes that are currently implemented
+			var br = bounds.BoundingRect;
+			var centerPixel = new int2(
+				br.Left + br.Size.Width / 2,
+				br.Top + br.Size.Height / 2);
+
 			var pixelDistance = (centerPixel - selectionPixel).Length;
-
-			return ((long)-pixelDistance << 32) + info.SelectionPriority();
+			return info.SelectionPriority(modifiers) - (long)pixelDistance << 16;
 		}
 
-		static readonly Actor[] NoActors = { };
+		static readonly Actor[] NoActors = Array.Empty<Actor>();
 
-		public static IEnumerable<Actor> SubsetWithHighestSelectionPriority(this IEnumerable<Actor> actors)
+		public static IEnumerable<Actor> SubsetWithHighestSelectionPriority(this IEnumerable<Actor> actors, Modifiers modifiers)
 		{
-			return actors.GroupBy(x => x.SelectionPriority())
+			return actors.GroupBy(x => x.SelectionPriority(modifiers))
 				.OrderByDescending(g => g.Key)
 				.Select(g => g.AsEnumerable())
 				.DefaultIfEmpty(NoActors)

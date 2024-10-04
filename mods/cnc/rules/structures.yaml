@@ -1,53 +1,111 @@
 FACT:
 	Inherits: ^BaseBuilding
+	Inherits@shape: ^3x2Shape
+	Selectable:
+		Bounds: 3072, 2048
 	Valued:
-		Cost: 4000
+		Cost: 3000
 	Tooltip:
-		Name: Construction Yard
+		Name: actor-fact.name
 	Building:
-		Footprint: xxx xxx
-		Dimensions: 3,2
+		Footprint: xxx xxx ===
+		Dimensions: 3,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-fact.encyclopedia
+		Category: Buildings
+		Order: 0
 	Health:
-		HP: 2000
+		HP: 210000
 	Armor:
 		Type: Wood
 	RevealsShroud:
 		Range: 10c0
-	Bib:
 	Production:
 		Produces: Building.GDI, Building.Nod, Defence.GDI, Defence.Nod
 	Transforms:
+		RequiresCondition: factundeploy
+		PauseOnCondition: being-demolished || build-incomplete
 		IntoActor: mcv
 		Offset: 1,1
-		Facing: 108
+		Facing: 432
+	TransformsIntoMobile:
+		RequiresCondition: factundeploy
+		Locomotor: heavywheeled
+		RequiresForceMove: true
+	TransformsIntoPassenger:
+		RequiresCondition: factundeploy
+		CargoType: Vehicle
+		RequiresForceMove: true
+	TransformsIntoRepairable:
+		RequiresCondition: factundeploy
+		RepairActors: fix
+		RequiresForceMove: true
+	TransformsIntoTransforms:
+		RequiresCondition: factundeploy && build-incomplete
+	GrantConditionOnPrerequisite@GLOBALFACTUNDEPLOY:
+		Condition: factundeploy
+		Prerequisites: global-factundeploy
 	ProductionQueue@GDIBuilding:
 		Type: Building.GDI
+		DisplayOrder: 0
 		Factions: gdi
 		Group: Building
-		LowPowerSlowdown: 2
-		QueuedAudio: Building
+		LowPowerModifier: 150
 		ReadyAudio: ConstructionComplete
+		ReadyTextNotification: notification-construction-complete
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Building
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionQueue@NodBuilding:
 		Type: Building.Nod
+		DisplayOrder: 0
 		Factions: nod
 		Group: Building
-		LowPowerSlowdown: 2
-		QueuedAudio: Building
+		LowPowerModifier: 150
 		ReadyAudio: ConstructionComplete
+		ReadyTextNotification: notification-construction-complete
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Building
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionQueue@GDIDefense:
 		Type: Defence.GDI
+		DisplayOrder: 1
 		Factions: gdi
 		Group: Defence
-		LowPowerSlowdown: 3
-		QueuedAudio: Building
+		LowPowerModifier: 150
 		ReadyAudio: ConstructionComplete
+		ReadyTextNotification: notification-construction-complete
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Building
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionQueue@NodDefense:
 		Type: Defence.Nod
+		DisplayOrder: 1
 		Factions: nod
 		Group: Defence
-		LowPowerSlowdown: 3
-		QueuedAudio: Building
+		LowPowerModifier: 150
 		ReadyAudio: ConstructionComplete
+		ReadyTextNotification: notification-construction-complete
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Building
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	BaseBuilding:
 	ProductionBar@BuildingGDI:
 		ProductionType: Building.GDI
@@ -55,17 +113,20 @@ FACT:
 		ProductionType: Building.Nod
 	ProductionBar@DefenceGDI:
 		ProductionType: Defence.GDI
+		Color: 8A8A8A
 	ProductionBar@DefenceNod:
 		ProductionType: Defence.Nod
+		Color: 8A8A8A
 	BaseProvider:
-		Cooldown: 75
 		Range: 14c0
+	WithBuildingBib:
 	WithBuildingPlacedAnimation:
+		RequiresCondition: !build-incomplete
 	Power:
 		Amount: 0
 	ProvidesPrerequisite@buildingname:
 	Buildable:
-		Description: Builds structures
+		Description: actor-fact.description
 
 FACT.GDI:
 	Inherits: FACT
@@ -77,7 +138,8 @@ FACT.GDI:
 		Prerequisites: ~disabled
 		ForceFaction: gdi
 	Tooltip:
-		Name: Construction Yard (GDI)
+		Name: actor-fact-gdi-name
+	-Encyclopedia:
 
 FACT.NOD:
 	Inherits: FACT
@@ -89,162 +151,215 @@ FACT.NOD:
 		Prerequisites: ~disabled
 		ForceFaction: nod
 	Tooltip:
-		Name: Construction Yard (Nod)
+		Name: actor-fact-nod-name
+	-Encyclopedia:
 
 NUKE:
 	Inherits: ^BaseBuilding
+	Inherits@shape: ^2x2Shape
+	Selectable:
+		Bounds: 2048, 2048
+	HitShape:
+		TargetableOffsets: 630,299,0
 	Valued:
 		Cost: 500
 	Tooltip:
-		Name: Power Plant
+		Name: actor-nuke.name
 	ProvidesPrerequisite:
 		Prerequisite: anypower
 	Buildable:
 		BuildPaletteOrder: 10
 		Prerequisites: fact
 		Queue: Building.GDI, Building.Nod
-		Description: Generates power
+		Description: actor-nuke.description
 	Building:
-		Footprint: xx xx
-		Dimensions: 2,2
+		Footprint: xX xx ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-nuke.encyclopedia
+		Category: Buildings
+		Order: 40
 	Health:
-		HP: 500
+		HP: 55000
 	RevealsShroud:
 		Range: 4c0
-	Bib:
+	WithBuildingBib:
 	Power:
 		Amount: 100
 	ScalePowerWithHealth:
 
 NUK2:
 	Inherits: ^BaseBuilding
+	Inherits@shape: ^2x2Shape
+	Selectable:
+		Bounds: 2048, 2048
+	HitShape:
+		TargetableOffsets: 630,299,0
 	Valued:
 		Cost: 800
 	Tooltip:
-		Name: Advanced Power Plant
+		Name: actor-nuk2.name
 	ProvidesPrerequisite:
 		Prerequisite: anypower
 	Buildable:
 		BuildPaletteOrder: 80
 		Prerequisites: anyhq, ~techlevel.medium
 		Queue: Building.GDI, Building.Nod
-		Description: Provides more power, cheaper than the\nstandard Power Plant
+		Description: actor-nuk2.description
 	Building:
-		Footprint: xx xx
-		Dimensions: 2,2
+		Footprint: xX xx ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-nuk2.encyclopedia
+		Category: Buildings
+		Order: 190
 	Health:
-		HP: 700
+		HP: 70000
 	RevealsShroud:
 		Range: 4c0
-	Bib:
+	WithBuildingBib:
 	Power:
 		Amount: 200
 	ScalePowerWithHealth:
 
 PROC:
 	Inherits: ^BaseBuilding
+	Inherits@RESOURCES: ^StoresResources
+	HitShape:
+		Type: Rectangle
+			TopLeft: -1536, -512
+			BottomRight: 1536, 853
+	HitShape@TOP:
+		Type: Rectangle
+			TopLeft: -512, -1450
+			BottomRight: 896, -512
 	Valued:
 		Cost: 1500
 	Tooltip:
-		Name: Tiberium Refinery
+		Name: actor-proc.name
 	Buildable:
 		BuildPaletteOrder: 20
 		Prerequisites: anypower
 		Queue: Building.GDI, Building.Nod
-		Description: Processes raw Tiberium\ninto useable resources
+		Description: actor-proc.description
 	Building:
-		Footprint: _x_ xxx ===
-		Dimensions: 3,3
+		Footprint: _x_ xxx +++ ===
+		Dimensions: 3,4
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-proc.encyclopedia
+		Category: Buildings
+		Order: 80
 	Health:
-		HP: 900
+		HP: 100000
 	RevealsShroud:
 		Range: 6c0
-	Bib:
 	Refinery:
-		DockAngle: 112
-		DockOffset: 0,2
+		TickRate: 15
+	DockHost:
+		Type: Unload
+		DockAngle: 448
+		DockOffset: -1c0, 1c0, 0
 		IsDragRequired: True
 		DragOffset: -554,512,0
 		DragLength: 12
-		TickRate: 15
-	StoresResources:
-		PipColor: Green
-		PipCount: 10
-		Capacity: 2000
+	StoresPlayerResources:
+		Capacity: 1000
 	Selectable:
-		Bounds: 72,56,0,12
+		Bounds: 3072, 2389
+		DecorationBounds: 3114, 3072
 	CustomSellValue:
-		Value: 500
+		Value: 400
 	FreeActor:
 		Actor: HARV
 		SpawnOffset: 1,2
-		Facing: 64
-	WithResources:
+		Facing: 256
+	WithBuildingBib:
+	WithResourceLevelOverlay:
+		RequiresCondition: !build-incomplete
 	Power:
-		Amount: -50
+		Amount: -40
 	ProvidesPrerequisite@buildingname:
-	SelectionDecorations:
-		VisualBounds: 73,72
 
 SILO:
 	Inherits: ^BaseBuilding
+	Inherits@shape: ^2x1Shape
+	Inherits@RESOURCES: ^StoresResources
 	Valued:
-		Cost: 300
+		Cost: 100
 	Tooltip:
-		Name: Tiberium Silo
+		Name: actor-silo.name
 	Buildable:
 		BuildPaletteOrder: 35
 		Prerequisites: proc
 		Queue: Defence.GDI, Defence.Nod
-		Description: Stores processed Tiberium
+		Description: actor-silo.description
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
+	Encyclopedia:
+		Description: actor-silo.encyclopedia
+		Category: Buildings
+		Order: 90
 	-GivesBuildableArea:
 	Health:
-		HP: 400
+		HP: 50000
 	RevealsShroud:
 		Range: 4c0
-	Bib:
-		HasMinibib: Yes
-	RenderSprites:
-	WithSpriteBody:
-	AutoSelectionSize:
-	WithSiloAnimation:
-	StoresResources:
-		PipCount: 10
-		PipColor: Green
-		Capacity: 2000
-	-EmitInfantryOnSell:
+	WithBuildingBib:
+		HasMinibib: true
+	-WithSpriteBody:
+	WithResourceLevelSpriteBody:
+		Sequence: stages
+	StoresPlayerResources:
+		Capacity: 3000
+	-SpawnActorsOnSell:
 	Power:
 		Amount: -10
 	MustBeDestroyed:
 		RequiredForShortGame: false
-	SelectionDecorations:
-		VisualBounds: 49,30
+	-AcceptsDeliveredCash:
+	Selectable:
+		Bounds: 2048, 1024
+		DecorationBounds: 2090, 1280
 
 PYLE:
 	Inherits: ^BaseBuilding
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: 0,0,0, 840,-256,0, 840,512,0, 210,-512,0, -71,512,0
+		Type: Rectangle
+			TopLeft: -1024, -1024
+			BottomRight: 1024, 640
 	Valued:
 		Cost: 500
 	Tooltip:
-		Name: Barracks
+		Name: actor-pyle.name
 	ProvidesPrerequisite:
 		Prerequisite: barracks
 	Buildable:
 		BuildPaletteOrder: 30
 		Prerequisites: anypower
 		Queue: Building.GDI
-		Description: Trains infantry
+		Description: actor-pyle.description
 	Building:
-		Footprint: xx xx
-		Dimensions: 2,2
+		Footprint: xx ++ ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-pyle.encyclopedia
+		Category: Buildings
+		Order: 50
 	Health:
-		HP: 500
+		HP: 60000
 	RevealsShroud:
 		Range: 5c0
-	Bib:
+	WithBuildingBib:
 	RallyPoint:
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
 		SpawnOffset: -426,85,0
 		ExitCell: 0,1
@@ -253,131 +368,203 @@ PYLE:
 		ExitCell: 1,1
 	Production:
 		Produces: Infantry.GDI
+	GrantExternalConditionToProduced:
+		Condition: produced
 	ProductionQueue:
 		Type: Infantry.GDI
+		DisplayOrder: 2
 		Group: Infantry
-		RequireOwner: false
-		LowPowerSlowdown: 3
+		LowPowerModifier: 150
+		ReadyAudio: UnitReady
+		ReadyTextNotification: notification-unit-ready
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Training
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionBar:
+		ProductionType: Infantry.GDI
 	Power:
-		Amount: -20
+		Amount: -15
 	ProvidesPrerequisite@buildingname:
 	Selectable:
-		Bounds: 48,42,0,-5
+		Bounds: 2048, 1792, 0, -213
 
 HAND:
 	Inherits: ^BaseBuilding
+	Inherits@shape: ^2x2Shape
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: 0,0,0, 630,-512,0, 355,512,0, -281,-512,0, -630,512,0
 	Valued:
 		Cost: 500
 	Tooltip:
-		Name: Hand of Nod
+		Name: actor-hand.name
 	ProvidesPrerequisite:
 		Prerequisite: barracks
 	Buildable:
 		BuildPaletteOrder: 30
 		Prerequisites: anypower
 		Queue: Building.Nod
-		Description: Trains infantry
+		Description: actor-hand.description
 	Building:
-		Footprint: xx xx
-		Dimensions: 2,2
+		Footprint: xx xx ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-hand.encyclopedia
+		Category: Buildings
+		Order: 60
 	Health:
-		HP: 500
+		HP: 60000
 	RevealsShroud:
 		Range: 5c0
-	Bib:
+	WithBuildingBib:
 	RallyPoint:
-		Offset: 1,2
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
+		Priority: 2
 		SpawnOffset: 512,1024,0
 		ExitCell: 1,2
+	Exit@fallback1:
+		SpawnOffset: -1024,256,0
+		ExitCell: -1,1
 	Production:
 		Produces: Infantry.Nod
 	ProductionQueue:
 		Type: Infantry.Nod
+		DisplayOrder: 2
 		Group: Infantry
-		RequireOwner: false
-		LowPowerSlowdown: 3
+		LowPowerModifier: 150
+		ReadyAudio: UnitReady
+		ReadyTextNotification: notification-unit-ready
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Training
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionBar:
+		ProductionType: Infantry.Nod
 	Power:
-		Amount: -20
+		Amount: -15
 	ProvidesPrerequisite@buildingname:
 	Selectable:
-		Bounds: 48,48
-	SelectionDecorations:
-		VisualBounds: 48,68,0,-10
+		Bounds: 2048, 2048
+		DecorationBounds: 2048, 2901, 0, -426
 
 AFLD:
 	Inherits: ^BaseBuilding
+	Selectable:
+		Bounds: 4096, 2048
+	HitShape:
+		TargetableOffsets: 0,0,0, 0,-512,256, 0,-1451,384, 0,512,128, 0,1536,85
+		Type: Rectangle
+			TopLeft: -2048, -1024
+			BottomRight: 2048, 1024
 	Valued:
 		Cost: 2000
 	Tooltip:
-		Name: Airstrip
+		Name: actor-afld.name
 	ProvidesPrerequisite:
 		Prerequisite: vehicleproduction
 	Buildable:
 		BuildPaletteOrder: 40
 		Prerequisites: proc
 		Queue: Building.Nod
-		Description: Provides a dropzone\nfor vehicle reinforcements
+		Description: actor-afld.description
 	Building:
-		Footprint: xxxx xxxx
-		Dimensions: 4,2
+		Footprint: XXX+ xxx+ ====
+		Dimensions: 4,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-afld.encyclopedia
+		Category: Buildings
+		Order: 110
 	Health:
-		HP: 1000
+		HP: 110000
 	RevealsShroud:
 		Range: 7c0
-	Bib:
-	WithIdleOverlay@DISH:
-		Sequence: idle-dish
 	RallyPoint:
-		Offset: 4,2
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
 		SpawnOffset: -1024,0,0
 		ExitCell: 3,1
 	ProductionAirdrop:
 		Produces: Vehicle.Nod
+		ActorType: c17
+		LandOffset: -1024,0,0
+		ReadyTextNotification: notification-reinforcements-have-arrived
+	WithBuildingBib:
+	WithIdleOverlay@DISH:
+		RequiresCondition: !build-incomplete
+		Sequence: idle-dish
 	WithDeliveryAnimation:
+		RequiresCondition: !build-incomplete
 	ProductionQueue:
 		Type: Vehicle.Nod
+		DisplayOrder: 3
 		Group: Vehicle
-		RequireOwner: false
-		LowPowerSlowdown: 3
-		ReadyAudio:
+		LowPowerModifier: 150
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Training
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionBar:
+		ProductionType: Vehicle.Nod
 	Power:
-		Amount: -30
+		Amount: -40
 	ProvidesPrerequisite@buildingname:
 
 WEAP:
 	Inherits: ^BaseBuilding
+	Inherits@shape: ^3x2Shape
+	HitShape:
+		TargetableOffsets: 0,0,0, 0,1024,0, 0,-1024,0
+		Type: Rectangle
+			TopLeft: -1536, -1024
+			BottomRight: 1536, 512
 	Valued:
 		Cost: 2000
 	Tooltip:
-		Name: Weapons Factory
+		Name: actor-weap.name
 	ProvidesPrerequisite:
 		Prerequisite: vehicleproduction
 	Buildable:
 		BuildPaletteOrder: 40
 		Prerequisites: proc
 		Queue: Building.GDI
-		Description: Produces vehicles
+		Description: actor-weap.description
 	Building:
-		Footprint: xxx ===
-		Dimensions: 3,2
+		Footprint: xxx +++ ===
+		Dimensions: 3,3
+		LocalCenterOffset: 0,-512,0
 	Selectable:
-		Bounds: 72,48
-	SelectionDecorations:
-		VisualBounds: 72,64,0,-16
+		Bounds: 3072, 2048
+		DecorationBounds: 3072, 2730, 0, -682
+	Encyclopedia:
+		Description: actor-weap.encyclopedia
+		Category: Buildings
+		Order: 100
 	Health:
-		HP: 1000
+		HP: 110000
 	RevealsShroud:
 		Range: 4c0
-	Bib:
+	WithBuildingBib:
 	WithProductionDoorOverlay:
+		RequiresCondition: !build-incomplete
 		Sequence: build-top
 	RallyPoint:
-		Offset: 0,2
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
 		SpawnOffset: -512,-512,0
 		ExitCell: 0,1
@@ -386,201 +573,296 @@ WEAP:
 		Produces: Vehicle.GDI
 	ProductionQueue:
 		Type: Vehicle.GDI
-		RequireOwner: false
+		DisplayOrder: 3
 		Group: Vehicle
-		LowPowerSlowdown: 3
+		LowPowerModifier: 150
+		ReadyAudio: UnitReady
+		ReadyTextNotification: notification-unit-ready
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Training
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionBar:
+		ProductionType: Vehicle.GDI
 	Power:
-		Amount: -30
+		Amount: -40
 	ProvidesPrerequisite@buildingname:
+	-ActorPreviewPlaceBuildingPreview:
+	SequencePlaceBuildingPreview:
+		Sequence: place
+		SequenceAlpha: 0.65
 
 HPAD:
 	Inherits: ^BaseBuilding
+	Inherits@shape: ^2x2Shape
+	Selectable:
+		Bounds: 2048, 2048
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: 0,0,0, 768,-512,0, 768,512,0, -281,-512,0, -630,512,0
 	Valued:
 		Cost: 1000
 	Tooltip:
-		Name: Helipad
+		Name: actor-hpad.name
 	Buildable:
 		BuildPaletteOrder: 50
 		Prerequisites: proc
 		Queue: Building.GDI, Building.Nod
-		Description: Produces, rearms and\nrepairs helicopters
+		Description: actor-hpad.description
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
+	Encyclopedia:
+		Description: actor-hpad.encyclopedia
+		Category: Buildings
+		Order: 120
 	Health:
-		HP: 500
+		HP: 60000
 	RevealsShroud:
 		Range: 5c0
 	Exit@1:
 		SpawnOffset: 0,-256,0
+		Facing: 896
 	Production:
 		Produces: Aircraft.GDI, Aircraft.Nod
 	Reservable:
 	RepairsUnits:
-		PlayerExperience: 25
-	WithRepairAnimation:
+		HpPerStep: 1000
+		PlayerExperience: 5
+		StartRepairingNotification: Repairing
+		StartRepairingTextNotification: notification-repairing
+	WithResupplyAnimation:
+		RequiresCondition: !build-incomplete
 	RallyPoint:
+	CommandBarBlacklist:
+		DisableStop: false
 	ProductionQueue@GDI:
 		Type: Aircraft.GDI
+		DisplayOrder: 4
 		Factions: gdi
 		Group: Aircraft
-		LowPowerSlowdown: 3
+		LowPowerModifier: 150
+		ReadyAudio: UnitReady
+		ReadyTextNotification: notification-unit-ready
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Training
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionQueue@Nod:
 		Type: Aircraft.Nod
+		DisplayOrder: 4
 		Factions: nod
 		Group: Aircraft
-		LowPowerSlowdown: 3
+		LowPowerModifier: 150
+		ReadyAudio: UnitReady
+		ReadyTextNotification: notification-unit-ready
+		BlockedAudio: NoBuild
+		BlockedTextNotification: notification-unable-to-build-more
+		LimitedAudio: BuildingInProgress
+		LimitedTextNotification: notification-unable-to-comply-building-in-progress
+		QueuedAudio: Training
+		OnHoldAudio: OnHold
+		CancelledAudio: Cancelled
 	ProductionBar@GDI:
 		ProductionType: Aircraft.GDI
 	ProductionBar@Nod:
 		ProductionType: Aircraft.Nod
 	Power:
-		Amount: -10
+		Amount: -20
 	ProvidesPrerequisite@buildingname:
 
 HQ:
 	Inherits: ^BaseBuilding
+	Inherits@IDISABLE: ^DisabledOverlay
+	HitShape:
+		TargetableOffsets: 0,0,0, 0,512,0, 420,-598,256
+		Type: Rectangle
+			TopLeft: -1024, -384
+			BottomRight: 1024, 1024
 	Valued:
 		Cost: 1000
 	Tooltip:
-		Name: Communications Center
+		Name: actor-hq.name
 	ProvidesPrerequisite:
 		Prerequisite: anyhq
 	Buildable:
 		BuildPaletteOrder: 70
 		Prerequisites: proc, ~techlevel.medium
 		Queue: Building.GDI, Building.Nod
-		Description: Provides radar and Air Strike support power.\nUnlocks higher-tech units and buildings.\nRequires power to operate.
+		Description: actor-hq.description
 	Building:
-		Footprint: x_ xx
-		Dimensions: 2,2
+		Footprint: X_ xx ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
 	Selectable:
-		Bounds: 48,40,0,9
-	SelectionDecorations:
-		VisualBounds: 48,53,0,-4
-	RequiresPower:
-	CanPowerDown:
-		PowerupSound: EnablePower
-		PowerdownSound: DisablePower
-	DisabledOverlay:
+		Bounds: 2048, 1706, 0, 384
+		DecorationBounds: 2048, 2261, 0, -170
 	WithSpriteBody:
-		PauseAnimationWhenDisabled: true
+		PauseOnCondition: lowpower
+	Encyclopedia:
+		Description: actor-hq.encyclopedia
+		Category: Buildings
+		Order: 130
 	Health:
-		HP: 700
+		HP: 80000
 	RevealsShroud:
 		Range: 10c0
-	Bib:
+	WithBuildingBib:
 	ProvidesRadar:
+		RequiresCondition: !lowpower
 	RenderDetectionCircle:
 	DetectCloaked:
 		Range: 5c0
+		RequiresCondition: !lowpower
 	AirstrikePower:
+		PauseOnCondition: lowpower
 		Prerequisites: ~techlevel.superweapons
 		Icon: airstrike
-		ChargeTime: 210
+		ChargeInterval: 7500
 		SquadSize: 3
 		QuantizedFacings: 8
-		Description: Air Strike
-		LongDesc: Deploy an aerial napalm strike.\nBurns buildings and infantry along a line.
+		Name: actor-hq.airstrikepower-name
+		Description: actor-hq.airstrikepower-description
 		EndChargeSpeechNotification: AirstrikeReady
 		SelectTargetSpeechNotification: SelectTarget
 		InsufficientPowerSpeechNotification: InsufficientPower
 		IncomingSpeechNotification: EnemyPlanesApproaching
+		EndChargeTextNotification: notification-airstrike-ready
+		SelectTargetTextNotification: notification-select-target
+		InsufficientPowerTextNotification: notification-insufficient-power
+		IncomingTextNotification: notification-enemy-planes-approaching
 		UnitType: a10
 		DisplayBeacon: True
 		BeaconPoster: airstrike
 		BeaconPosterPalette: beaconposter
 		DisplayRadarPing: True
 		CameraActor: camera
+		ArrowSequence: arrow
+		ClockSequence: clock
+		CircleSequence: circles
+		UseDirectionalTarget: True
+		DirectionArrowAnimation: airstrikedirection
+		SupportPowerPaletteOrder: 10
 	SupportPowerChargeBar:
 	Power:
-		Amount: -40
+		Amount: -50
 
 FIX:
 	Inherits: ^BaseBuilding
+	HitShape:
+		TargetableOffsets: 840,0,0, 598,-640,0, 598,640,0, -1060,0,0, -768,-640,0, -768,640,0
+		Type: Polygon
+			Points: -1536,-256, -341,-940, 341,-940, 1536,-256, 1536,341, 341,1110, -341,1110, -1536,341
 	Valued:
 		Cost: 500
 	Tooltip:
-		Name: Repair Facility
+		Name: actor-fix.name
 	Buildable:
 		BuildPaletteOrder: 60
 		Prerequisites: vehicleproduction
 		Queue: Building.GDI, Building.Nod
-		Description: Repairs vehicles
+		Description: actor-fix.description
 	Building:
-		Footprint: _x_ xxx _x_
+		Footprint: _+_ +++ _+_
 		Dimensions: 3,3
+	Encyclopedia:
+		Description: actor-fix.encyclopedia
+		Category: Buildings
+		Order: 180
 	Selectable:
-		Bounds: 64,34,0,3
-	SelectionDecorations:
-		VisualBounds: 72,48
+		Bounds: 2730, 1450, 0, 128
+		DecorationBounds: 3072, 2048
 	Health:
-		HP: 700
+		HP: 80000
 	RevealsShroud:
 		Range: 5c0
-	Bib:
-		HasMinibib: Yes
+	WithBuildingBib:
+		HasMinibib: true
+	WithResupplyAnimation:
+		RequiresCondition: !build-incomplete
 	Reservable:
 	RepairsUnits:
+		HpPerStep: 1000
 		Interval: 15
-		PlayerExperience: 25
+		PlayerExperience: 5
+		StartRepairingNotification: Repairing
+		StartRepairingTextNotification: notification-repairing
 	RallyPoint:
-	WithRepairAnimation:
+	CommandBarBlacklist:
+		DisableStop: false
 	Power:
-		Amount: -30
+		Amount: -20
 	ProvidesPrerequisite@buildingname:
 
 EYE:
 	Inherits: ^BaseBuilding
+	Inherits@IDISABLE: ^DisabledOverlay
+	HitShape:
+		TargetableOffsets: 0,0,0, 0,512,128, 420,-598,213
+		Type: Rectangle
+			TopLeft: -1024, -384
+			BottomRight: 1024, 1024
 	Valued:
 		Cost: 1800
 	Tooltip:
-		Name: Advanced Communications Center
+		Name: actor-eye.name
 	ProvidesPrerequisite:
 		Prerequisite: anyhq
 	Buildable:
 		BuildPaletteOrder: 100
 		Prerequisites: anyhq, ~techlevel.high
 		Queue: Building.GDI
-		Description: Provides radar and Orbital Ion Cannon support power.\nUnlocks Mammoth Tank and Commando.\nRequires power to operate.
+		Description: actor-eye.description
 	Building:
-		Footprint: x_ xx
-		Dimensions: 2,2
+		Footprint: X_ xx ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-eye.encyclopedia
+		Category: Buildings
+		Order: 200
 	Selectable:
-		Bounds: 48,40,0,9
-	SelectionDecorations:
-		VisualBounds: 48,53,0,-4
-	RequiresPower:
-	CanPowerDown:
-		PowerupSound: EnablePower
-		PowerdownSound: DisablePower
-	DisabledOverlay:
+		Bounds: 2048, 1706, 0, 384
+		DecorationBounds: 2048, 2261, 0, -170
 	WithSpriteBody:
-		PauseAnimationWhenDisabled: true
+		PauseOnCondition: lowpower
 	Health:
-		HP: 1200
+		HP: 130000
 	RevealsShroud:
 		Range: 10c0
-	Bib:
+	WithBuildingBib:
 	ProvidesRadar:
+		RequiresCondition: !lowpower
 	RenderDetectionCircle:
 	DetectCloaked:
 		Range: 5c0
+		RequiresCondition: !lowpower
 	IonCannonPower:
+		PauseOnCondition: lowpower
 		Prerequisites: ~techlevel.superweapons
 		Icon: ioncannon
 		Cursor: ioncannon
-		ChargeTime: 180
-		Description: Ion Cannon
-		LongDesc: Initiate an Ion Cannon strike.\nApplies instant damage to a small area.
+		ChargeInterval: 9000
+		Name: actor-eye.ioncannonpower-name
+		Description: actor-eye.ioncannonpower-description
 		BeginChargeSpeechNotification: IonCannonCharging
 		EndChargeSpeechNotification: IonCannonReady
 		SelectTargetSpeechNotification: SelectTarget
 		InsufficientPowerSpeechNotification: InsufficientPower
+		BeginChargeTextNotification: notification-ion-cannon-charging
+		EndChargeTextNotification: notification-ion-cannon-ready
+		SelectTargetTextNotification: notification-select-target
+		InsufficientPowerTextNotification: notification-insufficient-power
 		OnFireSound: ion1.aud
 		DisplayRadarPing: True
 		CameraActor: camera.small
+		SupportPowerPaletteOrder: 20
 	SupportPowerChargeBar:
 	Power:
 		Amount: -200
@@ -588,52 +870,78 @@ EYE:
 
 TMPL:
 	Inherits: ^BaseBuilding
+	Inherits@IDISABLE: ^DisabledOverlay
+	Inherits@shape: ^3x2Shape
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: 0,0,0, 0,-896,0, 0,896,0, 840,0,0, -706,0,0, -706,-768,0, -706,640,0
 	Valued:
 		Cost: 2000
 	Tooltip:
-		Name: Temple of Nod
+		Name: actor-tmpl.name
 	ProvidesPrerequisite:
 		Prerequisite: anyhq
 	Buildable:
 		BuildPaletteOrder: 100
 		Prerequisites: anyhq, ~techlevel.high
 		Queue: Building.Nod
-		Description: Provides Nuclear Strike support power.\nUnlocks Stealth Tank, Chem. Warrior and Obelisk of Light.\nRequires power to operate.
+		Description: actor-tmpl.description
 	Building:
-		Footprint: xxx xxx
-		Dimensions: 3,2
+		Footprint: xxx xxx ===
+		Dimensions: 3,3
+		LocalCenterOffset: 0,-512,0
 	Selectable:
-		Bounds: 72,48
-	SelectionDecorations:
-		VisualBounds: 72,68,0,-12
-	RequiresPower:
-	CanPowerDown:
-		PowerupSound: EnablePower
-		PowerdownSound: DisablePower
-	DisabledOverlay:
+		Bounds: 3072, 2048
+		DecorationBounds: 3072, 2901, 0, -512
+	Encyclopedia:
+		Description: actor-tmpl.encyclopedia
+		Category: Buildings
+		Order: 210
 	Health:
-		HP: 2000
+		HP: 210000
 	RevealsShroud:
 		Range: 6c0
-	Bib:
+	RenderDetectionCircle:
+	DetectCloaked:
+		Range: 5c0
+		RequiresCondition: !lowpower
 	NukePower:
+		PauseOnCondition: lowpower
 		Prerequisites: ~techlevel.superweapons
 		Icon: abomb
 		Cursor: nuke
-		ChargeTime: 300
-		Description: Nuclear Strike
-		LongDesc: Launch a tactical nuclear warhead.\nApplies heavy damage over a large area.
+		ChargeInterval: 11250
+		Name: actor-tmpl.nukepower-name
+		Description: actor-tmpl.nukepower-description
 		EndChargeSpeechNotification: NuclearWeaponAvailable
 		SelectTargetSpeechNotification: SelectTarget
 		InsufficientPowerSpeechNotification: InsufficientPower
 		LaunchSpeechNotification: NuclearWeaponLaunched
 		IncomingSpeechNotification: NuclearWarheadApproaching
+		SelectTargetTextNotification: notification-select-target
+		EndChargeTextNotification: notification-nuclear-weapon-available
+		InsufficientPowerTextNotification: notification-insufficient-power
+		LaunchTextNotification: notification-nuclear-weapon-launched
+		IncomingTextNotification: notification-nuclear-warhead-approaching
 		MissileWeapon: atomic
+		MissileImage: atomic
+		MissileDelay: 11
+		SpawnOffset: 3c0,0,-1c512
 		DisplayBeacon: True
 		BeaconPoster: atomic
 		BeaconPosterPalette: beaconposter
 		DisplayRadarPing: True
-		CameraActor: camera
+		CameraRange: 10c0
+		ArrowSequence: arrow
+		ClockSequence: clock
+		CircleSequence: circles
+		SupportPowerPaletteOrder: 30
+	WithBuildingBib:
+	WithSupportPowerActivationAnimation:
+		RequiresCondition: !build-incomplete
+	WithSupportPowerActivationOverlay:
+		RequiresCondition: !build-incomplete
+		Sequence: smoke
 	SupportPowerChargeBar:
 	Power:
 		Amount: -150
@@ -641,207 +949,259 @@ TMPL:
 
 GUN:
 	Inherits: ^Defense
+	Inherits@AUTOTARGET: ^AutoTargetGround
+	Selectable:
+		Bounds: 1024, 1024
 	Valued:
 		Cost: 600
 	Tooltip:
-		Name: Turret
+		Name: actor-gun.name
 	Buildable:
 		BuildPaletteOrder: 45
 		Prerequisites: barracks
 		Queue: Defence.GDI, Defence.Nod
-		BuildDuration: 1440
-		BuildDurationModifier: 40
-		Description: Basic Anti-Tank base defense.\n  Strong vs Tanks, vehicles\n  Weak vs Infantry
+		BuildDuration: 960
+		Description: actor-gun.description
 	Building:
+	Encyclopedia:
+		Description: actor-gun.encyclopedia
+		Category: Buildings
+		Order: 160
 	Health:
-		HP: 400
+		HP: 41000
 	Armor:
-		Type: Heavy
+		Type: Concrete
 	RevealsShroud:
 		Range: 6c0
-	Bib:
-		HasMinibib: Yes
+	WithBuildingBib:
+		HasMinibib: true
 	Turreted:
-		TurnSpeed: 12
-		InitialFacing: 56
-	-WithSpriteBody:
-	WithTurretedSpriteBody:
+		TurnSpeed: 48
+		InitialFacing: 192
+		RealignDelay: -1
+		RequiresCondition: !build-incomplete
+	WithSpriteTurret:
+		RequiresCondition: !build-incomplete
+		Recoils: false
+	WithTurretAttackAnimation:
+		Sequence: recoil
 	Armament:
 		Weapon: TurretGun
 		LocalOffset: 512,0,112
 		MuzzleSequence: muzzle
 	AttackTurreted:
+		PauseOnCondition: build-incomplete
 	WithMuzzleOverlay:
 	-WithDeathAnimation:
 	DetectCloaked:
 		Range: 3c0
 	Power:
 		Amount: -20
-	BodyOrientation:
-		UseClassicFacingFudge: True
+	-BodyOrientation:
+	ClassicFacingBodyOrientation:
 
 SAM:
 	Inherits: ^Defense
+	Inherits@IDISABLE: ^DisabledOverlay
+	Inherits@AUTOTARGET: ^AutoTargetAir
+	Inherits@shape: ^2x1Shape
+	Selectable:
+		Bounds: 2048, 1024
+	HitShape:
+		Type: Rectangle
+			TopLeft: -768,-512
+			BottomRight: 768,512
 	Valued:
 		Cost: 650
 	Tooltip:
-		Name: SAM Site
+		Name: actor-sam.name
 	Buildable:
 		BuildPaletteOrder: 50
 		Prerequisites: hand
 		Queue: Defence.Nod
-		BuildDuration: 1700
-		BuildDurationModifier: 40
-		Description: Anti-Aircraft base defense.\n  Strong vs Aircraft\n  Cannot target Ground units.
+		BuildDuration: 1130
+		Description: actor-sam.description
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
-	RequiresPower:
-	DisabledOverlay:
+	Encyclopedia:
+		Description: actor-sam.encyclopedia
+		Category: Buildings
+		Order: 161
 	Health:
-		HP: 400
+		HP: 40000
 	Armor:
-		Type: Heavy
+		Type: Concrete
 	RevealsShroud:
 		Range: 8c0
 	Turreted:
-		TurnSpeed: 10
+		TurnSpeed: 40
 		InitialFacing: 0
 		RealignDelay: -1
 	-WithSpriteBody:
-	WithTurretedSpriteBody:
-	AutoSelectionSize:
+	WithEmbeddedTurretSpriteBody:
+		QuantizedFacings: 32
 	Armament:
-		Weapon: SAMMissile
+		Weapon: Dragon
 		MuzzleSequence: muzzle
 	AttackPopupTurreted:
+		PauseOnCondition: lowpower || build-incomplete
 	WithMuzzleOverlay:
 	-RenderDetectionCircle:
 	Power:
 		Amount: -20
-	BodyOrientation:
-		UseClassicFacingFudge: True
+	-BodyOrientation:
+	ClassicFacingBodyOrientation:
+	-ActorPreviewPlaceBuildingPreview:
+	SequencePlaceBuildingPreview:
+		Sequence: place
+		SequenceAlpha: 0.65
 
 OBLI:
 	Inherits: ^Defense
+	Inherits@IDISABLE: ^DisabledOverlay
+	Inherits@AUTOTARGET: ^AutoTargetGround
 	Valued:
 		Cost: 1500
 	Tooltip:
-		Name: Obelisk of Light
+		Name: actor-obli.name
 	Buildable:
 		BuildPaletteOrder: 60
 		Prerequisites: tmpl, ~techlevel.high
 		Queue: Defence.Nod
-		BuildDuration: 3120
-		BuildDurationModifier: 40
-		Description: Advanced base defense.\nRequires power to operate.\n  Strong vs all Ground units\n  Cannot target Aircraft
+		BuildDuration: 2080
+		Description: actor-obli.description
 	Selectable:
-		Bounds: 24,24
-	SelectionDecorations:
-		VisualBounds: 22,44,0,-10
-	RequiresPower:
-	DisabledOverlay:
+		Bounds: 1024, 1024
+		DecorationBounds: 938, 1877, 0, -426
+	Encyclopedia:
+		Description: actor-obli.encyclopedia
+		Category: Buildings
+		Order: 220
 	Health:
-		HP: 600
+		HP: 75000
 	Armor:
-		Type: Heavy
+		Type: Concrete
 	RevealsShroud:
 		Range: 8c0
-	Bib:
-		HasMinibib: Yes
-	WithChargeAnimation:
+	WithBuildingBib:
+		HasMinibib: true
+	-WithSpriteBody:
+	WithChargeSpriteBody:
+		Sequence: active
 	Armament:
 		Weapon: Laser
 		LocalOffset: 0,-85,1280
-		FireDelay: 0
-	AttackCharge:
-		ChargeAudio: obelpowr.aud
-		ReloadDelay: 40
-		InitialChargeDelay: 50
-	-EmitInfantryOnSell:
+	AttackCharges:
+		PauseOnCondition: lowpower || build-incomplete
+		ChargeLevel: 50
+		ChargingCondition: charging
+	AmbientSound:
+		RequiresCondition: charging
+		SoundFiles: obelpowr.aud
+		Interval: 30, 40
+	-SpawnActorsOnSell:
 	DetectCloaked:
 		Range: 5c0
+		RequiresCondition: !lowpower
 	Power:
-		Amount: -150
+		Amount: -90
 
 GTWR:
 	Inherits: ^Defense
+	Inherits@AUTOTARGET: ^AutoTargetGround
+	Selectable:
+		Bounds: 1024, 1024
 	Valued:
 		Cost: 600
 	Tooltip:
-		Name: Guard Tower
+		Name: actor-gtwr.name
 	Buildable:
 		BuildPaletteOrder: 40
 		Prerequisites: barracks
 		Queue: Defence.GDI, Defence.Nod
-		BuildDuration: 1440
-		BuildDurationModifier: 40
-		Description: Basic defensive structure.\n  Strong vs Infantry\n  Weak vs Tanks
+		BuildDuration: 960
+		Description: actor-gtwr.description
 	Building:
+	Encyclopedia:
+		Description: actor-gtwr.encyclopedia
+		Category: Buildings
+		Order: 150
 	Health:
-		HP: 400
+		HP: 40000
+	Armor:
+		Type: Concrete
 	RevealsShroud:
 		Range: 7c0
-	Bib:
-		HasMinibib: Yes
+	WithBuildingBib:
+		HasMinibib: true
 	Armament:
 		Weapon: HighV
 		LocalOffset: 256,0,256
 		MuzzleSequence: muzzle
 	AttackTurreted:
+		PauseOnCondition: build-incomplete
 	BodyOrientation:
 		QuantizedFacings: 8
 	DetectCloaked:
 		Range: 3c0
 	WithMuzzleOverlay:
 	Turreted:
-		TurnSpeed: 255
+		TurnSpeed: 512
 	Power:
 		Amount: -10
 
 ATWR:
 	Inherits: ^Defense
+	Inherits@IDISABLE: ^DisabledOverlay
+	Inherits@AUTOTARGET: ^AutoTargetAll
 	Valued:
 		Cost: 1000
 	Tooltip:
-		Name: Advanced Guard Tower
+		Name: actor-atwr.name
 	Buildable:
 		BuildPaletteOrder: 60
 		Prerequisites: anyhq, ~techlevel.medium
 		Queue: Defence.GDI
-		BuildDuration: 2880
-		BuildDurationModifier: 40
-		Description: All-purpose defensive structure.\n  Strong vs Aircraft, Tanks\n  Weak vs Infantry
+		BuildDuration: 1920
+		Description: actor-atwr.description
 	Selectable:
-		Bounds: 24,24
-	SelectionDecorations:
-		VisualBounds: 22,48,0,-12
-	RequiresPower:
-	DisabledOverlay:
+		Bounds: 1024, 1024
+		DecorationBounds: 938, 2048, 0, -512
+	Encyclopedia:
+		Description: actor-atwr.encyclopedia
+		Category: Buildings
+		Order: 170
 	Health:
-		HP: 600
+		HP: 55000
 	Armor:
-		Type: Heavy
+		Type: Concrete
 	RevealsShroud:
 		Range: 8c0
-	Bib:
-		HasMinibib: Yes
+	-RenderRangeCircle:
+	WithRangeCircle:
+		Range: 7c0
+		Color: FFFF0080
+	WithBuildingBib:
+		HasMinibib: true
 	Turreted:
-		TurnSpeed: 255
+		TurnSpeed: 512
 		Offset: 128,128,384
 	Armament@PRIMARY:
-		Weapon: TowerMissle
+		Weapon: TowerMissile
 		LocalOffset: 256,128,0, 256,-128,0
 		LocalYaw: -100,100
 	Armament@SECONDARY:
-		Weapon: SAMMissile
+		Weapon: TowerAAMissile
 		LocalOffset: 256,128,0, 256,-128,0
 		LocalYaw: -100,100
 	AttackTurreted:
+		PauseOnCondition: lowpower || build-incomplete
 	BodyOrientation:
 		QuantizedFacings: 8
 	DetectCloaked:
 		Range: 5c0
+		RequiresCondition: !lowpower
 	Power:
 		Amount: -50
 
@@ -852,16 +1212,19 @@ SBAG:
 	CustomSellValue:
 		Value: 0
 	Tooltip:
-		Name: Sandbag Barrier
+		Name: actor-sbag.name
 	Buildable:
 		BuildPaletteOrder: 20
 		Prerequisites: fact
 		Queue: Defence.GDI
-		Description: Stops infantry and light vehicles.\nCan be crushed by tanks.
+		Description: actor-sbag.description
+	Encyclopedia:
+		Description: actor-sbag.encyclopedia
+		Category: Buildings
+		Order: 10
 	Armor:
 		Type: Light
 	LineBuild:
-		Range: 8
 		NodeTypes: sandbag
 	LineBuildNode:
 		Types: sandbag
@@ -875,16 +1238,19 @@ CYCL:
 	CustomSellValue:
 		Value: 0
 	Tooltip:
-		Name: Chain Link Barrier
+		Name: actor-cycl.name
 	Buildable:
 		BuildPaletteOrder: 20
 		Prerequisites: fact
 		Queue: Defence.Nod
-		Description: Stops infantry and light vehicles.\nCan be crushed by tanks.
+		Description: actor-cycl.description
+	Encyclopedia:
+		Description: actor-cycl.encyclopedia
+		Category: Buildings
+		Order: 20
 	Armor:
 		Type: Light
 	LineBuild:
-		Range: 8
 		NodeTypes: chain
 	LineBuildNode:
 		Types: chain
@@ -898,26 +1264,26 @@ BRIK:
 	CustomSellValue:
 		Value: 0
 	Tooltip:
-		Name: Concrete Barrier
+		Name: actor-brik.name
 	Buildable:
 		BuildPaletteOrder: 30
 		Prerequisites: vehicleproduction
 		Queue: Defence.GDI, Defence.Nod
-		BuildDuration: 500
-		BuildDurationModifier: 40
-		Description: Stops infantry and most tanks.\nBlocks some projectiles.
+		BuildDuration: 230
+		Description: actor-brik.description
+	Encyclopedia:
+		Description: actor-brik.encyclopedia
+		Category: Buildings
+		Order: 30
 	Health:
-		HP: 250
+		HP: 20000
 	Armor:
-		Type: Heavy
+		Type: Concrete
 	BlocksProjectiles:
 	Crushable:
 		CrushClasses: heavywall
 		-CrushSound:
-	SoundOnDamageTransition:
-		DestroyedSounds: crumble.aud
 	LineBuild:
-		Range: 8
 		NodeTypes: concrete
 	LineBuildNode:
 		Types: concrete
@@ -926,28 +1292,24 @@ BRIK:
 
 BARRACKS:
 	AlwaysVisible:
+	Interactable:
 	Tooltip:
-		Name: Infantry Production
-	Buildable:
-		Description: Infantry Production
+		Name: actor-barracks-name
 
 VEHICLEPRODUCTION:
 	AlwaysVisible:
+	Interactable:
 	Tooltip:
-		Name: Vehicle Production
-	Buildable:
-		Description: Vehicle Production
+		Name: actor-vehicleproduction-name
 
 ANYPOWER:
 	AlwaysVisible:
+	Interactable:
 	Tooltip:
-		Name: Power Plant
-	Buildable:
-		Description: Power Plant
+		Name: actor-anypower-name
 
 ANYHQ:
 	AlwaysVisible:
+	Interactable:
 	Tooltip:
-		Name: a communications center
-	Buildable:
-		Description: a communications center
+		Name: actor-anyhq-name

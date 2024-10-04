@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -22,7 +22,8 @@ namespace OpenRA.Support
 		public int Last;
 		public int TotalCount = 0;
 
-		public MersenneTwister() : this(Environment.TickCount) { }
+		public MersenneTwister()
+			: this(Environment.TickCount) { }
 
 		public MersenneTwister(int seed)
 		{
@@ -50,7 +51,7 @@ namespace OpenRA.Support
 		public int Next(int low, int high)
 		{
 			if (high < low)
-				throw new ArgumentOutOfRangeException("high", "Maximum value is less than the minimum value.");
+				throw new ArgumentOutOfRangeException(nameof(high), "Maximum value is less than the minimum value.");
 
 			var diff = high - low;
 			if (diff <= 1)
@@ -78,7 +79,7 @@ namespace OpenRA.Support
 					var y = (mt[i] & 0x80000000) | (mt[(i + 1) % 624] & 0x7fffffff);
 					mt[i] = mt[(i + 397u) % 624u] ^ (y >> 1);
 					if ((y & 1) == 1)
-						mt[i] = mt[i] ^ 2567483615;
+						mt[i] ^= 2567483615;
 				}
 			}
 		}

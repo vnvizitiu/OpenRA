@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,17 +10,27 @@
 #endregion
 
 using System;
+using System.Collections.Generic;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
 {
 	public class LogicKeyListenerWidget : Widget
 	{
-		public Func<KeyInput, bool> OnKeyPress = _ => false;
+		readonly List<Func<KeyInput, bool>> handlers = new();
 
 		public override bool HandleKeyPress(KeyInput e)
 		{
-			return OnKeyPress(e);
+			foreach (var handler in handlers)
+				if (handler(e))
+					return true;
+
+			return false;
+		}
+
+		public void AddHandler(Func<KeyInput, bool> func)
+		{
+			handlers.Add(func);
 		}
 	}
 }

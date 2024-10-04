@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,36 +9,45 @@
  */
 #endregion
 
-using OpenRA.Mods.Common.Traits;
+using Eluant;
+using OpenRA.Primitives;
 using OpenRA.Scripting;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Scripting
 {
 	[ScriptPropertyGroup("General")]
-	public class HealthProperties : ScriptActorProperties, Requires<HealthInfo>
+	public class HealthProperties : ScriptActorProperties, Requires<IHealthInfo>
 	{
-		Health health;
+		readonly IHealth health;
 		public HealthProperties(ScriptContext context, Actor self)
 			: base(context, self)
 		{
-			health = self.Trait<Health>();
+			health = self.Trait<IHealth>();
 		}
 
 		[Desc("Current health of the actor.")]
 		public int Health
 		{
-			get { return health.HP; }
-			set { health.InflictDamage(Self, Self, new Damage(health.HP - value), true); }
+			get => health.HP;
+			set => health.InflictDamage(Self, Self, new Damage(health.HP - value), true);
 		}
 
 		[Desc("Maximum health of the actor.")]
-		public int MaxHealth { get { return health.MaxHP; } }
+		public int MaxHealth => health.MaxHP;
 
-		[Desc("Kill the actor.")]
-		public void Kill()
+		[Desc("Kill the actor. damageTypes may be omitted, specified as a string, or as table of strings.")]
+		public void Kill([ScriptEmmyTypeOverride("string|{ [unknown]: string }")] object damageTypes = null)
 		{
-			health.InflictDamage(Self, Self, new Damage(health.MaxHP), true);
+			Damage damage;
+			if (damageTypes is string d)
+				damage = new Damage(health.MaxHP, new BitSet<DamageType>(new[] { d }));
+			else if (damageTypes is LuaTable t && t.TryGetClrValue(out string[] ds))
+				damage = new Damage(health.MaxHP, new BitSet<DamageType>(ds));
+			else
+				damage = new Damage(health.MaxHP);
+
+			health.InflictDamage(Self, Self, damage, true);
 		}
 	}
 }

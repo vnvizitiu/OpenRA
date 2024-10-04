@@ -1,3 +1,11 @@
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
 InsertionHelicopterType = "tran.insertion"
 InsertionPath = { InsertionEntry.Location, InsertionLZ.Location }
 ExtractionHelicopterType = "tran.extraction"
@@ -7,57 +15,72 @@ TanyaReinforcements = { "e7.noautotarget" }
 EinsteinType = "einstein"
 FlareType = "flare"
 CruisersReinforcements = { "ca", "ca", "ca", "ca" }
+OpeningAttack = { Patrol1, Patrol2, Patrol3, Patrol4 }
+Responders = { Response1, Response2, Response3, Response4, Response5 }
+LabGuardsTeam = { LabGuard1, LabGuard2, LabGuard3 }
 
 SendInsertionHelicopter = function()
-	local passengers = Reinforcements.ReinforceWithTransport(player, InsertionHelicopterType,
+	local passengers = Reinforcements.ReinforceWithTransport(Greece, InsertionHelicopterType,
 		TanyaReinforcements, InsertionPath, { InsertionEntry.Location })[2]
 	local tanya = passengers[1]
 	Trigger.OnKilled(tanya, TanyaKilledInAction)
 	Trigger.AfterDelay(DateTime.Seconds(4), function()
-		Media.DisplayMessage("According to the rules of engagement I need your explicit orders to fire, Commander!", "Tanya")
+		Media.DisplayMessage(UserInterface.Translate("tanya-rules-of-engagement"), UserInterface.Translate("tanya"))
 	end)
 end
 
 SendJeeps = function()
-	Reinforcements.Reinforce(player, JeepReinforcements, InsertionPath, DateTime.Seconds(2))
-	Media.PlaySpeechNotification(player, "ReinforcementsArrived")
+	Reinforcements.Reinforce(Greece, JeepReinforcements, InsertionPath, DateTime.Seconds(2))
+	Media.PlaySpeechNotification(Greece, "ReinforcementsArrived")
 end
 
 RunInitialActivities = function()
 	SendInsertionHelicopter()
-	Patrol1.Hunt()
-	Patrol2.Hunt()
-	Patrol3.Hunt()
-	Patrol4.Hunt()
-	Harvester.FindResources()
-	Civilian1.Wait(DateTime.Seconds(6))
-	Civilian2.Wait(DateTime.Seconds(6))
-	Civilian1.Hunt()
-	Civilian2.Hunt()
+
+	Utils.Do(OpeningAttack, function(a)
+		IdleHunt(a)
+	end)
+
+	Trigger.OnKilled(Patrol3, function()
+		if not Civilian1.IsDead then
+			Civilian1.Move(CivMove.Location)
+		end
+	end)
+
+	Trigger.OnKilled(BarrelPower, function()
+		if not Civilian2.IsDead then
+			Civilian2.Move(CivMove.Location)
+		end
+		Utils.Do(Responders, function(r)
+			if not r.IsDead then
+				IdleHunt(r)
+			end
+		end)
+	end)
 end
 
 LabGuardsKilled = function()
 	CreateEinstein()
 
 	Trigger.AfterDelay(DateTime.Seconds(2), function()
-		Actor.Create(FlareType, true, { Owner = england, Location = ExtractionFlarePoint.Location })
-		Media.PlaySpeechNotification(player, "SignalFlareNorth")
+		Actor.Create(FlareType, true, { Owner = England, Location = ExtractionFlarePoint.Location })
+		Media.PlaySpeechNotification(Greece, "SignalFlareNorth")
 		SendExtractionHelicopter()
 	end)
 
 	Trigger.AfterDelay(DateTime.Seconds(10), function()
-		Media.PlaySpeechNotification(player, "AlliedReinforcementsArrived")
-		Actor.Create("camera", true, { Owner = player, Location = CruiserCameraPoint.Location })
+		Media.PlaySpeechNotification(Greece, "AlliedReinforcementsArrived")
+		Actor.Create("camera", true, { Owner = Greece, Location = CruiserCameraPoint.Location })
 		SendCruisers()
 	end)
 
 	Trigger.AfterDelay(DateTime.Seconds(12), function()
 		for i = 0, 2 do
 			Trigger.AfterDelay(DateTime.Seconds(i), function()
-				Media.PlaySoundNotification(player, "AlertBuzzer")
+				Media.PlaySoundNotification(Greece, "AlertBuzzer")
 			end)
 		end
-		Utils.Do(sovietArmy, function(a)
+		Utils.Do(SovietArmy, function(a)
 			if not a.IsDead and a.HasProperty("Hunt") then
 				Trigger.OnIdle(a, a.Hunt)
 			end
@@ -66,44 +89,44 @@ LabGuardsKilled = function()
 end
 
 SendExtractionHelicopter = function()
-	heli = Reinforcements.ReinforceWithTransport(player, ExtractionHelicopterType, nil, ExtractionPath)[1]
-	if not einstein.IsDead then
-		Trigger.OnRemovedFromWorld(einstein, EvacuateHelicopter)
+	Heli = Reinforcements.ReinforceWithTransport(Greece, ExtractionHelicopterType, nil, ExtractionPath)[1]
+	if not Einstein.IsDead then
+		Trigger.OnRemovedFromWorld(Einstein, EvacuateHelicopter)
 	end
-	Trigger.OnKilled(heli, RescueFailed)
-	Trigger.OnRemovedFromWorld(heli, HelicopterGone)
+	Trigger.OnKilled(Heli, RescueFailed)
+	Trigger.OnRemovedFromWorld(Heli, HelicopterGone)
 end
 
 EvacuateHelicopter = function()
-	if heli.HasPassengers then
-		heli.Move(ExtractionExitPoint.Location)
-		Trigger.OnIdle(heli, heli.Destroy)
+	if Heli.HasPassengers then
+		Heli.Move(ExtractionExitPoint.Location)
+		Heli.Destroy()
 	end
 end
 
 SendCruisers = function()
 	local i = 1
 	Utils.Do(CruisersReinforcements, function(cruiser)
-		local ca = Actor.Create(cruiser, true, { Owner = england, Location = SouthReinforcementsPoint.Location + CVec.New(2 * i, 0) })
+		local ca = Actor.Create(cruiser, true, { Owner = England, Location = SouthReinforcementsPoint.Location + CVec.New(2 * i, 0) })
 		ca.Move(Map.NamedActor("CruiserPoint" .. i).Location)
 		i = i + 1
 	end)
 end
 
 LabDestroyed = function()
-	if not einstein then
+	if not Einstein then
 		RescueFailed()
 	end
 end
 
 RescueFailed = function()
-	Media.PlaySpeechNotification(player, "ObjectiveNotMet")
-	player.MarkFailedObjective(EinsteinSurviveObjective)
+	Media.PlaySpeechNotification(Greece, "ObjectiveNotMet")
+	Greece.MarkFailedObjective(EinsteinSurviveObjective)
 end
 
 TanyaKilledInAction = function()
-	Media.PlaySpeechNotification(player, "ObjectiveNotMet")
-	player.MarkFailedObjective(TanyaSurviveObjective)
+	Media.PlaySpeechNotification(Greece, "ObjectiveNotMet")
+	Greece.MarkFailedObjective(TanyaSurviveObjective)
 end
 
 OilPumpDestroyed = function()
@@ -111,97 +134,84 @@ OilPumpDestroyed = function()
 end
 
 CiviliansKilled = function()
-	player.MarkFailedObjective(CivilProtectionObjective)
-	Media.PlaySpeechNotification(player, "ObjectiveNotMet")
-	collateralDamage = true
+	Greece.MarkFailedObjective(CivilProtectionObjective)
+	Media.PlaySpeechNotification(Greece, "ObjectiveNotMet")
+	CollateralDamage = true
+end
+
+LostMate = function()
+	if not Civilian2.IsDead then
+		Civilian2.Panic()
+	end
 end
 
 CreateEinstein = function()
-	player.MarkCompletedObjective(FindEinsteinObjective)
-	Media.PlaySpeechNotification(player, "ObjectiveMet")
-	einstein = Actor.Create(EinsteinType, true, { Location = EinsteinSpawnPoint.Location, Owner = player })
-	einstein.Scatter()
-	Trigger.OnKilled(einstein, RescueFailed)
-	ExtractObjective = player.AddPrimaryObjective("Wait for the helicopter and extract Einstein.")
-	Trigger.AfterDelay(DateTime.Seconds(1), function() Media.PlaySpeechNotification(player, "TargetFreed") end)
+	Greece.MarkCompletedObjective(FindEinsteinObjective)
+	Media.PlaySpeechNotification(Greece, "ObjectiveMet")
+	Einstein = Actor.Create(EinsteinType, true, { Location = EinsteinSpawnPoint.Location, Owner = Greece })
+	Einstein.Scatter()
+	Trigger.OnKilled(Einstein, RescueFailed)
+	ExtractObjective = AddPrimaryObjective(Greece, "extract-einstein-helicopter")
+	Trigger.AfterDelay(DateTime.Seconds(1), function() Media.PlaySpeechNotification(Greece, "TargetFreed") end)
 end
 
 HelicopterGone = function()
-	if not heli.IsDead then
-		Media.PlaySpeechNotification(player, "TargetRescued")
+	if not Heli.IsDead then
+		Media.PlaySpeechNotification(Greece, "TargetRescued")
 		Trigger.AfterDelay(DateTime.Seconds(1), function()
-			player.MarkCompletedObjective(ExtractObjective)
-			player.MarkCompletedObjective(EinsteinSurviveObjective)
-			if not player.IsObjectiveFailed(TanyaSurviveObjective) then
-				player.MarkCompletedObjective(TanyaSurviveObjective)
+			Greece.MarkCompletedObjective(ExtractObjective)
+			Greece.MarkCompletedObjective(EinsteinSurviveObjective)
+			if not Greece.IsObjectiveFailed(TanyaSurviveObjective) then
+				Greece.MarkCompletedObjective(TanyaSurviveObjective)
 			end
-			if not collateralDamage then
-				player.MarkCompletedObjective(CivilProtectionObjective)
+			if not CollateralDamage then
+				Greece.MarkCompletedObjective(CivilProtectionObjective)
 			end
 		end)
 	end
 end
 
-MissionAccomplished = function()
-	Media.PlaySpeechNotification(player, "MissionAccomplished")
-end
-
-MissionFailed = function()
-	Media.PlaySpeechNotification(player, "MissionFailed")
-end
-
 SetUnitStances = function()
 	Utils.Do(Map.NamedActors, function(a)
-		if a.Owner == player then
+		if a.Owner == Greece then
 			a.Stance = "Defend"
 		end
 	end)
 end
 
 Tick = function()
-	ussr.Resources = ussr.Resources - (0.01 * ussr.ResourceCapacity / 25)
+	USSR.Resources = USSR.Resources - (0.01 * USSR.ResourceCapacity / 25)
 end
 
 WorldLoaded = function()
-	player = Player.GetPlayer("Greece")
-	england = Player.GetPlayer("England")
-	ussr = Player.GetPlayer("USSR")
+	Greece = Player.GetPlayer("Greece")
+	England = Player.GetPlayer("England")
+	USSR = Player.GetPlayer("USSR")
 
-	Trigger.OnObjectiveAdded(player, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "New " .. string.lower(p.GetObjectiveType(id)) .. " objective")
-	end)
-	Trigger.OnObjectiveCompleted(player, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective completed")
-	end)
-	Trigger.OnObjectiveFailed(player, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective failed")
-	end)
+	InitObjectives(Greece)
 
-	Trigger.OnPlayerLost(player, MissionFailed)
-	Trigger.OnPlayerWon(player, MissionAccomplished)
-
-	FindEinsteinObjective = player.AddPrimaryObjective("Find Einstein.")
-	TanyaSurviveObjective = player.AddPrimaryObjective("Tanya must survive.")
-	EinsteinSurviveObjective = player.AddPrimaryObjective("Einstein must survive.")
-	CivilProtectionObjective = player.AddSecondaryObjective("Protect all civilians.")
+	FindEinsteinObjective = AddPrimaryObjective(Greece, "find-einstein")
+	TanyaSurviveObjective = AddPrimaryObjective(Greece, "tanya-survive")
+	EinsteinSurviveObjective = AddPrimaryObjective(Greece, "einstein-survive")
+	CivilProtectionObjective = AddSecondaryObjective(Greece, "protect-civilians")
 
 	RunInitialActivities()
 
 	Trigger.OnKilled(Lab, LabDestroyed)
 	Trigger.OnKilled(OilPump, OilPumpDestroyed)
 
-	sovietArmy = ussr.GetGroundAttackers()
+	SovietArmy = USSR.GetGroundAttackers()
 
-	labGuardsTeam = { LabGuard1, LabGuard2, LabGuard3 }
-	Trigger.OnAllKilled(labGuardsTeam, LabGuardsKilled)
+	Trigger.OnAllKilled(LabGuardsTeam, LabGuardsKilled)
 
-	collateralDamage = false
-	civilianTeam = { Civilian1, Civilian2 }
+	CollateralDamage = false
+	local civilianTeam = { Civilian1, Civilian2 }
 	Trigger.OnAnyKilled(civilianTeam, CiviliansKilled)
+	Trigger.OnKilled(Civilian1, LostMate)
 
 	SetUnitStances()
 
-	Trigger.AfterDelay(DateTime.Seconds(5), function() Actor.Create("camera", true, { Owner = player, Location = BaseCameraPoint.Location }) end)
+	Trigger.AfterDelay(DateTime.Seconds(5), function() Actor.Create("camera", true, { Owner = Greece, Location = BaseCameraPoint.Location }) end)
 
 	Camera.Position = InsertionLZ.CenterPosition
 end

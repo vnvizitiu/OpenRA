@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,16 +9,19 @@
  */
 #endregion
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[TraitLocation(SystemActors.Player)]
 	[Desc("Attach this to the player actor (not a building!) to define a new shared build queue.",
 		"Will only work together with the Production: trait on the actor that actually does the production.",
 		"You will also want to add PrimaryBuildings: to let the user choose where new units should exit.")]
-	public class ClassicProductionQueueInfo : ProductionQueueInfo, Requires<TechTreeInfo>, Requires<PowerManagerInfo>, Requires<PlayerResourcesInfo>
+	public class ClassicProductionQueueInfo : ProductionQueueInfo, Requires<TechTreeInfo>, Requires<PlayerResourcesInfo>
 	{
 		[Desc("If you build more actors of the same type,", "the same queue will get its build time lowered for every actor produced there.")]
 		public readonly bool SpeedUp = false;
@@ -26,61 +29,69 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Every time another production building of the same queue is",
 			"constructed, the build times of all actors in the queue",
 			"decreased by a percentage of the original time.")]
-		public readonly int[] BuildTimeSpeedReduction = { 100, 85, 75, 65, 60, 55, 50 };
+		public readonly int[] BuildTimeSpeedReduction = { 100, 86, 75, 67, 60, 55, 50 };
 
 		public override object Create(ActorInitializer init) { return new ClassicProductionQueue(init, this); }
 	}
 
 	public class ClassicProductionQueue : ProductionQueue
 	{
-		static readonly ActorInfo[] NoItems = { };
+		static readonly ActorInfo[] NoItems = Array.Empty<ActorInfo>();
 
 		readonly Actor self;
 		readonly ClassicProductionQueueInfo info;
 
 		public ClassicProductionQueue(ActorInitializer init, ClassicProductionQueueInfo info)
-			: base(init, init.Self, info)
+			: base(init, info)
 		{
 			self = init.Self;
 			this.info = info;
 		}
 
-		[Sync] bool isActive = false;
-
-		public override void Tick(Actor self)
+		protected override void Tick(Actor self)
 		{
 			// PERF: Avoid LINQ.
-			isActive = false;
+			Enabled = false;
+			var isActive = false;
 			foreach (var x in self.World.ActorsWithTrait<Production>())
 			{
-				if (x.Actor.Owner == self.Owner && x.Trait.Info.Produces.Contains(Info.Type))
-				{
-					isActive = true;
-					break;
-				}
+				if (x.Trait.IsTraitDisabled)
+					continue;
+
+				if (x.Actor.Owner != self.Owner || !x.Trait.Info.Produces.Contains(Info.Type))
+					continue;
+
+				Enabled |= IsValidFaction;
+				isActive |= !x.Trait.IsTraitPaused;
 			}
 
-			base.Tick(self);
+			if (!Enabled)
+				ClearQueue();
+
+			TickInner(self, !isActive);
 		}
 
 		public override IEnumerable<ActorInfo> AllItems()
 		{
-			return isActive ? base.AllItems() : NoItems;
+			return Enabled ? base.AllItems() : NoItems;
 		}
 
 		public override IEnumerable<ActorInfo> BuildableItems()
 		{
-			return isActive ? base.BuildableItems() : NoItems;
+			return Enabled ? base.BuildableItems() : NoItems;
 		}
 
 		public override TraitPair<Production> MostLikelyProducer()
 		{
-			return self.World.ActorsWithTrait<Production>()
+			var productionActor = self.World.ActorsWithTrait<Production>()
 				.Where(x => x.Actor.Owner == self.Owner
-					&& x.Trait.Info.Produces.Contains(Info.Type))
-				.OrderByDescending(x => x.Actor.IsPrimaryBuilding())
+					&& !x.Trait.IsTraitDisabled && x.Trait.Info.Produces.Contains(Info.Type))
+				.OrderBy(x => x.Trait.IsTraitPaused)
+				.ThenByDescending(x => x.Actor.IsPrimaryBuilding())
 				.ThenByDescending(x => x.Actor.ActorID)
 				.FirstOrDefault();
+
+			return productionActor;
 		}
 
 		protected override bool BuildUnit(ActorInfo unit)
@@ -89,28 +100,38 @@ namespace OpenRA.Mods.Common.Traits
 			var bi = unit.TraitInfo<BuildableInfo>();
 
 			// Some units may request a specific production type, which is ignored if the AllTech cheat is enabled
-			var type = developerMode.AllTech ? Info.Type : bi.BuildAtProductionType ?? Info.Type;
+			var type = developerMode.AllTech ? Info.Type : (bi.BuildAtProductionType ?? Info.Type);
 
 			var producers = self.World.ActorsWithTrait<Production>()
 				.Where(x => x.Actor.Owner == self.Owner
+					&& !x.Trait.IsTraitDisabled
 					&& x.Trait.Info.Produces.Contains(type))
 					.OrderByDescending(x => x.Actor.IsPrimaryBuilding())
 					.ThenByDescending(x => x.Actor.ActorID);
 
-			if (!producers.Any())
+			var anyProducers = false;
+			foreach (var p in producers)
 			{
-				CancelProduction(unit.Name, 1);
-				return true;
-			}
+				anyProducers = true;
+				if (p.Trait.IsTraitPaused)
+					continue;
 
-			foreach (var p in producers.Where(p => !p.Actor.IsDisabled()))
-			{
-				if (p.Trait.Produce(p.Actor, unit, p.Trait.Faction))
+				var inits = new TypeDictionary
 				{
-					FinishProduction();
+					new OwnerInit(self.Owner),
+					new FactionInit(BuildableInfo.GetInitialFaction(unit, p.Trait.Faction))
+				};
+
+				var item = Queue.First(i => i.Done && i.Item == unit.Name);
+				if (p.Trait.Produce(p.Actor, unit, type, inits, item.TotalCost))
+				{
+					EndProduction(item);
 					return true;
 				}
 			}
+
+			if (!anyProducers)
+				CancelProduction(unit.Name, 1);
 
 			return false;
 		}
@@ -127,10 +148,10 @@ namespace OpenRA.Mods.Common.Traits
 				var type = bi.BuildAtProductionType ?? info.Type;
 
 				var selfsameProductionsCount = self.World.ActorsWithTrait<Production>()
-					.Count(p => p.Actor.Owner == self.Owner && p.Trait.Info.Produces.Contains(type));
+					.Count(p => !p.Trait.IsTraitDisabled && !p.Trait.IsTraitPaused && p.Actor.Owner == self.Owner && p.Trait.Info.Produces.Contains(type));
 
 				var speedModifier = selfsameProductionsCount.Clamp(1, info.BuildTimeSpeedReduction.Length) - 1;
-				time = (time * info.BuildTimeSpeedReduction[speedModifier]) / 100;
+				time = time * info.BuildTimeSpeedReduction[speedModifier] / 100;
 			}
 
 			return time;

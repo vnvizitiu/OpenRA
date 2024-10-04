@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,10 +11,11 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using System.Globalization;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
+using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
@@ -27,15 +28,16 @@ namespace OpenRA.Mods.Common.Widgets
 
 	public class ProductionTabGroup
 	{
-		public List<ProductionTab> Tabs = new List<ProductionTab>();
+		public List<ProductionTab> Tabs = new();
 		public string Group;
 		public int NextQueueName = 1;
-		public bool Alert { get { return Tabs.Any(t => t.Queue.CurrentDone); } }
+		public bool Alert { get { return Tabs.Any(t => t.Queue.AllQueued().Any(i => i.Done)); } }
 
 		public void Update(IEnumerable<ProductionQueue> allQueues)
 		{
-			var queues = allQueues.Where(q => q.Info.Group == Group).ToList();
+			var queues = allQueues.Where(q => q.Enabled && q.Info.Group == Group).ToList();
 			var tabs = new List<ProductionTab>();
+			var largestUsedName = 0;
 
 			// Remove stale queues
 			foreach (var t in Tabs)
@@ -45,13 +47,16 @@ namespace OpenRA.Mods.Common.Widgets
 
 				tabs.Add(t);
 				queues.Remove(t.Queue);
+				largestUsedName = Math.Max(int.Parse(t.Name, NumberFormatInfo.CurrentInfo), largestUsedName);
 			}
+
+			NextQueueName = largestUsedName + 1;
 
 			// Add new queues
 			foreach (var queue in queues)
 				tabs.Add(new ProductionTab()
 				{
-					Name = (NextQueueName++).ToString(),
+					Name = NextQueueName++.ToString(NumberFormatInfo.CurrentInfo),
 					Queue = queue
 				});
 			Tabs = tabs;
@@ -68,16 +73,39 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public readonly int TabWidth = 30;
 		public readonly int ArrowWidth = 20;
-		public Dictionary<string, ProductionTabGroup> Groups;
+
+		public readonly string ClickSound = ChromeMetrics.Get<string>("ClickSound");
+		public readonly string ClickDisabledSound = ChromeMetrics.Get<string>("ClickDisabledSound");
+
+		public readonly HotkeyReference PreviousProductionTabKey = new();
+		public readonly HotkeyReference NextProductionTabKey = new();
+
+		public readonly Dictionary<string, ProductionTabGroup> Groups;
+
+		public string ArrowButton = "button";
+		public string TabButton = "button";
+
+		public string Background = "panel-black";
+		public string Decorations = "scrollpanel-decorations";
+		public readonly string DecorationScrollLeft = "left";
+		public readonly string DecorationScrollRight = "right";
+		CachedTransform<(bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted), Sprite> getLeftArrowImage;
+		CachedTransform<(bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted), Sprite> getRightArrowImage;
+
+		public readonly Color TabColor = Color.White;
+		public readonly Color TabColorDone = Color.Gold;
 
 		int contentWidth = 0;
 		float listOffset = 0;
 		bool leftPressed = false;
 		bool rightPressed = false;
+		SpriteFont font;
 		Rectangle leftButtonRect;
 		Rectangle rightButtonRect;
-		Lazy<ProductionPaletteWidget> paletteWidget;
+		readonly Lazy<ProductionPaletteWidget> paletteWidget;
 		string queueGroup;
+
+		readonly List<(ProductionQueue Queue, bool Enabled)> cachedProductionQueueEnabledStates = new();
 
 		[ObjectCreator.UseCtor]
 		public ProductionTabsWidget(World world)
@@ -93,6 +121,19 @@ namespace OpenRA.Mods.Common.Widgets
 			paletteWidget = Exts.Lazy(() => Ui.Root.Get<ProductionPaletteWidget>(PaletteWidget));
 		}
 
+		public override void Initialize(WidgetArgs args)
+		{
+			base.Initialize(args);
+
+			var rb = RenderBounds;
+			leftButtonRect = new Rectangle(rb.X, rb.Y, ArrowWidth, rb.Height);
+			rightButtonRect = new Rectangle(rb.Right - ArrowWidth, rb.Y, ArrowWidth, rb.Height);
+			font = Game.Renderer.Fonts["TinyBold"];
+
+			getLeftArrowImage = WidgetUtils.GetCachedStatefulImage(Decorations, DecorationScrollLeft);
+			getRightArrowImage = WidgetUtils.GetCachedStatefulImage(Decorations, DecorationScrollRight);
+		}
+
 		public bool SelectNextTab(bool reverse)
 		{
 			if (queueGroup == null)
@@ -100,7 +141,7 @@ namespace OpenRA.Mods.Common.Widgets
 
 			// Prioritize alerted queues
 			var queues = Groups[queueGroup].Tabs.Select(t => t.Queue)
-					.OrderByDescending(q => q.CurrentDone ? 1 : 0)
+					.OrderByDescending(q => q.AllQueued().Any(i => i.Done) ? 1 : 0)
 					.ToList();
 
 			if (reverse) queues.Reverse();
@@ -119,10 +160,7 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public string QueueGroup
 		{
-			get
-			{
-				return queueGroup;
-			}
+			get => queueGroup;
 
 			set
 			{
@@ -134,15 +172,12 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public ProductionQueue CurrentQueue
 		{
-			get
-			{
-				return paletteWidget.Value.CurrentQueue;
-			}
+			get => paletteWidget.Value.CurrentQueue;
 
 			set
 			{
 				paletteWidget.Value.CurrentQueue = value;
-				queueGroup = value != null ? value.Info.Group : null;
+				queueGroup = value?.Info.Group;
 
 				// TODO: Scroll tabs so selected queue is visible
 			}
@@ -150,41 +185,50 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public override void Draw()
 		{
+			var tabs = Groups[queueGroup].Tabs.Where(t => t.Queue.BuildableItems().Any()).ToList();
+
+			if (tabs.Count == 0)
+				return;
+
 			var rb = RenderBounds;
-			leftButtonRect = new Rectangle(rb.X, rb.Y, ArrowWidth, rb.Height);
-			rightButtonRect = new Rectangle(rb.Right - ArrowWidth, rb.Y, ArrowWidth, rb.Height);
 
 			var leftDisabled = listOffset >= 0;
 			var leftHover = Ui.MouseOverWidget == this && leftButtonRect.Contains(Viewport.LastMousePos);
 			var rightDisabled = listOffset <= Bounds.Width - rightButtonRect.Width - leftButtonRect.Width - contentWidth;
 			var rightHover = Ui.MouseOverWidget == this && rightButtonRect.Contains(Viewport.LastMousePos);
 
-			WidgetUtils.DrawPanel("panel-black", rb);
-			ButtonWidget.DrawBackground("button", leftButtonRect, leftDisabled, leftPressed, leftHover, false);
-			ButtonWidget.DrawBackground("button", rightButtonRect, rightDisabled, rightPressed, rightHover, false);
+			WidgetUtils.DrawPanel(Background, rb);
+			ButtonWidget.DrawBackground(ArrowButton, leftButtonRect, leftDisabled, leftPressed, leftHover, false);
+			ButtonWidget.DrawBackground(ArrowButton, rightButtonRect, rightDisabled, rightPressed, rightHover, false);
 
-			WidgetUtils.DrawRGBA(ChromeProvider.GetImage("scrollbar", leftPressed || leftDisabled ? "left_pressed" : "left_arrow"),
-				new float2(leftButtonRect.Left + 2, leftButtonRect.Top + 2));
-			WidgetUtils.DrawRGBA(ChromeProvider.GetImage("scrollbar", rightPressed || rightDisabled ? "right_pressed" : "right_arrow"),
-				new float2(rightButtonRect.Left + 2, rightButtonRect.Top + 2));
+			var leftArrowImage = getLeftArrowImage.Update((leftDisabled, leftPressed, leftHover, false, false));
+			WidgetUtils.DrawSprite(leftArrowImage,
+				new float2(
+					leftButtonRect.Left + (int)((leftButtonRect.Width - leftArrowImage.Size.X) / 2),
+					leftButtonRect.Top + (int)((leftButtonRect.Height - leftArrowImage.Size.Y) / 2)));
+
+			var rightArrowImage = getRightArrowImage.Update((rightDisabled, rightPressed, rightHover, false, false));
+			WidgetUtils.DrawSprite(rightArrowImage,
+				new float2(
+					rightButtonRect.Left + (int)((rightButtonRect.Width - rightArrowImage.Size.X) / 2),
+					rightButtonRect.Top + (int)((rightButtonRect.Height - rightArrowImage.Size.Y) / 2)));
 
 			// Draw tab buttons
 			Game.Renderer.EnableScissor(new Rectangle(leftButtonRect.Right, rb.Y + 1, rightButtonRect.Left - leftButtonRect.Right - 1, rb.Height));
 			var origin = new int2(leftButtonRect.Right - 1 + (int)listOffset, leftButtonRect.Y);
-			var font = Game.Renderer.Fonts["TinyBold"];
 			contentWidth = 0;
 
-			foreach (var tab in Groups[queueGroup].Tabs)
+			foreach (var tab in tabs)
 			{
 				var rect = new Rectangle(origin.X + contentWidth, origin.Y, TabWidth, rb.Height);
 				var hover = !leftHover && !rightHover && Ui.MouseOverWidget == this && rect.Contains(Viewport.LastMousePos);
-				var baseName = tab.Queue == CurrentQueue ? "button-highlighted" : "button";
-				ButtonWidget.DrawBackground(baseName, rect, false, false, hover, false);
+				var highlighted = tab.Queue == CurrentQueue;
+				ButtonWidget.DrawBackground(TabButton, rect, false, false, hover, highlighted);
 				contentWidth += TabWidth - 1;
 
 				var textSize = font.Measure(tab.Name);
 				var position = new int2(rect.X + (rect.Width - textSize.X) / 2, rect.Y + (rect.Height - textSize.Y) / 2);
-				font.DrawTextWithContrast(tab.Name, position, tab.Queue.CurrentDone ? Color.Gold : Color.White, Color.Black, 1);
+				font.DrawTextWithContrast(tab.Name, position, tab.Queue.AllQueued().Any(i => i.Done) ? TabColorDone : TabColor, Color.Black, 1);
 			}
 
 			Game.Renderer.DisableScissor();
@@ -201,12 +245,16 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			if (a.Info.HasTraitInfo<ProductionQueueInfo>())
 			{
-				var allQueues = a.World.ActorsWithTrait<ProductionQueue>()
-					.Where(p => p.Actor.Owner == p.Actor.World.LocalPlayer && p.Actor.IsInWorld && p.Trait.Enabled)
-					.Select(p => p.Trait).ToList();
+				var queues = a.World.ActorsWithTrait<ProductionQueue>()
+					.Where(p => p.Actor.Owner == p.Actor.World.LocalPlayer && p.Actor.IsInWorld)
+					.Select(p => p.Trait);
+
+				cachedProductionQueueEnabledStates.Clear();
+				foreach (var queue in queues)
+					cachedProductionQueueEnabledStates.Add((queue, queue.Enabled));
 
 				foreach (var g in Groups.Values)
-					g.Update(allQueues);
+					g.Update(cachedProductionQueueEnabledStates.Select(t => t.Queue));
 
 				if (queueGroup == null)
 					return;
@@ -226,6 +274,22 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			if (leftPressed) Scroll(1);
 			if (rightPressed) Scroll(-1);
+
+			// It is possible that production queues get enabled/disabled during their lifetime.
+			// This makes sure every enabled production queue always has its tab associated with it.
+			var shouldUpdateQueues = false;
+			foreach (var (queue, enabled) in cachedProductionQueueEnabledStates)
+			{
+				if (queue.Enabled != enabled)
+				{
+					shouldUpdateQueues = true;
+					break;
+				}
+			}
+
+			if (shouldUpdateQueues)
+				foreach (var g in Groups.Values)
+					g.Update(cachedProductionQueueEnabledStates.Select(t => t.Queue));
 		}
 
 		public override bool YieldMouseFocus(MouseInput mi)
@@ -238,7 +302,7 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			if (mi.Event == MouseInputEvent.Scroll)
 			{
-				Scroll(mi.ScrollDelta);
+				Scroll(mi.Delta.Y);
 				return true;
 			}
 
@@ -262,9 +326,9 @@ namespace OpenRA.Mods.Common.Widgets
 			if (leftPressed || rightPressed)
 			{
 				if ((leftPressed && !leftDisabled) || (rightPressed && !rightDisabled))
-					Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", "ClickSound", null);
+					Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", ClickSound, null);
 				else
-					Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", "ClickDisabledSound", null);
+					Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", ClickDisabledSound, null);
 			}
 
 			// Check production tabs
@@ -272,7 +336,7 @@ namespace OpenRA.Mods.Common.Widgets
 			if (offsetloc.X > 0 && offsetloc.X < contentWidth)
 			{
 				CurrentQueue = Groups[queueGroup].Tabs[offsetloc.X / (TabWidth - 1)].Queue;
-				Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", "ClickSound", null);
+				Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", ClickSound, null);
 			}
 
 			return true;
@@ -283,17 +347,16 @@ namespace OpenRA.Mods.Common.Widgets
 			if (e.Event != KeyInputEvent.Down)
 				return false;
 
-			var hotkey = Hotkey.FromKeyInput(e);
-
-			if (hotkey == Game.Settings.Keys.NextProductionTabKey)
+			if (PreviousProductionTabKey.IsActivatedBy(e))
 			{
-				Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", "ClickSound", null);
-				return SelectNextTab(false);
-			}
-			else if (hotkey == Game.Settings.Keys.PreviousProductionTabKey)
-			{
-				Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", "ClickSound", null);
+				Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", ClickSound, null);
 				return SelectNextTab(true);
+			}
+
+			if (NextProductionTabKey.IsActivatedBy(e))
+			{
+				Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", ClickSound, null);
+				return SelectNextTab(false);
 			}
 
 			return false;

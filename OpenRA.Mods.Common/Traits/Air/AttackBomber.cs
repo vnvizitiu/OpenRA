@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,28 +12,29 @@
 using System;
 using System.Linq;
 using OpenRA.Activities;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[Desc("Trait used for scripted actors or actors spawned by a support power.")]
 	public class AttackBomberInfo : AttackBaseInfo
 	{
-		[Desc("Armament name")]
-		public readonly string Bombs = "primary";
-
-		[Desc("Armament name")]
-		public readonly string Guns = "secondary";
-		public readonly int FacingTolerance = 2;
-
 		public override object Create(ActorInitializer init) { return new AttackBomber(init.Self, this); }
 	}
 
 	public class AttackBomber : AttackBase, ITick, ISync, INotifyRemovedFromWorld
 	{
-		AttackBomberInfo info;
-		[Sync] Target target;
-		[Sync] bool inAttackRange;
-		[Sync] bool facingTarget = true;
+		readonly AttackBomberInfo info;
+
+		[Sync]
+		Target target;
+
+		[Sync]
+		bool inAttackRange;
+
+		[Sync]
+		bool facingTarget = true;
 
 		public event Action<Actor> OnRemovedFromWorld = self => { };
 		public event Action<Actor> OnEnteredAttackRange = self => { };
@@ -45,49 +46,32 @@ namespace OpenRA.Mods.Common.Traits
 			this.info = info;
 		}
 
-		public void Tick(Actor self)
+		void ITick.Tick(Actor self)
 		{
-			var bombHeight = self.World.Map.DistanceAboveTerrain(self.CenterPosition);
-			var bombTarget = Target.FromPos(self.CenterPosition - new WVec(WDist.Zero, WDist.Zero, bombHeight));
 			var wasInAttackRange = inAttackRange;
-			var wasFacingTarget = facingTarget;
-
 			inAttackRange = false;
 
-			var f = facing.Value.Facing;
-			var delta = target.CenterPosition - self.CenterPosition;
-			var facingToTarget = delta.HorizontalLengthSquared != 0 ? delta.Yaw.Facing : f;
-			facingTarget = Math.Abs(facingToTarget - f) % 256 <= info.FacingTolerance;
-
-			// Bombs drop anywhere in range
-			foreach (var a in Armaments.Where(a => a.Info.Name == info.Bombs))
+			if (self.IsInWorld)
 			{
-				if (!target.IsInRange(self.CenterPosition, a.MaxRange()))
-					continue;
+				var dat = self.World.Map.DistanceAboveTerrain(target.CenterPosition);
+				target = Target.FromPos(target.CenterPosition - new WVec(WDist.Zero, WDist.Zero, dat));
 
-				inAttackRange = true;
-				a.CheckFire(self, facing.Value, bombTarget);
-			}
+				var wasFacingTarget = facingTarget;
+				facingTarget = TargetInFiringArc(self, target, info.FacingTolerance);
 
-			// Guns only fire when approaching the target
-			if (facingTarget)
-			{
-				foreach (var a in Armaments.Where(a => a.Info.Name == info.Guns))
+				foreach (var a in Armaments)
 				{
 					if (!target.IsInRange(self.CenterPosition, a.MaxRange()))
 						continue;
 
 					inAttackRange = true;
-
-					var gunPos = self.CenterPosition - new WVec(0, a.MaxRange().Length / 2, 0).Rotate(WRot.FromFacing(f));
-					var gunHeight = self.World.Map.DistanceAboveTerrain(gunPos);
-					a.CheckFire(self, facing.Value, Target.FromPos(gunPos - new WVec(WDist.Zero, WDist.Zero, gunHeight)));
+					a.CheckFire(self, facing, target);
 				}
-			}
 
-			// Actors without armaments may want to trigger an action when it passes the target
-			if (!Armaments.Any())
-				inAttackRange = !wasInAttackRange && !facingTarget && wasFacingTarget;
+				// Actors without armaments may want to trigger an action when it passes the target
+				if (!Armaments.Any())
+					inAttackRange = !wasInAttackRange && !facingTarget && wasFacingTarget;
+			}
 
 			if (inAttackRange && !wasInAttackRange)
 				OnEnteredAttackRange(self);
@@ -96,14 +80,14 @@ namespace OpenRA.Mods.Common.Traits
 				OnExitedAttackRange(self);
 		}
 
-		public void SetTarget(World w, WPos pos) { target = Target.FromPos(pos); }
+		public void SetTarget(WPos pos) { target = Target.FromPos(pos); }
 
-		public void RemovedFromWorld(Actor self)
+		void INotifyRemovedFromWorld.RemovedFromWorld(Actor self)
 		{
 			OnRemovedFromWorld(self);
 		}
 
-		public override Activity GetAttackActivity(Actor self, Target newTarget, bool allowMove, bool forceAttack)
+		public override Activity GetAttackActivity(Actor self, AttackSource source, in Target newTarget, bool allowMove, bool forceAttack, Color? targetLineColor)
 		{
 			throw new NotImplementedException("AttackBomber requires a scripted target");
 		}

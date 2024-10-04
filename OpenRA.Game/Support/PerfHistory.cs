@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,22 +9,26 @@
  */
 #endregion
 
-using System.Drawing;
 using OpenRA.Primitives;
 
 namespace OpenRA.Support
 {
 	public static class PerfHistory
 	{
-		static readonly Color[] Colors = { Color.Red, Color.Green,
+		static readonly Color[] Colors =
+		{
+			Color.Red, Color.Green,
 			Color.Orange, Color.Yellow,
 			Color.Fuchsia, Color.Lime,
-			Color.LightBlue, Color.Blue,
-			Color.White, Color.Teal };
+			Color.Cyan, Color.Blue,
+			Color.White, Color.Teal,
+			Color.Pink, Color.MediumPurple,
+			Color.Olive, Color.CornflowerBlue
+		};
 
 		static int nextColor;
 
-		public static Cache<string, PerfItem> Items = new Cache<string, PerfItem>(
+		public static Cache<string, PerfItem> Items = new(
 			s =>
 			{
 				var x = new PerfItem(s, Colors[nextColor++]);
@@ -42,6 +46,12 @@ namespace OpenRA.Support
 			foreach (var item in Items.Values)
 				if (item.HasNormalTick)
 					item.Tick();
+		}
+
+		public static void Reset()
+		{
+			foreach (var item in Items.Values)
+				item.ResetSamples();
 		}
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,11 +9,13 @@
  */
 #endregion
 
+using System;
+
 namespace OpenRA
 {
-	public struct Hotkey
+	public readonly struct Hotkey : IEquatable<Hotkey>
 	{
-		public static Hotkey Invalid = new Hotkey(Keycode.UNKNOWN, Modifiers.None);
+		public static Hotkey Invalid = new(Keycode.UNKNOWN, Modifiers.None);
 		public bool IsValid()
 		{
 			return Key != Keycode.UNKNOWN;
@@ -30,11 +32,9 @@ namespace OpenRA
 
 			var parts = s.Split(' ');
 
-			Keycode key;
-			if (!Enum<Keycode>.TryParse(parts[0], true, out key))
+			if (!Enum<Keycode>.TryParse(parts[0], true, out var key))
 			{
-				int c;
-				if (!int.TryParse(parts[0], out c))
+				if (!int.TryParse(parts[0], out var c))
 					return false;
 				key = (Keycode)c;
 			}
@@ -42,7 +42,7 @@ namespace OpenRA
 			var mods = Modifiers.None;
 			if (parts.Length >= 2)
 			{
-				var modString = s.Substring(s.IndexOf(' '));
+				var modString = s[s.IndexOf(' ')..];
 				if (!Enum<Modifiers>.TryParse(modString, true, out mods))
 					return false;
 			}
@@ -74,13 +74,17 @@ namespace OpenRA
 
 		public override int GetHashCode() { return Key.GetHashCode() ^ Modifiers.GetHashCode(); }
 
-		public override bool Equals(object obj)
+		public bool Equals(Hotkey other)
 		{
-			var o = obj as Hotkey?;
-			return o != null && o == this;
+			return other == this;
 		}
 
-		public override string ToString() { return "{0} {1}".F(Key, Modifiers.ToString("F")); }
+		public override bool Equals(object obj)
+		{
+			return obj is Hotkey o && (Hotkey?)o == this;
+		}
+
+		public override string ToString() { return $"{Key} {Modifiers:F}"; }
 
 		public string DisplayString()
 		{

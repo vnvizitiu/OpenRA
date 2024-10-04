@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -15,22 +15,21 @@ using OpenRA.Graphics;
 using OpenRA.Mods.Common;
 using OpenRA.Mods.Common.Graphics;
 using OpenRA.Mods.Common.Traits;
-using OpenRA.Mods.Common.Traits.Render;
 using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Cnc.Traits.Render
 {
 	[Desc("Renders the cargo loaded into the unit.")]
-	public class WithCargoInfo : ITraitInfo, Requires<CargoInfo>, Requires<BodyOrientationInfo>
+	public class WithCargoInfo : TraitInfo, Requires<CargoInfo>, Requires<BodyOrientationInfo>
 	{
 		[Desc("Cargo position relative to turret or body in (forward, right, up) triples. The default offset should be in the middle of the list.")]
 		public readonly WVec[] LocalOffset = { WVec.Zero };
 
 		[Desc("Passenger CargoType to display.")]
-		public readonly HashSet<string> DisplayTypes = new HashSet<string>();
+		public readonly HashSet<string> DisplayTypes = new();
 
-		public object Create(ActorInitializer init) { return new WithCargo(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new WithCargo(init.Self, this); }
 	}
 
 	public class WithCargo : ITick, IRender, INotifyPassengerEntered, INotifyPassengerExited
@@ -39,8 +38,9 @@ namespace OpenRA.Mods.Cnc.Traits.Render
 		readonly Cargo cargo;
 		readonly BodyOrientation body;
 		readonly IFacing facing;
+		WAngle cachedFacing;
 
-		Dictionary<Actor, IActorPreview[]> previews = new Dictionary<Actor, IActorPreview[]>();
+		readonly Dictionary<Actor, IActorPreview[]> previews = new();
 
 		public WithCargo(Actor self, WithCargoInfo info)
 		{
@@ -57,11 +57,20 @@ namespace OpenRA.Mods.Cnc.Traits.Render
 				if (actorPreviews != null)
 					foreach (var preview in actorPreviews)
 						preview.Tick();
+
+			// HACK: We don't have an efficient way to know when the preview
+			// bounds change, so assume that we need to update the screen map
+			// (only) when the facing changes
+			if (facing.Facing != cachedFacing && previews.Count > 0)
+			{
+				self.World.ScreenMap.AddOrUpdate(self);
+				cachedFacing = facing.Facing;
+			}
 		}
 
 		IEnumerable<IRenderable> IRender.Render(Actor self, WorldRenderer wr)
 		{
-			var bodyOrientation = body.QuantizeOrientation(self, self.Orientation);
+			var bodyOrientation = body.QuantizeOrientation(self.Orientation);
 			var pos = self.CenterPosition;
 			var i = 0;
 
@@ -88,25 +97,45 @@ namespace OpenRA.Mods.Cnc.Traits.Render
 					.ToArray();
 			}
 
-			foreach (var p in previews.Values.SelectMany(p => p))
+			foreach (var actorPreviews in previews.Values)
 			{
-				var index = cargo.PassengerCount > 1 ? i++ % info.LocalOffset.Length : info.LocalOffset.Length / 2;
-				var localOffset = info.LocalOffset[index];
+				if (actorPreviews == null)
+					continue;
 
-				foreach (var pp in p.Render(wr, pos + body.LocalToWorld(localOffset.Rotate(bodyOrientation))))
-					yield return pp.WithZOffset(1);
+				foreach (var p in actorPreviews)
+				{
+					var index = cargo.PassengerCount > 1 ? i++ % info.LocalOffset.Length : info.LocalOffset.Length / 2;
+					var localOffset = info.LocalOffset[index];
+
+					foreach (var pp in p.Render(wr, pos + body.LocalToWorld(localOffset.Rotate(bodyOrientation))))
+						yield return pp.WithZOffset(1);
+				}
 			}
+		}
+
+		IEnumerable<Rectangle> IRender.ScreenBounds(Actor self, WorldRenderer wr)
+		{
+			var pos = self.CenterPosition;
+			foreach (var actorPreviews in previews.Values)
+				if (actorPreviews != null)
+					foreach (var p in actorPreviews)
+						foreach (var b in p.ScreenBounds(wr, pos))
+							yield return b;
 		}
 
 		void INotifyPassengerEntered.OnPassengerEntered(Actor self, Actor passenger)
 		{
 			if (info.DisplayTypes.Contains(passenger.Trait<Passenger>().Info.CargoType))
+			{
 				previews.Add(passenger, null);
+				self.World.ScreenMap.AddOrUpdate(self);
+			}
 		}
 
 		void INotifyPassengerExited.OnPassengerExited(Actor self, Actor passenger)
 		{
 			previews.Remove(passenger);
+			self.World.ScreenMap.AddOrUpdate(self);
 		}
 	}
 }

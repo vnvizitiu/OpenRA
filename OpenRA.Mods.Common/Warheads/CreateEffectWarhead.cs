@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,127 +9,141 @@
  */
 #endregion
 
-using System.Collections.Generic;
+using System;
+using System.Linq;
+using OpenRA.GameRules;
 using OpenRA.Mods.Common.Effects;
 using OpenRA.Mods.Common.Traits;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Warheads
 {
+	[Desc("Spawn a sprite with sound.")]
 	public class CreateEffectWarhead : Warhead
 	{
+		[SequenceReference(nameof(Image), allowNullImage: true)]
 		[Desc("List of explosion sequences that can be used.")]
-		[SequenceReference("Image")] public readonly string[] Explosions = new string[0];
+		public readonly string[] Explosions = Array.Empty<string>();
 
 		[Desc("Image containing explosion effect sequence.")]
 		public readonly string Image = "explosion";
 
-		[Desc("Palette to use for explosion effect."), PaletteReference("UsePlayerPalette")]
+		[PaletteReference(nameof(UsePlayerPalette))]
+		[Desc("Palette to use for explosion effect.")]
 		public readonly string ExplosionPalette = "effect";
 
 		[Desc("Remap explosion effect to player color, if art supports it.")]
 		public readonly bool UsePlayerPalette = false;
 
-		[Desc("Search radius around impact for 'direct hit' check.")]
-		public readonly WDist TargetSearchRadius = new WDist(2048);
+		[Desc("Display explosion effect at ground level, regardless of explosion altitude.")]
+		public readonly bool ForceDisplayAtGroundLevel = false;
 
 		[Desc("List of sounds that can be played on impact.")]
-		public readonly string[] ImpactSounds = new string[0];
+		public readonly string[] ImpactSounds = Array.Empty<string>();
 
-		[Desc("What impact types should this effect apply to.")]
-		public readonly ImpactType ValidImpactTypes = ImpactType.Ground | ImpactType.Water | ImpactType.Air | ImpactType.GroundHit | ImpactType.WaterHit | ImpactType.AirHit;
+		[Desc("Chance of impact sound to play.")]
+		public readonly int ImpactSoundChance = 100;
 
-		[Desc("What impact types should this effect NOT apply to.", "Overrides ValidImpactTypes.")]
-		public readonly ImpactType InvalidImpactTypes = ImpactType.None;
+		[Desc("Whether to consider actors in determining whether the explosion should happen. If false, only terrain will be considered.")]
+		public readonly bool ImpactActors = true;
 
-		public ImpactType GetImpactType(World world, CPos cell, WPos pos, Actor firedBy)
+		[Desc("The maximum inaccuracy of the effect spawn position relative to actual impact position.")]
+		public readonly WDist Inaccuracy = WDist.Zero;
+
+		static readonly BitSet<TargetableType> TargetTypeAir = new("Air");
+
+		/// <summary>Checks if there are any actors at impact position and if the warhead is valid against any of them.</summary>
+		ImpactActorType ActorTypeAtImpact(World world, WPos pos, Actor firedBy)
 		{
-			// Missiles need a margin because they sometimes explode a little above ground
-			// due to their explosion check triggering slightly too early (because of CloseEnough).
-			// TODO: Base ImpactType on target altitude instead of explosion altitude.
-			var airMargin = new WDist(128);
+			var anyInvalidActor = false;
 
-			// Matching target actor
-			if (ValidImpactTypes.HasFlag(ImpactType.TargetHit) && GetDirectHit(world, cell, pos, firedBy, true))
-				return ImpactType.TargetHit;
-
-			var dat = world.Map.DistanceAboveTerrain(pos);
-			var isDirectHit = GetDirectHit(world, cell, pos, firedBy);
-
-			if (dat.Length > airMargin.Length)
-				return isDirectHit ? ImpactType.AirHit : ImpactType.Air;
-
-			if (dat.Length <= airMargin.Length && world.Map.GetTerrainInfo(cell).IsWater)
-				return isDirectHit ? ImpactType.WaterHit : ImpactType.Water;
-
-			if (isDirectHit)
-				return ImpactType.GroundHit;
-
-			// Matching target terrain
-			if (ValidImpactTypes.HasFlag(ImpactType.TargetTerrain)
-				&& IsValidTarget(world.Map.GetTerrainInfo(cell).TargetTypes))
-				return ImpactType.TargetTerrain;
-
-			return ImpactType.Ground;
-		}
-
-		public bool GetDirectHit(World world, CPos cell, WPos pos, Actor firedBy, bool checkTargetType = false)
-		{
-			foreach (var victim in world.FindActorsInCircle(pos, TargetSearchRadius))
+			// Check whether the impact position overlaps with an actor's hitshape
+			foreach (var victim in world.FindActorsOnCircle(pos, WDist.Zero))
 			{
-				if (checkTargetType && !IsValidAgainst(victim, firedBy))
+				if (!AffectsParent && victim == firedBy)
 					continue;
 
-				var healthInfo = victim.Info.TraitInfoOrDefault<HealthInfo>();
-				if (healthInfo == null)
+				var activeShapes = victim.TraitsImplementing<HitShape>().Where(t => !t.IsTraitDisabled);
+				if (!activeShapes.Any(s => s.DistanceFromEdge(victim, pos).Length <= 0))
 					continue;
 
-				// If the impact position is within any actor's HitShape, we have a direct hit
-				if (healthInfo.Shape.DistanceFromEdge(pos, victim).Length <= 0)
-					return true;
+				if (IsValidAgainst(victim, firedBy))
+					return ImpactActorType.Valid;
+
+				anyInvalidActor = true;
 			}
 
-			return false;
+			return anyInvalidActor ? ImpactActorType.Invalid : ImpactActorType.None;
 		}
 
-		public override void DoImpact(Target target, Actor firedBy, IEnumerable<int> damageModifiers)
+		// ActorTypeAtImpact already checks AffectsParent beforehand, to avoid parent HitShape look-ups
+		// (and to prevent returning ImpactActorType.Invalid on AffectsParent=false)
+		public override bool IsValidAgainst(Actor victim, Actor firedBy)
 		{
-			if (!target.IsValidFor(firedBy))
-				return;
-
-			var pos = target.CenterPosition;
-			var world = firedBy.World;
-			var targetTile = world.Map.CellContaining(pos);
-			var isValid = IsValidImpact(pos, firedBy);
-
-			if ((!world.Map.Contains(targetTile)) || (!isValid))
-				return;
-
-			var palette = ExplosionPalette;
-			if (UsePlayerPalette)
-				palette += firedBy.Owner.InternalName;
-
-			var explosion = Explosions.RandomOrDefault(Game.CosmeticRandom);
-			if (Image != null && explosion != null)
-				world.AddFrameEndTask(w => w.Add(new SpriteEffect(pos, w, Image, explosion, palette)));
-
-			var impactSound = ImpactSounds.RandomOrDefault(Game.CosmeticRandom);
-			if (impactSound != null)
-				Game.Sound.Play(impactSound, pos);
-		}
-
-		public bool IsValidImpact(WPos pos, Actor firedBy)
-		{
-			var world = firedBy.World;
-			var targetTile = world.Map.CellContaining(pos);
-			if (!world.Map.Contains(targetTile))
+			var relationship = firedBy.Owner.RelationshipWith(victim.Owner);
+			if (!ValidRelationships.HasRelationship(relationship))
 				return false;
 
-			var impactType = GetImpactType(world, targetTile, pos, firedBy);
-			if (!ValidImpactTypes.HasFlag(impactType) || InvalidImpactTypes.HasFlag(impactType))
+			// A target type is valid if it is in the valid targets list, and not in the invalid targets list.
+			if (!IsValidTarget(victim.GetEnabledTargetTypes()))
 				return false;
 
 			return true;
+		}
+
+		public override void DoImpact(in Target target, WarheadArgs args)
+		{
+			if (target.Type == TargetType.Invalid)
+				return;
+
+			var firedBy = args.SourceActor;
+			var pos = target.CenterPosition;
+			var world = firedBy.World;
+			var actorAtImpact = ImpactActors ? ActorTypeAtImpact(world, pos, firedBy) : ImpactActorType.None;
+
+			// Ignore the impact if there are only invalid actors within range
+			if (actorAtImpact == ImpactActorType.Invalid)
+				return;
+
+			// Ignore the impact if there are no valid actors and no valid terrain
+			// (impacts are allowed on valid actors sitting on invalid terrain!)
+			if (actorAtImpact == ImpactActorType.None && !IsValidAgainstTerrain(world, pos))
+				return;
+
+			var explosion = Explosions.RandomOrDefault(world.LocalRandom);
+			if (Image != null && explosion != null)
+			{
+				if (Inaccuracy.Length > 0)
+					pos += WVec.FromPDF(world.SharedRandom, 2) * Inaccuracy.Length / 1024;
+
+				if (ForceDisplayAtGroundLevel)
+				{
+					var dat = world.Map.DistanceAboveTerrain(pos);
+					pos -= new WVec(0, 0, dat.Length);
+				}
+
+				var palette = ExplosionPalette;
+				if (UsePlayerPalette)
+					palette += firedBy.Owner.InternalName;
+
+				world.AddFrameEndTask(w => w.Add(new SpriteEffect(pos, w, Image, explosion, palette)));
+			}
+
+			var impactSound = ImpactSounds.RandomOrDefault(world.LocalRandom);
+			if (impactSound != null && world.LocalRandom.Next(0, 100) < ImpactSoundChance)
+				Game.Sound.Play(SoundType.World, impactSound, pos);
+		}
+
+		/// <summary>Checks if the warhead is valid against the terrain at impact position.</summary>
+		bool IsValidAgainstTerrain(World world, WPos pos)
+		{
+			var cell = world.Map.CellContaining(pos);
+			if (!world.Map.Contains(cell))
+				return false;
+
+			var dat = world.Map.DistanceAboveTerrain(pos);
+			return IsValidTarget(dat > AirThreshold ? TargetTypeAir : world.Map.GetTerrainInfo(cell).TargetTypes);
 		}
 	}
 }

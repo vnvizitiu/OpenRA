@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -20,28 +20,30 @@ namespace OpenRA.Mods.Common.Activities
 	public class Hunt : Activity
 	{
 		readonly IEnumerable<Actor> targets;
+		readonly IMove move;
 
 		public Hunt(Actor self)
 		{
+			move = self.Trait<IMove>();
 			var attack = self.Trait<AttackBase>();
 			targets = self.World.ActorsHavingTrait<Huntable>().Where(
 				a => self != a && !a.IsDead && a.IsInWorld && a.AppearsHostileTo(self)
 				&& a.IsTargetableBy(self) && attack.HasAnyValidWeapons(Target.FromActor(a)));
 		}
 
-		public override Activity Tick(Actor self)
+		public override bool Tick(Actor self)
 		{
-			if (IsCanceled)
-				return NextActivity;
+			if (IsCanceling)
+				return true;
 
-			var target = targets.ClosestTo(self);
-			if (target == null)
-				return this;
+			var targetActor = targets.ClosestToWithPathFrom(self);
+			if (targetActor == null)
+				return false;
 
-			return ActivityUtils.SequenceActivities(
-				new AttackMoveActivity(self, new Move(self, target.Location, WDist.FromCells(2))),
-				new Wait(25),
-				this);
+			// We want to keep 2 cells of distance from the target to prevent the pathfinder from thinking the target position is blocked.
+			QueueChild(new AttackMoveActivity(self, () => move.MoveWithinRange(Target.FromCell(self.World, targetActor.Location), WDist.FromCells(2))));
+			QueueChild(new Wait(25));
+			return false;
 		}
 	}
 }

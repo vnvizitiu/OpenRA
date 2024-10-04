@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,16 +10,27 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Commands
 {
+	[TraitLocation(SystemActors.World)]
 	[Desc("Shows a list of available commands in the chatbox. Attach this to the world actor.")]
 	public class HelpCommandInfo : TraitInfo<HelpCommand> { }
 
 	public class HelpCommand : IChatCommand, IWorldLoaded
 	{
+		[FluentReference]
+		const string AvailableCommands = "notification-available-commands";
+
+		[FluentReference]
+		const string NoDescription = "description-no-description";
+
+		[FluentReference]
+		const string HelpDescription = "description-help-description";
+
 		readonly Dictionary<string, string> helpDescriptions;
 
 		World world;
@@ -36,26 +47,25 @@ namespace OpenRA.Mods.Common.Commands
 			console = world.WorldActor.Trait<ChatCommands>();
 
 			console.RegisterCommand("help", this);
-			RegisterHelp("help", "provides useful info about various commands");
+			RegisterHelp("help", HelpDescription);
 		}
 
 		public void InvokeCommand(string name, string arg)
 		{
-			Game.Debug("Here are the available commands:");
+			TextNotificationsManager.Debug(FluentProvider.GetString(AvailableCommands));
 
-			foreach (var key in console.Commands.Keys)
+			foreach (var key in console.Commands.Keys.OrderBy(k => k))
 			{
-				string description;
-				if (!helpDescriptions.TryGetValue(key, out description))
-					description = "no description available.";
+				if (!helpDescriptions.TryGetValue(key, out var description))
+					description = FluentProvider.GetString(NoDescription);
 
-				Game.Debug("{0}: {1}", key, description);
+				TextNotificationsManager.Debug($"{key}: {description}");
 			}
 		}
 
 		public void RegisterHelp(string name, string description)
 		{
-			helpDescriptions[name] = description;
+			helpDescriptions[name] = FluentProvider.GetString(description);
 		}
 	}
 }

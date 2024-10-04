@@ -1,3 +1,11 @@
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
 
 SovietEntryPoints = { Entry1, Entry2, Entry3, Entry4, Entry5, Entry6, Entry7, Entry8 }
 PatrolWaypoints = { Entry2, Entry4, Entry6, Entry8 }
@@ -13,7 +21,7 @@ Walls =
 	{ WallBottomRight1, WallBottomRight2, WallBottomRight3, WallBottomRight4, WallBottomRight5, WallBottomRight6, WallBottomRight7, WallBottomRight8, WallBottomRight9 }
 }
 
-if Map.LobbyOption("difficulty") == "veryeasy" then
+if Difficulty == "veryeasy" then
 	ParaChance = 20
 	Patrol = { "e1", "e2", "e1" }
 	Infantry = { "e4", "e1", "e1", "e2", "e2" }
@@ -22,7 +30,7 @@ if Map.LobbyOption("difficulty") == "veryeasy" then
 	LongRange = { "arty" }
 	Boss = { "v2rl" }
 	Swarm = { "shok", "shok", "shok" }
-elseif Map.LobbyOption("difficulty") == "easy" then
+elseif Difficulty == "easy" then
 	ParaChance = 25
 	Patrol = { "e1", "e2", "e1" }
 	Infantry = { "e4", "e1", "e1", "e2", "e1", "e2", "e1" }
@@ -31,7 +39,7 @@ elseif Map.LobbyOption("difficulty") == "easy" then
 	LongRange = { "v2rl" }
 	Boss = { "4tnk" }
 	Swarm = { "shok", "shok", "shok", "shok", "ttnk" }
-elseif Map.LobbyOption("difficulty") == "normal" then
+elseif Difficulty == "normal" then
 	ParaChance = 30
 	Patrol = { "e1", "e2", "e1", "e1" }
 	Infantry = { "e4", "e1", "e1", "e2", "e1", "e2", "e1" }
@@ -40,7 +48,7 @@ elseif Map.LobbyOption("difficulty") == "normal" then
 	LongRange = { "v2rl" }
 	Boss = { "4tnk" }
 	Swarm = { "shok", "shok", "shok", "shok", "ttnk", "ttnk", "ttnk" }
-elseif Map.LobbyOption("difficulty") == "hard" then
+elseif Difficulty == "hard" then
 	ParaChance = 35
 	Patrol = { "e1", "e2", "e1", "e1", "e4" }
 	Infantry = { "e4", "e1", "e1", "e2", "e1", "e2", "e1" }
@@ -77,14 +85,22 @@ Waves =
 }
 
 -- Now do some adjustments to the waves
-if Map.LobbyOption("difficulty") == "tough" or Map.LobbyOption("difficulty") == "endless" then
+if Difficulty == "tough" or Difficulty == "endless" then
 	Waves[8] = { delay = 1500, units = { Infantry, Infantry, Patrol, Infantry, Infantry, Infantry }, ironUnits = { LongRange } }
 	Waves[9] = { delay = 1500, units = { Infantry, Infantry, Patrol, Infantry, Infantry, Infantry, Infantry, Infantry, LongRange, LongRange, Vehicles, Tank }, ironUnits = { Tank } }
 	Waves[11] = { delay = 1500, units = { Vehicles, Infantry, Patrol, Patrol, Patrol, Infantry, LongRange, Tank, Boss, Infantry, Infantry, Patrol } }
 end
 
+IdleHunt = function(actor)
+	Trigger.OnIdle(actor, function(a)
+		if a.IsInWorld then
+			a.Hunt()
+		end
+	end)
+end
+
 SendUnits = function(entryCell, unitTypes, targetCell, extraData)
-	Reinforcements.Reinforce(soviets, unitTypes, { entryCell }, 40, function(a)
+	Reinforcements.Reinforce(Soviets, unitTypes, { entryCell }, 40, function(a)
 		if not a.HasProperty("AttackMove") then
 			Trigger.OnIdle(a, function(a)
 				a.Move(targetCell)
@@ -98,7 +114,7 @@ SendUnits = function(entryCell, unitTypes, targetCell, extraData)
 		end)
 
 		if extraData == "IronCurtain" then
-			a.GrantTimedUpgrade("invulnerability", DateTime.Seconds(25))
+			a.GrantCondition("invulnerability", DateTime.Seconds(25))
 		end
 	end)
 end
@@ -124,18 +140,16 @@ SendWave = function()
 			end)
 		end
 
-		Utils.Do(players, function(player)
+		Utils.Do(Players, function(player)
 			Media.PlaySpeechNotification(player, "EnemyUnitsApproaching")
 		end)
 
 		if (Wave < #Waves) then
 			if Utils.RandomInteger(1, 100) < ParaChance then
-				local units = ParaProxy.SendParatroopers(Utils.Random(ParadropWaypoints).CenterPosition)
-				Utils.Do(units, function(unit)
-					Trigger.OnIdle(unit, function(a)
-						if a.IsInWorld then
-							a.Hunt()
-						end
+				local aircraft = ParaProxy.TargetParatroopers(Utils.Random(ParadropWaypoints).CenterPosition)
+				Utils.Do(aircraft, function(a)
+					Trigger.OnPassengerExited(a, function(t, p)
+						IdleHunt(p)
 					end)
 				end)
 
@@ -145,7 +159,7 @@ SendWave = function()
 				SendWave()
 			end
 		else
-			if Map.LobbyOption("difficulty") == "endless" then
+			if Difficulty == "endless" then
 				Wave = 0
 				IncreaseDifficulty()
 				SendWave()
@@ -153,14 +167,14 @@ SendWave = function()
 			end
 
 			Trigger.AfterDelay(DateTime.Minutes(1), SovietsRetreating)
-			Media.DisplayMessage("You almost survived the onslaught! No more waves incoming.")
+			Media.DisplayMessage(UserInterface.Translate("no-more-waves"))
 		end
 	end)
 end
 
 SovietsRetreating = function()
 	Utils.Do(Snipers, function(a)
-		if not a.IsDead and a.Owner == soviets then
+		if not a.IsDead and a.Owner == Soviets then
 			a.Destroy()
 		end
 	end)
@@ -187,7 +201,7 @@ Tick = function()
 end
 
 SetupWallOwners = function()
-	Utils.Do(players, function(player)
+	Utils.Do(Players, function(player)
 		Utils.Do(Walls[player.Spawn], function(wall)
 			wall.Owner = player
 		end)
@@ -195,21 +209,21 @@ SetupWallOwners = function()
 end
 
 WorldLoaded = function()
-	soviets = Player.GetPlayer("Soviets")
-	players = { }
+	Soviets = Player.GetPlayer("Soviets")
+	Players = { }
 	for i = 0, 4 do
 		local player = Player.GetPlayer("Multi" ..i)
-		players[i] = player
+		Players[i] = player
 
-		if players[i] and players[i].IsBot then
-			ActivateAI(players[i], i)
+		if Players[i] and Players[i].IsBot then
+			ActivateAI(Players[i], i)
 		end
 	end
 
-	Media.DisplayMessage("Defend Fort Lonestar at all costs!")
+	Media.DisplayMessage(UserInterface.Translate("defend-fort-lonestar"))
 
 	SetupWallOwners()
 
-	ParaProxy = Actor.Create("powerproxy.paratroopers", false, { Owner = soviets })
+	ParaProxy = Actor.Create("powerproxy.paratroopers", false, { Owner = Soviets })
 	SendWave()
 end

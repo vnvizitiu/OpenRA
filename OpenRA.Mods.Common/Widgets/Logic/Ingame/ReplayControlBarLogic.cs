@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -20,7 +20,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 	{
 		enum PlaybackSpeed { Regular, Slow, Fast, Maximum }
 
-		readonly Dictionary<PlaybackSpeed, float> multipliers = new Dictionary<PlaybackSpeed, float>()
+		readonly Dictionary<PlaybackSpeed, float> multipliers = new()
 		{
 			{ PlaybackSpeed.Regular, 1 },
 			{ PlaybackSpeed.Slow, 2 },
@@ -45,59 +45,56 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				var speed = PlaybackSpeed.Regular;
 				var originalTimestep = world.Timestep;
 
+				// In the event the replay goes out of sync, it becomes no longer usable. For polish we permanently pause the world.
+				bool IsWidgetDisabled() => orderManager.IsOutOfSync || orderManager.NetFrameNumber >= replayNetTicks;
+
 				var pauseButton = widget.Get<ButtonWidget>("BUTTON_PAUSE");
-				pauseButton.GetKey = _ => Game.Settings.Keys.PauseKey;
-				pauseButton.IsVisible = () => world.Timestep != 0 && orderManager.NetFrameNumber < replayNetTicks;
-				pauseButton.OnClick = () => world.Timestep = 0;
+				pauseButton.IsVisible = () => world.ReplayTimestep != 0 && !IsWidgetDisabled();
+				pauseButton.OnClick = () => world.ReplayTimestep = 0;
 
 				var playButton = widget.Get<ButtonWidget>("BUTTON_PLAY");
-				playButton.GetKey = _ => Game.Settings.Keys.PauseKey;
-				playButton.IsVisible = () => world.Timestep == 0 || orderManager.NetFrameNumber >= replayNetTicks;
-				playButton.OnClick = () => world.Timestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
-				playButton.IsDisabled = () => orderManager.NetFrameNumber >= replayNetTicks;
+				playButton.IsVisible = () => world.ReplayTimestep == 0 || IsWidgetDisabled();
+				playButton.OnClick = () => world.ReplayTimestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
+				playButton.IsDisabled = IsWidgetDisabled;
 
 				var slowButton = widget.Get<ButtonWidget>("BUTTON_SLOW");
-				slowButton.GetKey = _ => Game.Settings.Keys.ReplaySpeedSlowKey;
 				slowButton.IsHighlighted = () => speed == PlaybackSpeed.Slow;
-				slowButton.IsDisabled = () => orderManager.NetFrameNumber >= replayNetTicks;
+				slowButton.IsDisabled = IsWidgetDisabled;
 				slowButton.OnClick = () =>
 				{
 					speed = PlaybackSpeed.Slow;
-					if (world.Timestep != 0)
-						world.Timestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
+					if (world.ReplayTimestep != 0)
+						world.ReplayTimestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
 				};
 
 				var normalSpeedButton = widget.Get<ButtonWidget>("BUTTON_REGULAR");
-				normalSpeedButton.GetKey = _ => Game.Settings.Keys.ReplaySpeedRegularKey;
 				normalSpeedButton.IsHighlighted = () => speed == PlaybackSpeed.Regular;
-				normalSpeedButton.IsDisabled = () => orderManager.NetFrameNumber >= replayNetTicks;
+				normalSpeedButton.IsDisabled = IsWidgetDisabled;
 				normalSpeedButton.OnClick = () =>
 				{
 					speed = PlaybackSpeed.Regular;
-					if (world.Timestep != 0)
-						world.Timestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
+					if (world.ReplayTimestep != 0)
+						world.ReplayTimestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
 				};
 
 				var fastButton = widget.Get<ButtonWidget>("BUTTON_FAST");
-				fastButton.GetKey = _ => Game.Settings.Keys.ReplaySpeedFastKey;
 				fastButton.IsHighlighted = () => speed == PlaybackSpeed.Fast;
-				fastButton.IsDisabled = () => orderManager.NetFrameNumber >= replayNetTicks;
+				fastButton.IsDisabled = IsWidgetDisabled;
 				fastButton.OnClick = () =>
 				{
 					speed = PlaybackSpeed.Fast;
-					if (world.Timestep != 0)
-						world.Timestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
+					if (world.ReplayTimestep != 0)
+						world.ReplayTimestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
 				};
 
 				var maximumButton = widget.Get<ButtonWidget>("BUTTON_MAXIMUM");
-				maximumButton.GetKey = _ => Game.Settings.Keys.ReplaySpeedMaxKey;
 				maximumButton.IsHighlighted = () => speed == PlaybackSpeed.Maximum;
-				maximumButton.IsDisabled = () => orderManager.NetFrameNumber >= replayNetTicks;
+				maximumButton.IsDisabled = IsWidgetDisabled;
 				maximumButton.OnClick = () =>
 				{
 					speed = PlaybackSpeed.Maximum;
-					if (world.Timestep != 0)
-						world.Timestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
+					if (world.ReplayTimestep != 0)
+						world.ReplayTimestep = (int)Math.Ceiling(originalTimestep * multipliers[speed]);
 				};
 			}
 		}

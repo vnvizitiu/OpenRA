@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -16,11 +16,11 @@ namespace OpenRA.Primitives
 {
 	public interface IObservableCollection
 	{
-		event Action<object> OnAdd;
-		event Action<object> OnRemove;
-		event Action<int> OnRemoveAt;
-		event Action<object, object> OnSet;
-		event Action OnRefresh;
+		event Action<IObservableCollection, object> OnAdd;
+		event Action<IObservableCollection, object> OnRemove;
+		event Action<IObservableCollection, int> OnRemoveAt;
+		event Action<IObservableCollection, object, object> OnSet;
+		event Action<IObservableCollection> OnRefresh;
 		IEnumerable ObservedItems { get; }
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,8 +10,6 @@
 #endregion
 
 using System;
-using System.Drawing;
-using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
 using OpenRA.Widgets;
@@ -30,6 +28,13 @@ namespace OpenRA.Mods.Common.Widgets
 		Top
 	}
 
+	public enum ScrollBar
+	{
+		Left,
+		Right,
+		Hidden
+	}
+
 	public class ScrollPanelWidget : Widget
 	{
 		readonly Ruleset modRules;
@@ -38,13 +43,24 @@ namespace OpenRA.Mods.Common.Widgets
 		public int TopBottomSpacing = 2;
 		public int ItemSpacing = 0;
 		public int ButtonDepth = ChromeMetrics.Get<int>("ButtonDepth");
+		public string ClickSound = ChromeMetrics.Get<string>("ClickSound");
+		public string ClickDisabledSound = ChromeMetrics.Get<string>("ClickDisabledSound");
 		public string Background = "scrollpanel-bg";
+		public string ScrollBarBackground = "scrollpanel-bg";
 		public string Button = "scrollpanel-button";
+		public string Decorations = "scrollpanel-decorations";
+		public readonly string DecorationScrollUp = "up";
+		public readonly string DecorationScrollDown = "down";
+		readonly CachedTransform<(bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted), Sprite> getUpArrowImage;
+		readonly CachedTransform<(bool Disabled, bool Pressed, bool Hover, bool Focused, bool Highlighted), Sprite> getDownArrowImage;
 		public int ContentHeight;
 		public ILayout Layout;
 		public int MinimumThumbSize = 10;
 		public ScrollPanelAlign Align = ScrollPanelAlign.Top;
+		public ScrollBar ScrollBar = ScrollBar.Right;
 		public bool CollapseHiddenChildren;
+
+		// Fraction of the remaining scroll-delta to move in 40ms
 		public float SmoothScrollSpeed = 0.333f;
 
 		protected bool upPressed;
@@ -63,6 +79,10 @@ namespace OpenRA.Mods.Common.Widgets
 
 		// The current value is the actual list offset at the moment
 		float currentListOffset;
+
+		// The Game.Runtime value when UpdateSmoothScrolling was last called
+		// Used for calculating the per-frame smooth-scrolling delta
+		long lastSmoothScrollTime = 0;
 
 		// Setting "smooth" to true will only update the target list offset.
 		// Setting "smooth" to false will also set the current list offset,
@@ -89,15 +109,19 @@ namespace OpenRA.Mods.Common.Widgets
 		[ObjectCreator.UseCtor]
 		public ScrollPanelWidget(ModData modData)
 		{
-			this.modRules = modData.DefaultRules;
+			modRules = modData.DefaultRules;
 
 			Layout = new ListLayout(this);
+
+			getUpArrowImage = WidgetUtils.GetCachedStatefulImage(Decorations, DecorationScrollUp);
+			getDownArrowImage = WidgetUtils.GetCachedStatefulImage(Decorations, DecorationScrollDown);
 		}
 
 		public override void RemoveChildren()
 		{
 			ContentHeight = 0;
 			base.RemoveChildren();
+			Scroll(0);
 		}
 
 		public override void AddChild(Widget child)
@@ -128,60 +152,92 @@ namespace OpenRA.Mods.Common.Widgets
 			if (!IsVisible())
 				return;
 
-			var rb = RenderBounds;
+			UpdateSmoothScrolling();
 
+			var rb = RenderBounds;
 			var scrollbarHeight = rb.Height - 2 * ScrollbarWidth;
 
-			var thumbHeight = ContentHeight == 0 ? 0 : Math.Max(MinimumThumbSize, (int)(scrollbarHeight * Math.Min(rb.Height * 1f / ContentHeight, 1f)));
-			var thumbOrigin = rb.Y + ScrollbarWidth + (int)((scrollbarHeight - thumbHeight) * (-1f * currentListOffset / (ContentHeight - rb.Height)));
-			if (thumbHeight == scrollbarHeight)
-				thumbHeight = 0;
+			// Scroll thumb is only visible if the content does not fit within the panel bounds
+			var thumbHeight = 0;
+			var thumbOrigin = rb.Y + ScrollbarWidth;
+			if (ContentHeight > rb.Height)
+			{
+				thumbHeight = Math.Max(MinimumThumbSize, scrollbarHeight * rb.Height / ContentHeight);
+				thumbOrigin += (int)((scrollbarHeight - thumbHeight) * currentListOffset / (rb.Height - ContentHeight));
+			}
 
-			backgroundRect = new Rectangle(rb.X, rb.Y, rb.Width - ScrollbarWidth + 1, rb.Height);
-			upButtonRect = new Rectangle(rb.Right - ScrollbarWidth, rb.Y, ScrollbarWidth, ScrollbarWidth);
-			downButtonRect = new Rectangle(rb.Right - ScrollbarWidth, rb.Bottom - ScrollbarWidth, ScrollbarWidth, ScrollbarWidth);
-			scrollbarRect = new Rectangle(rb.Right - ScrollbarWidth, rb.Y + ScrollbarWidth - 1, ScrollbarWidth, scrollbarHeight + 2);
-			thumbRect = new Rectangle(rb.Right - ScrollbarWidth, thumbOrigin, ScrollbarWidth, thumbHeight);
+			switch (ScrollBar)
+			{
+				case ScrollBar.Left:
+					backgroundRect = new Rectangle(rb.X + ScrollbarWidth, rb.Y, rb.Width + 1, rb.Height);
+					upButtonRect = new Rectangle(rb.X, rb.Y, ScrollbarWidth, ScrollbarWidth);
+					downButtonRect = new Rectangle(rb.X, rb.Bottom - ScrollbarWidth, ScrollbarWidth, ScrollbarWidth);
+					scrollbarRect = new Rectangle(rb.X, rb.Y + ScrollbarWidth - 1, ScrollbarWidth, scrollbarHeight + 2);
+					thumbRect = new Rectangle(rb.X, thumbOrigin, ScrollbarWidth, thumbHeight);
+					break;
+				case ScrollBar.Right:
+					backgroundRect = new Rectangle(rb.X, rb.Y, rb.Width - ScrollbarWidth + 1, rb.Height);
+					upButtonRect = new Rectangle(rb.Right - ScrollbarWidth, rb.Y, ScrollbarWidth, ScrollbarWidth);
+					downButtonRect = new Rectangle(rb.Right - ScrollbarWidth, rb.Bottom - ScrollbarWidth, ScrollbarWidth, ScrollbarWidth);
+					scrollbarRect = new Rectangle(rb.Right - ScrollbarWidth, rb.Y + ScrollbarWidth - 1, ScrollbarWidth, scrollbarHeight + 2);
+					thumbRect = new Rectangle(rb.Right - ScrollbarWidth, thumbOrigin, ScrollbarWidth, thumbHeight);
+					break;
+				case ScrollBar.Hidden:
+					backgroundRect = new Rectangle(rb.X, rb.Y, rb.Width + 1, rb.Height);
+					break;
+				default:
+					throw new ArgumentOutOfRangeException();
+			}
 
-			var upHover = Ui.MouseOverWidget == this && upButtonRect.Contains(Viewport.LastMousePos);
-			upDisabled = thumbHeight == 0 || currentListOffset >= 0;
-
-			var downHover = Ui.MouseOverWidget == this && downButtonRect.Contains(Viewport.LastMousePos);
-			downDisabled = thumbHeight == 0 || currentListOffset <= Bounds.Height - ContentHeight;
-
-			var thumbHover = Ui.MouseOverWidget == this && thumbRect.Contains(Viewport.LastMousePos);
 			WidgetUtils.DrawPanel(Background, backgroundRect);
-			WidgetUtils.DrawPanel(Background, scrollbarRect);
-			ButtonWidget.DrawBackground(Button, upButtonRect, upDisabled, upPressed, upHover, false);
-			ButtonWidget.DrawBackground(Button, downButtonRect, downDisabled, downPressed, downHover, false);
 
-			if (thumbHeight > 0)
-				ButtonWidget.DrawBackground(Button, thumbRect, false, HasMouseFocus && thumbHover, thumbHover, false);
+			if (ScrollBar != ScrollBar.Hidden)
+			{
+				var upHover = Ui.MouseOverWidget == this && upButtonRect.Contains(Viewport.LastMousePos);
+				upDisabled = thumbHeight == 0 || currentListOffset >= 0;
 
-			var upOffset = !upPressed || upDisabled ? 4 : 4 + ButtonDepth;
-			var downOffset = !downPressed || downDisabled ? 4 : 4 + ButtonDepth;
+				var downHover = Ui.MouseOverWidget == this && downButtonRect.Contains(Viewport.LastMousePos);
+				downDisabled = thumbHeight == 0 || currentListOffset <= Bounds.Height - ContentHeight;
 
-			WidgetUtils.DrawRGBA(ChromeProvider.GetImage("scrollbar", upPressed || upDisabled ? "up_pressed" : "up_arrow"),
-				new float2(upButtonRect.Left + upOffset, upButtonRect.Top + upOffset));
-			WidgetUtils.DrawRGBA(ChromeProvider.GetImage("scrollbar", downPressed || downDisabled ? "down_pressed" : "down_arrow"),
-				new float2(downButtonRect.Left + downOffset, downButtonRect.Top + downOffset));
+				var thumbHover = Ui.MouseOverWidget == this && thumbRect.Contains(Viewport.LastMousePos);
+				WidgetUtils.DrawPanel(ScrollBarBackground, scrollbarRect);
+				ButtonWidget.DrawBackground(Button, upButtonRect, upDisabled, upPressed, upHover, false);
+				ButtonWidget.DrawBackground(Button, downButtonRect, downDisabled, downPressed, downHover, false);
+
+				if (thumbHeight > 0)
+					ButtonWidget.DrawBackground(Button, thumbRect, false, HasMouseFocus && thumbHover, thumbHover, false);
+
+				var upOffset = !upPressed || upDisabled ? 4 : 4 + ButtonDepth;
+				var downOffset = !downPressed || downDisabled ? 4 : 4 + ButtonDepth;
+
+				var upArrowImage = getUpArrowImage.Update((upDisabled, upPressed, upHover, false, false));
+				WidgetUtils.DrawSprite(upArrowImage,
+					new float2(upButtonRect.Left + upOffset, upButtonRect.Top + upOffset));
+
+				var downArrowImage = getDownArrowImage.Update((downDisabled, downPressed, downHover, false, false));
+				WidgetUtils.DrawSprite(downArrowImage,
+					new float2(downButtonRect.Left + downOffset, downButtonRect.Top + downOffset));
+			}
 
 			var drawBounds = backgroundRect.InflateBy(-BorderWidth, -BorderWidth, -BorderWidth, -BorderWidth);
 			Game.Renderer.EnableScissor(drawBounds);
 
-			drawBounds.Offset((-ChildOrigin).ToPoint());
+			// ChildOrigin enumerates the widget tree, so only evaluate it once
+			var co = ChildOrigin;
+			drawBounds = new Rectangle(drawBounds.X - co.X, drawBounds.Y - co.Y, drawBounds.Width, drawBounds.Height);
+
 			foreach (var child in Children)
-				if (child.Bounds.IntersectsWith(drawBounds))
+				if (child.Bounds.ToRectangle().IntersectsWith(drawBounds))
 					child.DrawOuter();
 
 			Game.Renderer.DisableScissor();
 		}
 
-		public override int2 ChildOrigin { get { return RenderOrigin + new int2(0, (int)currentListOffset); } }
+		public override int2 ChildOrigin => RenderOrigin + new int2(ScrollBar == ScrollBar.Left ? ScrollbarWidth : 0, (int)currentListOffset);
 
-		public override Rectangle GetEventBounds()
+		public override bool EventBoundsContains(int2 location)
 		{
-			return EventBounds;
+			return EventBounds.Contains(location);
 		}
 
 		void Scroll(int amount, bool smooth = false)
@@ -209,10 +265,7 @@ namespace OpenRA.Mods.Common.Widgets
 			SetListOffset(value, smooth);
 		}
 
-		public bool ScrolledToBottom
-		{
-			get { return targetListOffset == Math.Min(0, Bounds.Height - ContentHeight) || ContentHeight <= Bounds.Height; }
-		}
+		public bool ScrolledToBottom => targetListOffset == Math.Min(0, Bounds.Height - ContentHeight) || ContentHeight <= Bounds.Height;
 
 		void ScrollToItem(Widget item, bool smooth = false)
 		{
@@ -230,11 +283,7 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public void ScrollToItem(string itemKey, bool smooth = false)
 		{
-			var item = Children.FirstOrDefault(c =>
-			{
-				var si = c as ScrollItemWidget;
-				return si != null && si.ItemKey == itemKey;
-			});
+			var item = Children.FirstOrDefault(c => c is ScrollItemWidget si && si.ItemKey == itemKey);
 
 			if (item != null)
 				ScrollToItem(item, smooth);
@@ -242,14 +291,33 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public void ScrollToSelectedItem()
 		{
-			var item = Children.FirstOrDefault(c =>
-			{
-				var si = c as ScrollItemWidget;
-				return si != null && si.IsSelected();
-			});
+			var item = Children.FirstOrDefault(c => c is ScrollItemWidget si && si.IsSelected());
 
 			if (item != null)
 				ScrollToItem(item);
+		}
+
+		void UpdateSmoothScrolling()
+		{
+			if (lastSmoothScrollTime == 0)
+			{
+				lastSmoothScrollTime = Game.RunTime;
+				return;
+			}
+
+			var offsetDiff = targetListOffset - currentListOffset;
+			var absOffsetDiff = Math.Abs(offsetDiff);
+			if (absOffsetDiff > 1f)
+			{
+				var dt = Game.RunTime - lastSmoothScrollTime;
+				currentListOffset += offsetDiff * SmoothScrollSpeed.Clamp(0.1f, 1.0f) * dt / 40;
+
+				Ui.ResetTooltips();
+			}
+			else
+				SetListOffset(targetListOffset, false);
+
+			lastSmoothScrollTime = Game.RunTime;
 		}
 
 		public override void Tick()
@@ -259,17 +327,6 @@ namespace OpenRA.Mods.Common.Widgets
 
 			if (downPressed)
 				Scroll(-1);
-
-			var offsetDiff = targetListOffset - currentListOffset;
-			var absOffsetDiff = Math.Abs(offsetDiff);
-			if (absOffsetDiff > 1f)
-			{
-				currentListOffset += offsetDiff * SmoothScrollSpeed.Clamp(0.1f, 1.0f);
-
-				Ui.ResetTooltips();
-			}
-			else
-				SetListOffset(targetListOffset, false);
 		}
 
 		public override bool YieldMouseFocus(MouseInput mi)
@@ -284,7 +341,7 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			if (mi.Event == MouseInputEvent.Scroll)
 			{
-				Scroll(mi.ScrollDelta, true);
+				Scroll(mi.Delta.Y, true);
 				return true;
 			}
 
@@ -307,7 +364,7 @@ namespace OpenRA.Mods.Common.Widgets
 				var thumbHeight = ContentHeight == 0 ? 0 : Math.Max(MinimumThumbSize, (int)(scrollbarHeight * Math.Min(rb.Height * 1f / ContentHeight, 1f)));
 				var oldOffset = currentListOffset;
 
-				var newOffset = currentListOffset + ((int)((lastMouseLocation.Y - mi.Location.Y) * (ContentHeight - rb.Height) * 1f / (scrollbarHeight - thumbHeight)));
+				var newOffset = currentListOffset + (int)((lastMouseLocation.Y - mi.Location.Y) * (ContentHeight - rb.Height) * 1f / (scrollbarHeight - thumbHeight));
 				newOffset = Math.Min(0, Math.Max(rb.Height - ContentHeight, newOffset));
 				SetListOffset(newOffset, false);
 
@@ -322,8 +379,13 @@ namespace OpenRA.Mods.Common.Widgets
 				if (thumbPressed)
 					lastMouseLocation = mi.Location;
 
-				if (mi.Event == MouseInputEvent.Down && ((upPressed && !upDisabled) || (downPressed && !downDisabled) || thumbPressed))
-					Game.Sound.PlayNotification(modRules, null, "Sounds", "ClickSound", null);
+				if (mi.Event == MouseInputEvent.Down)
+				{
+					if (thumbPressed || (upPressed && !upDisabled) || (downPressed && !downDisabled))
+						Game.Sound.PlayNotification(modRules, null, "Sounds", ClickSound, null);
+					else if ((upPressed && upDisabled) || (downPressed && downDisabled))
+						Game.Sound.PlayNotification(modRules, null, "Sounds", ClickDisabledSound, null);
+				}
 			}
 
 			return upPressed || downPressed || thumbPressed;
@@ -374,9 +436,15 @@ namespace OpenRA.Mods.Common.Widgets
 			});
 		}
 
-		void BindingAdd(object item)
+		void BindingAdd(IObservableCollection col, object item)
 		{
-			Game.RunAfterTick(() => BindingAddImpl(item));
+			Game.RunAfterTick(() =>
+			{
+				if (collection != col)
+					return;
+
+				BindingAddImpl(item);
+			});
 		}
 
 		void BindingAddImpl(object item)
@@ -393,30 +461,40 @@ namespace OpenRA.Mods.Common.Widgets
 				ScrollToBottom();
 		}
 
-		void BindingRemove(object item)
+		void BindingRemove(IObservableCollection col, object item)
 		{
 			Game.RunAfterTick(() =>
 			{
+				if (collection != col)
+					return;
+
 				var widget = Children.FirstOrDefault(w => widgetItemEquals(w, item));
 				if (widget != null)
 					RemoveChild(widget);
 			});
 		}
 
-		void BindingRemoveAt(int index)
+		void BindingRemoveAt(IObservableCollection col, int index)
 		{
 			Game.RunAfterTick(() =>
 			{
+				if (collection != col)
+					return;
+
 				if (index < 0 || index >= Children.Count)
 					return;
+
 				RemoveChild(Children[index]);
 			});
 		}
 
-		void BindingSet(object oldItem, object newItem)
+		void BindingSet(IObservableCollection col, object oldItem, object newItem)
 		{
 			Game.RunAfterTick(() =>
 			{
+				if (collection != col)
+					return;
+
 				var newWidget = makeWidget(newItem);
 				newWidget.Parent = this;
 
@@ -433,10 +511,13 @@ namespace OpenRA.Mods.Common.Widgets
 			});
 		}
 
-		void BindingRefresh()
+		void BindingRefresh(IObservableCollection col)
 		{
 			Game.RunAfterTick(() =>
 			{
+				if (collection != col)
+					return;
+
 				RemoveChildren();
 				foreach (var item in collection.ObservedItems)
 					BindingAddImpl(item);

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,81 +9,95 @@
  */
 #endregion
 
-using System;
-using System.Drawing;
 using System.Linq;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Render
 {
 	[Desc("Visualizes the remaining build time of actor produced here.")]
-	class ProductionBarInfo : ITraitInfo, Requires<ProductionInfo>
+	sealed class ProductionBarInfo : ConditionalTraitInfo, Requires<ProductionInfo>, IRulesetLoaded
 	{
+		[FieldLoader.Require]
 		[Desc("Production queue type, for actors with multiple queues.")]
 		public readonly string ProductionType = null;
 
 		public readonly Color Color = Color.SkyBlue;
 
-		public object Create(ActorInitializer init) { return new ProductionBar(init.Self, this); }
+		public override void RulesetLoaded(Ruleset rules, ActorInfo ai)
+		{
+			// Per-actor queue
+			var queue = ai.TraitInfos<ProductionQueueInfo>().FirstOrDefault(q => ProductionType == q.Type);
+
+			// If no queues available - check for classic production queues
+			queue ??= rules.Actors[SystemActors.Player].TraitInfos<ProductionQueueInfo>().FirstOrDefault(q => ProductionType == q.Type);
+
+			if (queue == null)
+				throw new YamlException($"Can't find a queue with ProductionType '{ProductionType}'");
+
+			base.RulesetLoaded(rules, ai);
+		}
+
+		public override object Create(ActorInitializer init) { return new ProductionBar(init.Self, this); }
 	}
 
-	class ProductionBar : ISelectionBar, ITick, INotifyCreated, INotifyOwnerChanged
+	sealed class ProductionBar : ConditionalTrait<ProductionBarInfo>, ISelectionBar, ITick, INotifyOwnerChanged
 	{
-		readonly ProductionBarInfo info;
 		readonly Actor self;
 		ProductionQueue queue;
 		float value;
 
 		public ProductionBar(Actor self, ProductionBarInfo info)
+			: base(info)
 		{
 			this.self = self;
-			this.info = info;
+		}
+
+		protected override void Created(Actor self)
+		{
+			base.Created(self);
+			FindQueue();
 		}
 
 		void FindQueue()
 		{
-			var type = info.ProductionType ?? self.Info.TraitInfo<ProductionInfo>().Produces.First();
-
 			// Per-actor queue
 			// Note: this includes disabled queues, as each bar must bind to exactly one queue.
 			queue = self.TraitsImplementing<ProductionQueue>()
-				.FirstOrDefault(q => type == null || type == q.Info.Type);
+				.FirstOrDefault(q => Info.ProductionType == q.Info.Type);
 
-			if (queue == null)
-			{
-				// No queues available - check for classic production queues
-				queue = self.Owner.PlayerActor.TraitsImplementing<ProductionQueue>()
-					.FirstOrDefault(q => type == null || type == q.Info.Type);
-			}
-
-			if (queue == null)
-				throw new InvalidOperationException("No queues available for production type '{0}'".F(type));
+			// If no queues available - check for classic production queues
+			queue ??= self.Owner.PlayerActor.TraitsImplementing<ProductionQueue>()
+				.FirstOrDefault(q => Info.ProductionType == q.Info.Type);
 		}
 
-		public void Created(Actor self)
+		void ITick.Tick(Actor self)
 		{
-			FindQueue();
-		}
+			if (IsTraitDisabled)
+				return;
 
-		public void Tick(Actor self)
-		{
-			var current = queue.CurrentItem();
-			value = current != null ? 1 - (float)current.RemainingCost / current.TotalCost : 0;
+			var current = queue.AllQueued().Where(i => i.Started).MinByOrDefault(i => i.RemainingTime);
+			if (current == null)
+				value = 0;
+			else if (current.TotalCost <= 0)
+				value = 1;
+			else
+				value = 1 - (float)current.RemainingCost / current.TotalCost;
 		}
 
 		float ISelectionBar.GetValue()
 		{
-			// only people we like should see our production status.
-			if (!self.Owner.IsAlliedWith(self.World.RenderPlayer))
+			// Only people we like should see our production status.
+			if (IsTraitDisabled || !self.Owner.IsAlliedWith(self.World.RenderPlayer))
 				return 0;
 
 			return value;
 		}
 
-		Color ISelectionBar.GetColor() { return info.Color; }
-		bool ISelectionBar.DisplayWhenEmpty { get { return false; } }
+		Color ISelectionBar.GetColor() { return Info.Color; }
+		bool ISelectionBar.DisplayWhenEmpty => false;
 
-		public void OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
+		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
 		{
 			FindQueue();
 		}

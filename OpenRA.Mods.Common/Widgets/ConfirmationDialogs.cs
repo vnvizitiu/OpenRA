@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -17,13 +17,16 @@ namespace OpenRA.Mods.Common.Widgets
 	public static class ConfirmationDialogs
 	{
 		public static void ButtonPrompt(
+			ModData modData,
 			string title,
 			string text,
+			object[] titleArguments = null,
+			object[] textArguments = null,
 			Action onConfirm = null,
-			Action onCancel = null,
-			Action onOther = null,
 			string confirmText = null,
+			Action onCancel = null,
 			string cancelText = null,
+			Action onOther = null,
 			string otherText = null)
 		{
 			var promptName = onOther != null ? "THREEBUTTON_PROMPT" : "TWOBUTTON_PROMPT";
@@ -32,10 +35,12 @@ namespace OpenRA.Mods.Common.Widgets
 			var cancelButton = prompt.GetOrNull<ButtonWidget>("CANCEL_BUTTON");
 			var otherButton = prompt.GetOrNull<ButtonWidget>("OTHER_BUTTON");
 
-			prompt.Get<LabelWidget>("PROMPT_TITLE").GetText = () => title;
+			var titleMessage = FluentProvider.GetString(title, titleArguments);
+			prompt.Get<LabelWidget>("PROMPT_TITLE").GetText = () => titleMessage;
 
 			var headerTemplate = prompt.Get<LabelWidget>("PROMPT_TEXT");
-			var headerLines = text.Replace("\\n", "\n").Split('\n');
+			var textMessage = FluentProvider.GetString(text, textArguments);
+			var headerLines = textMessage.Split('\n');
 			var headerHeight = 0;
 			foreach (var l in headerLines)
 			{
@@ -61,7 +66,10 @@ namespace OpenRA.Mods.Common.Widgets
 				};
 
 				if (!string.IsNullOrEmpty(confirmText))
-					confirmButton.GetText = () => confirmText;
+				{
+					var confirmTextMessage = FluentProvider.GetString(confirmText);
+					confirmButton.GetText = () => confirmTextMessage;
+				}
 			}
 
 			if (onCancel != null && cancelButton != null)
@@ -71,30 +79,31 @@ namespace OpenRA.Mods.Common.Widgets
 				cancelButton.OnClick = () =>
 				{
 					Ui.CloseWindow();
-					if (onCancel != null)
-						onCancel();
+					onCancel();
 				};
 
-				if (!string.IsNullOrEmpty(cancelText) && cancelButton != null)
-					cancelButton.GetText = () => cancelText;
+				if (!string.IsNullOrEmpty(cancelText))
+				{
+					var cancelTextMessage = FluentProvider.GetString(cancelText);
+					cancelButton.GetText = () => cancelTextMessage;
+				}
 			}
 
 			if (onOther != null && otherButton != null)
 			{
 				otherButton.Visible = true;
 				otherButton.Bounds.Y += headerHeight;
-				otherButton.OnClick = () =>
-				{
-					if (onOther != null)
-						onOther();
-                };
+				otherButton.OnClick = onOther;
 
-				if (!string.IsNullOrEmpty(otherText) && otherButton != null)
-					otherButton.GetText = () => otherText;
+				if (!string.IsNullOrEmpty(otherText))
+				{
+					var otherTextMessage = FluentProvider.GetString(otherText);
+					otherButton.GetText = () => otherTextMessage;
+				}
 			}
 		}
 
-		public static void TextInputPrompt(
+		public static void TextInputPrompt(ModData modData,
 			string title, string prompt, string initialText,
 			Action<string> onAccept, Action onCancel = null,
 			string acceptText = null, string cancelText = null,
@@ -104,18 +113,17 @@ namespace OpenRA.Mods.Common.Widgets
 			Func<bool> doValidate = null;
 			ButtonWidget acceptButton = null, cancelButton = null;
 
-			// Title
-			panel.Get<LabelWidget>("PROMPT_TITLE").GetText = () => title;
+			var titleMessage = FluentProvider.GetString(title);
+			panel.Get<LabelWidget>("PROMPT_TITLE").GetText = () => titleMessage;
 
-			// Prompt
-			panel.Get<LabelWidget>("PROMPT_TEXT").GetText = () => prompt;
+			var promptMessage = FluentProvider.GetString(prompt);
+			panel.Get<LabelWidget>("PROMPT_TEXT").GetText = () => promptMessage;
 
-			// Text input
 			var input = panel.Get<TextFieldWidget>("INPUT_TEXT");
 			var isValid = false;
 			input.Text = initialText;
 			input.IsValid = () => isValid;
-			input.OnEnterKey = () =>
+			input.OnEnterKey = _ =>
 			{
 				if (acceptButton.IsDisabled())
 					return false;
@@ -123,7 +131,7 @@ namespace OpenRA.Mods.Common.Widgets
 				acceptButton.OnClick();
 				return true;
 			};
-			input.OnEscKey = () =>
+			input.OnEscKey = _ =>
 			{
 				if (cancelButton.IsDisabled())
 					return false;
@@ -135,10 +143,12 @@ namespace OpenRA.Mods.Common.Widgets
 			input.CursorPosition = input.Text.Length;
 			input.OnTextEdited = () => doValidate();
 
-			// Buttons
 			acceptButton = panel.Get<ButtonWidget>("ACCEPT_BUTTON");
 			if (!string.IsNullOrEmpty(acceptText))
-				acceptButton.GetText = () => acceptText;
+			{
+				var acceptTextMessage = FluentProvider.GetString(acceptText);
+				acceptButton.GetText = () => acceptTextMessage;
+			}
 
 			acceptButton.OnClick = () =>
 			{
@@ -151,16 +161,17 @@ namespace OpenRA.Mods.Common.Widgets
 
 			cancelButton = panel.Get<ButtonWidget>("CANCEL_BUTTON");
 			if (!string.IsNullOrEmpty(cancelText))
-				cancelButton.GetText = () => cancelText;
+			{
+				var cancelTextMessage = FluentProvider.GetString(cancelText);
+				cancelButton.GetText = () => cancelTextMessage;
+			}
 
 			cancelButton.OnClick = () =>
 			{
 				Ui.CloseWindow();
-				if (onCancel != null)
-					onCancel();
+				onCancel?.Invoke();
 			};
 
-			// Validation
 			doValidate = () =>
 			{
 				if (inputValidator == null)

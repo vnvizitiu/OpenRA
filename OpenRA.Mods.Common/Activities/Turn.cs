@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,35 +10,38 @@
 #endregion
 
 using OpenRA.Activities;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Activities
 {
 	public class Turn : Activity
 	{
-		readonly IDisabledTrait disablable;
-		readonly int desiredFacing;
+		readonly Mobile mobile;
+		readonly IFacing facing;
+		readonly WAngle desiredFacing;
 
-		public Turn(Actor self, int desiredFacing)
+		public Turn(Actor self, WAngle desiredFacing)
 		{
-			disablable = self.TraitOrDefault<IMove>() as IDisabledTrait;
+			mobile = self.TraitOrDefault<Mobile>();
+			facing = self.Trait<IFacing>();
 			this.desiredFacing = desiredFacing;
 		}
 
-		public override Activity Tick(Actor self)
+		public override bool Tick(Actor self)
 		{
-			if (IsCanceled)
-				return NextActivity;
-			if (disablable != null && disablable.IsTraitDisabled)
-				return this;
+			if (IsCanceling)
+				return true;
 
-			var facing = self.Trait<IFacing>();
+			if (mobile != null && (mobile.IsTraitDisabled || mobile.IsTraitPaused))
+				return false;
 
 			if (desiredFacing == facing.Facing)
-				return NextActivity;
+				return true;
+
 			facing.Facing = Util.TickFacing(facing.Facing, desiredFacing, facing.TurnSpeed);
 
-			return this;
+			return false;
 		}
 	}
 }

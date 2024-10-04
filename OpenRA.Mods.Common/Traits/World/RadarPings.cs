@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,24 +11,25 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public class RadarPingsInfo : ITraitInfo
+	[TraitLocation(SystemActors.World)]
+	public class RadarPingsInfo : TraitInfo
 	{
 		public readonly int FromRadius = 200;
 		public readonly int ToRadius = 15;
 		public readonly int ShrinkSpeed = 4;
 		public readonly float RotationSpeed = 0.12f;
 
-		public object Create(ActorInitializer init) { return new RadarPings(this); }
+		public override object Create(ActorInitializer init) { return new RadarPings(this); }
 	}
 
 	public class RadarPings : ITick
 	{
-		public readonly List<RadarPing> Pings = new List<RadarPing>();
+		public readonly List<RadarPing> Pings = new();
 		readonly RadarPingsInfo info;
 
 		public WPos? LastPingPosition;
@@ -38,7 +39,7 @@ namespace OpenRA.Mods.Common.Traits
 			this.info = info;
 		}
 
-		public void Tick(Actor self)
+		void ITick.Tick(Actor self)
 		{
 			foreach (var ping in Pings.ToArray())
 				if (!ping.Tick())

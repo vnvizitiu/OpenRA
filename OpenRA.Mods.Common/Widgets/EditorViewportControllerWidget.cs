@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,38 +11,66 @@
 
 using System;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Widgets;
+using Color = OpenRA.Primitives.Color;
 
 namespace OpenRA.Mods.Common.Widgets
 {
 	public class EditorViewportControllerWidget : Widget
 	{
+		[Desc("Main color of the selection grid.")]
+		public readonly Color SelectionMainColor = Color.White;
+
+		[Desc("Alternate color of the selection grid.")]
+		public readonly Color SelectionAltColor = Color.Black;
+
+		[Desc("Main color of the copy / paste grid.")]
+		public readonly Color PasteColor = Color.FromArgb(0xFF4CFF00);
+
 		public IEditorBrush CurrentBrush { get; private set; }
 
 		public readonly string TooltipContainer;
 		public readonly string TooltipTemplate;
+		public readonly EditorDefaultBrush DefaultBrush;
+
+		public event Action BrushChanged;
 
 		readonly Lazy<TooltipContainerWidget> tooltipContainer;
-		readonly EditorDefaultBrush defaultBrush;
 		readonly WorldRenderer worldRenderer;
+		readonly EditorCursorLayer editorCursor;
+		public int2 SelectionAltOffset { get; }
 
 		bool enableTooltips;
 
 		[ObjectCreator.UseCtor]
-		public EditorViewportControllerWidget(World world, WorldRenderer worldRenderer)
+		public EditorViewportControllerWidget(WorldRenderer worldRenderer)
 		{
 			this.worldRenderer = worldRenderer;
 			tooltipContainer = Exts.Lazy(() => Ui.Root.Get<TooltipContainerWidget>(TooltipContainer));
-			CurrentBrush = defaultBrush = new EditorDefaultBrush(this, worldRenderer);
+			CurrentBrush = DefaultBrush = new EditorDefaultBrush(this, worldRenderer);
+
+			editorCursor = worldRenderer.World.WorldActor.Trait<EditorCursorLayer>();
+			editorCursor.SetBrush(CurrentBrush);
+
+			// Allow zooming out to full map size
+			worldRenderer.Viewport.UnlockMinimumZoom(0.25f);
+
+			SelectionAltOffset = worldRenderer.World.Map.Grid.Type == MapGridType.Rectangular
+				? new int2(1, 1)
+				: new int2(0, 1);
 		}
 
 		public void ClearBrush() { SetBrush(null); }
 		public void SetBrush(IEditorBrush brush)
 		{
-			if (CurrentBrush != null)
-				CurrentBrush.Dispose();
+			if (CurrentBrush != DefaultBrush)
+				CurrentBrush?.Dispose();
 
-			CurrentBrush = brush ?? defaultBrush;
+			CurrentBrush = brush ?? DefaultBrush;
+
+			BrushChanged?.Invoke();
+			editorCursor.SetBrush(CurrentBrush);
 		}
 
 		public override void MouseEntered()
@@ -70,26 +98,11 @@ namespace OpenRA.Mods.Common.Widgets
 				tooltipContainer.Value.RemoveTooltip();
 		}
 
-		void Zoom(int amount)
-		{
-			var zoomSteps = worldRenderer.Viewport.AvailableZoomSteps;
-			var currentZoom = worldRenderer.Viewport.Zoom;
-
-			var nextIndex = zoomSteps.IndexOf(currentZoom) - amount;
-			if (nextIndex < 0 || nextIndex >= zoomSteps.Length)
-				return;
-
-			var zoom = zoomSteps[nextIndex];
-			Parent.Get<DropDownButtonWidget>("ZOOM_BUTTON").SelectedItem = zoom.ToString();
-			worldRenderer.Viewport.Zoom = zoom;
-		}
-
 		public override bool HandleMouseInput(MouseInput mi)
 		{
-			if (mi.Event == MouseInputEvent.Scroll &&
-				Game.Settings.Game.AllowZoom && mi.Modifiers.HasModifier(Game.Settings.Game.ZoomModifier))
+			if (mi.Event == MouseInputEvent.Scroll && mi.Modifiers.HasModifier(Game.Settings.Game.ZoomModifier))
 			{
-				Zoom(mi.ScrollDelta);
+				worldRenderer.Viewport.AdjustZoom(mi.Delta.Y * Game.Settings.Game.ZoomSpeed, mi.Location);
 				return true;
 			}
 

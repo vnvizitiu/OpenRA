@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: gdi07.lua
+		Scripts: campaign.lua, utils.lua, gdi07.lua
 	MissionData:
 		Briefing: Previous mission objective not complete.\nAirfield was to be targeted. \n\nNew objective:  Build up a base and Destroy remaining Nod structures and units.\n\nReinforcements will be provided.
 		BriefingVideo: gdi7.vqa
@@ -108,38 +108,8 @@ MLRS:
 	Buildable:
 		Prerequisites: ~disabled
 
-OLDLST:
-	Inherits: LST
-	-WithRoof:
-	-Selectable:
-	SelectionDecorations:
-		RenderSelectionBars: False
-	RejectsOrders:
-	Cargo:
-		Types: disabled
-
 HQ:
 	Tooltip:
 	-AirstrikePower:
 	Buildable:
-		Description: Provides an overview of the battlefield.\n  Requires power to operate.
-
-airstrike.proxy:
-	AlwaysVisible:
-	AirstrikePower:
-		Icon: airstrike
-		StartFullyCharged: True
-		ChargeTime: 120
-		SquadSize: 3
-		QuantizedFacings: 8
-		Description: Air Strike
-		LongDesc: Deploy an aerial napalm strike.\nBurns buildings and infantry along a line.
-		EndChargeSound: airredy1.aud
-		SelectTargetSound: select1.aud
-		InsufficientPowerSound: nopower1.aud
-		IncomingSound: enemya.aud
-		UnitType: a10
-		DisplayBeacon: True
-		BeaconPoster: airstrike
-		DisplayRadarPing: True
-		CameraActor: camera
+		Description: actor-hq-description

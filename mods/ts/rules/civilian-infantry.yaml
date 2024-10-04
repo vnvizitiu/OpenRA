@@ -3,20 +3,23 @@ WEEDGUY:
 	Valued:
 		Cost: 300
 	Tooltip:
-		Name: Chem Spray Infantry
+		Name: actor-weedguy-name
 	Voiced:
 		VoiceSet: Weed
 	Mobile:
 		Speed: 42
 	Health:
-		HP: 130
+		HP: 13000
 	Crushable:
 		CrushSound: squishy2.aud
 	Armament:
 		Weapon: FireballLauncher
-		LocalOffset: 85,0,384
+		LocalOffset: 317,0,453
+	TakeCover:
+		ProneOffset: 128,0,-320
 	AttackFrontal:
 		Voice: Attack
+		FacingTolerance: 0
 	-SpawnActorOnDeath@FLAMEGUY:
 	WithDeathAnimation@fire:
 		DeathSequence: die-
@@ -26,16 +29,19 @@ WEEDGUY:
 UMAGON:
 	Inherits: ^Soldier
 	Inherits@2: ^HealsOnTiberium
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@EXPHOSPITAL: ^InfantryExperienceHospitalOverrides
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
 	Valued:
 		Cost: 400
 	Tooltip:
-		Name: Umagon
+		Name: actor-umagon-name
 	Voiced:
 		VoiceSet: Umagon
 	Mobile:
 		Speed: 71
 	Health:
-		HP: 150
+		HP: 15000
 	Passenger:
 	RevealsShroud:
 		Range: 7c0
@@ -43,7 +49,8 @@ UMAGON:
 		Weapon: Sniper
 	AttackFrontal:
 		Voice: Attack
-	WithInfantryBody:
+		FacingTolerance: 0
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
 	ProducibleWithLevel:
 		Prerequisites: barracks.upgraded
@@ -52,44 +59,48 @@ CHAMSPY:
 	Inherits: ^Soldier
 	Valued:
 		Cost: 700
-	DisguiseToolTip:
-		Name: Chameleon Spy
+	DisguiseTooltip:
+		Name: actor-chamspy-disguisetooltip-name
 	Voiced:
 		VoiceSet: Spy
 	Health:
-		HP: 120
+		HP: 12000
 	Mobile:
 		Speed: 85
 	RevealsShroud:
 		Range: 9c0
 	Passenger:
 	Disguise:
+		DisguisedCondition: disguise
 	WithDecoration@disguise:
+		RequiresCondition: disguise
+		Position: TopRight
+		Margin: 6, 10
 		Image: pips
 		Sequence: pip-disguise
 		Palette: pips
-		ReferencePoint: Top, Right
-		ZOffset: 256
-		UpgradeTypes: disguise
-		UpgradeMinEnabledLevel: 1
 	Infiltrates:
 		Types: SpyInfiltrate
-	-AutoTarget:
-	-WithInfantryBody:
+		Notification: BuildingInfiltrated
+		TextNotification: notification-building-infiltrated
+	-WithSplitAttackPaletteInfantryBody:
 	WithDisguisingInfantryBody:
-		IdleSequences: idle1,idle2
+		IdleSequences: idle1, idle2
 
 MUTANT:
 	Inherits: ^Soldier
 	Inherits@2: ^HealsOnTiberium
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@EXPHOSPITAL: ^InfantryExperienceHospitalOverrides
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
 	Valued:
 		Cost: 100
 	Tooltip:
-		Name: Mutant
+		Name: actor-mutant-name
 	Voiced:
 		VoiceSet: Mutant
 	Health:
-		HP: 50
+		HP: 5000
 	Mobile:
 		Speed: 56
 	RevealsShroud:
@@ -98,7 +109,8 @@ MUTANT:
 		Weapon: Vulcan
 	AttackFrontal:
 		Voice: Attack
-	WithInfantryBody:
+		FacingTolerance: 0
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
 	ProducibleWithLevel:
 		Prerequisites: barracks.upgraded
@@ -106,14 +118,17 @@ MUTANT:
 MWMN:
 	Inherits: ^Soldier
 	Inherits@2: ^HealsOnTiberium
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@EXPHOSPITAL: ^InfantryExperienceHospitalOverrides
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
 	Valued:
 		Cost: 100
 	Tooltip:
-		Name: Mutant Soldier
+		Name: actor-mwmn-name
 	Voiced:
 		VoiceSet: CivilianFemale
 	Health:
-		HP: 50
+		HP: 5000
 	Mobile:
 		Speed: 56
 	RevealsShroud:
@@ -122,7 +137,8 @@ MWMN:
 		Weapon: Vulcan
 	AttackFrontal:
 		Voice: Attack
-	WithInfantryBody:
+		FacingTolerance: 0
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
 	ProducibleWithLevel:
 		Prerequisites: barracks.upgraded
@@ -130,14 +146,17 @@ MWMN:
 MUTANT3:
 	Inherits: ^Soldier
 	Inherits@2: ^HealsOnTiberium
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@EXPHOSPITAL: ^InfantryExperienceHospitalOverrides
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
 	Valued:
 		Cost: 100
 	Tooltip:
-		Name: Mutant Sergeant
+		Name: actor-mutant3-name
 	Voiced:
 		VoiceSet: Mutant
 	Health:
-		HP: 50
+		HP: 5000
 	Mobile:
 		Speed: 56
 	RevealsShroud:
@@ -146,8 +165,12 @@ MUTANT3:
 		Weapon: Vulcan
 	AttackFrontal:
 		Voice: Attack
-	WithInfantryBody:
+		FacingTolerance: 0
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
+		Palette: player-nobright
+		IsPlayerPalette: true
+		SplitAttackPalette: bright
 	ProducibleWithLevel:
 		Prerequisites: barracks.upgraded
 
@@ -157,35 +180,31 @@ TRATOS:
 	Valued:
 		Cost: 100
 	Tooltip:
-		Name: Tratos
+		Name: actor-tratos-name
 	Voiced:
 		VoiceSet: Tratos
 	Health:
-		HP: 200
+		HP: 20000
 	Mobile:
 		Speed: 71
 	RevealsShroud:
 		Range: 4c0
-	-AutoTarget:
-	WithInfantryBody:
-		DefaultAttackSequence: attack
 
 OXANNA:
 	Inherits: ^Soldier
 	Valued:
 		Cost: 100
 	Tooltip:
-		Name: Oxanna
+		Name: actor-oxanna-name
 	Voiced:
 		VoiceSet: Oxanna
 	Health:
-		HP: 50
+		HP: 5000
 	Mobile:
 		Speed: 56
 	RevealsShroud:
 		Range: 4c0
-	-AutoTarget:
-	WithInfantryBody:
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
 
 SLAV:
@@ -193,109 +212,58 @@ SLAV:
 	Valued:
 		Cost: 100
 	Tooltip:
-		Name: Slavick
+		Name: actor-slav-name
 	Voiced:
 		VoiceSet: Slavick
 	Health:
-		HP: 300
+		HP: 30000
 	Mobile:
 		Speed: 56
 	RevealsShroud:
 		Range: 4c0
-	-AutoTarget:
-	WithInfantryBody:
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
-
-DOGGIE:
-	Inherits@1: ^Infantry
-	Inherits@2: ^RegularInfantryDeath
-	Inherits@3: ^HealsOnTiberium
-	Tooltip:
-		Name: Tiberian Fiend
-	Health:
-		HP: 250
-		Shape: Circle
-			Radius: 213
-	Valued:
-		Cost: 100
-	Armor:
-		Type: Light
-	-RevealsShroud:
-	Mobile:
-		Speed: 113
-	Voiced:
-		VoiceSet: Fiend
-	Targetable:
-		TargetTypes: Ground
-	Armament:
-		Weapon: FiendShard
-	AttackFrontal:
-		Voice: Attack
-	AttackWander:
-		WanderMoveRadius: 2
-		MinMoveDelayInTicks: 25
-		MaxMoveDelayInTicks: 45
-	-SpawnActorOnDeath@FLAMEGUY:
-	WithDeathAnimation@fire:
-		DeathSequence: die-
-		DeathTypes:
-			FireDeath: burning
-
-VISC_SML:
-	Inherits: ^Visceroid
-	Tooltip:
-		Name: Baby Visceroid
-	Health:
-		HP: 200
-	AttackWander:
-		WanderMoveRadius: 2
-		MinMoveDelayInTicks: 30
-		MaxMoveDelayInTicks: 60
-	RenderSprites:
-		Image: vissml
-	Buildable:
-		Description: infantry transmorgifies into this
-
-VISC_LRG:
-	Inherits: ^Visceroid
-	Tooltip:
-		Name: Adult Visceroid
-	Health:
-		HP: 500
-	Armament:
-		Weapon: SlimeAttack
-	AutoTarget:
-	AttackFrontal:
-		Voice: Attack
-	AttackWander:
-		WanderMoveRadius: 2
-		MinMoveDelayInTicks: 25
-		MaxMoveDelayInTicks: 45
-	Mobile:
-		Crushes: crate, infantry
-	RenderSprites:
-		Image: vislrg
-	Buildable:
-		Description: 2 small visceroids combine into this
 
 CIV1:
 	Inherits: ^CivilianInfantry
-	WithInfantryBody:
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
+		Palette: player-nomuzzle
+		IsPlayerPalette: true
+		SplitAttackPalette: muzzle
 	Armament:
 		Weapon: Pistola
 	AttackFrontal:
 		Voice: Attack
+		FacingTolerance: 0
+	Voiced:
+		VoiceSet: Civilian1
 
 CIV2:
 	Inherits: ^CivilianInfantry
-	-AutoTarget:
+	Voiced:
+		VoiceSet: Civilian2
 
 CIV3:
 	Inherits: ^CivilianInfantry
-	WithInfantryBody:
+	Voiced:
+		VoiceSet: Civilian3
+
+CTECH:
+	Inherits: CIV3
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
+	RenderSprites:
+		Image: civ3
+	WithSplitAttackPaletteInfantryBody:
 		DefaultAttackSequence: attack
+		Palette: player-nomuzzle
+		IsPlayerPalette: true
+		SplitAttackPalette: muzzle
 	Armament:
 		Weapon: Pistola
 	AttackFrontal:
 		Voice: Attack
+		FacingTolerance: 0
+	Voiced:
+		VoiceSet: CivilianTechnician

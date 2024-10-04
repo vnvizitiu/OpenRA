@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,12 +12,14 @@
 using System;
 using System.Linq;
 using OpenRA.GameRules;
+using OpenRA.Graphics;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[TraitLocation(SystemActors.World | SystemActors.EditorWorld)]
 	[Desc("Trait for music handling. Attach this to the world actor.")]
-	public class MusicPlaylistInfo : ITraitInfo
+	public class MusicPlaylistInfo : TraitInfo
 	{
 		[Desc("Music to play when the map starts.", "Plays the first song on the playlist when undefined.")]
 		public readonly string StartingMusic = null;
@@ -32,10 +34,16 @@ namespace OpenRA.Mods.Common.Traits
 			"It cannot be paused, but can be overridden by selecting a new track.")]
 		public readonly string BackgroundMusic = null;
 
-		public object Create(ActorInitializer init) { return new MusicPlaylist(init.World, this); }
+		[Desc("Allow the background music to be muted by the player.")]
+		public readonly bool AllowMuteBackgroundMusic = false;
+
+		[Desc("Disable all world sounds (combat etc).")]
+		public readonly bool DisableWorldSounds = false;
+
+		public override object Create(ActorInitializer init) { return new MusicPlaylist(init.World, this); }
 	}
 
-	public class MusicPlaylist : INotifyActorDisposing, IGameOver
+	public class MusicPlaylist : INotifyActorDisposing, IGameOver, IPostWorldLoaded, INotifyGameLoaded
 	{
 		readonly MusicPlaylistInfo info;
 		readonly World world;
@@ -45,6 +53,10 @@ namespace OpenRA.Mods.Common.Traits
 
 		public readonly bool IsMusicInstalled;
 		public readonly bool IsMusicAvailable;
+		public readonly bool AllowMuteBackgroundMusic;
+
+		public bool IsBackgroundMusicMuted => AllowMuteBackgroundMusic && Game.Settings.Sound.MuteBackgroundMusic;
+
 		public bool CurrentSongIsBackground { get; private set; }
 
 		MusicInfo currentSong;
@@ -65,7 +77,8 @@ namespace OpenRA.Mods.Common.Traits
 				.ToArray();
 
 			random = playlist.Shuffle(Game.CosmeticRandom).ToArray();
-			IsMusicAvailable = playlist.Any();
+			IsMusicAvailable = playlist.Length > 0;
+			AllowMuteBackgroundMusic = info.AllowMuteBackgroundMusic;
 
 			if (SongExists(info.BackgroundMusic))
 			{
@@ -83,7 +96,19 @@ namespace OpenRA.Mods.Common.Traits
 				currentSong = world.Map.Rules.Music[info.StartingMusic];
 				CurrentSongIsBackground = false;
 			}
+		}
 
+		void IPostWorldLoaded.PostWorldLoaded(World world, WorldRenderer wr)
+		{
+			// Reset any bogus pre-existing state
+			Game.Sound.DisableWorldSounds = info.DisableWorldSounds;
+
+			if (!world.IsLoadingGameSave)
+				Play();
+		}
+
+		void INotifyGameLoaded.GameLoaded(World world)
+		{
 			Play();
 		}
 
@@ -94,7 +119,7 @@ namespace OpenRA.Mods.Common.Traits
 				&& world.Map.Rules.Music[song].Exists;
 		}
 
-		bool SongExists(MusicInfo song)
+		static bool SongExists(MusicInfo song)
 		{
 			return song != null && song.Exists;
 		}
@@ -110,7 +135,7 @@ namespace OpenRA.Mods.Common.Traits
 			return playlist;
 		}
 
-		public void GameOver(World world)
+		void IGameOver.GameOver(World world)
 		{
 			if (world.LocalPlayer != null && world.LocalPlayer.WinState == WinState.Won)
 			{
@@ -134,16 +159,18 @@ namespace OpenRA.Mods.Common.Traits
 
 		void Play()
 		{
-			if (!SongExists(currentSong))
+			if (!SongExists(currentSong) || (CurrentSongIsBackground && IsBackgroundMusicMuted))
 				return;
 
-			Game.Sound.PlayMusicThen(currentSong, () =>
-			{
-				if (!CurrentSongIsBackground && !Game.Settings.Sound.Repeat)
-					currentSong = GetNextSong();
+			Game.Sound.PlayMusicThen(currentSong, PlayNextSong);
+		}
 
-				Play();
-			});
+		void PlayNextSong()
+		{
+			if (!CurrentSongIsBackground)
+				currentSong = GetNextSong();
+
+			Play();
 		}
 
 		public void Play(MusicInfo music)
@@ -212,14 +239,18 @@ namespace OpenRA.Mods.Common.Traits
 			{
 				currentSong = currentBackgroundSong;
 				CurrentSongIsBackground = true;
-				Play();
+
+				if (!IsBackgroundMusicMuted)
+					Play();
 			}
 		}
 
-		public void Disposing(Actor self)
+		void INotifyActorDisposing.Disposing(Actor self)
 		{
 			if (currentSong != null)
 				Game.Sound.StopMusic();
+
+			Game.Sound.DisableWorldSounds = false;
 		}
 	}
 }

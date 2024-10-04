@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,28 +10,29 @@
 #endregion
 
 using System;
-using System.Drawing;
+using OpenRA.Graphics;
+using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
 {
-	public class ButtonWidget : Widget
+	public class ButtonWidget : InputWidget
 	{
 		public readonly string TooltipContainer;
 		public readonly string TooltipTemplate = "BUTTON_TOOLTIP";
-		public Func<ButtonWidget, Hotkey> GetKey = _ => Hotkey.Invalid;
 
-		public Hotkey Key
-		{
-			get { return GetKey(this); }
-			set { GetKey = _ => value; }
-		}
+		public HotkeyReference Key = new();
+		public bool DisableKeyRepeat = false;
+		public bool DisableKeySound = false;
 
-		[Translate] public string Text = "";
+		[FluentReference]
+		public string Text = "";
+		public TextAlign Align = TextAlign.Center;
+		public int LeftMargin = 5;
+		public int RightMargin = 5;
 		public string Background = "button";
 		public bool Depressed = false;
 		public int VisualHeight = ChromeMetrics.Get<int>("ButtonDepth");
-		public int BaseLine = ChromeMetrics.Get<int>("ButtonBaseLine");
 		public string Font = ChromeMetrics.Get<string>("ButtonFont");
 		public Color TextColor = ChromeMetrics.Get<Color>("ButtonTextColor");
 		public Color TextColorDisabled = ChromeMetrics.Get<Color>("ButtonTextColorDisabled");
@@ -39,26 +40,35 @@ namespace OpenRA.Mods.Common.Widgets
 		public bool Shadow = ChromeMetrics.Get<bool>("ButtonTextShadow");
 		public Color ContrastColorDark = ChromeMetrics.Get<Color>("ButtonTextContrastColorDark");
 		public Color ContrastColorLight = ChromeMetrics.Get<Color>("ButtonTextContrastColorLight");
-		public bool Disabled = false;
+		public int ContrastRadius = ChromeMetrics.Get<int>("ButtonTextContrastRadius");
+		public string ClickSound = ChromeMetrics.Get<string>("ClickSound");
+		public string ClickDisabledSound = ChromeMetrics.Get<string>("ClickDisabledSound");
 		public bool Highlighted = false;
 		public Func<string> GetText;
 		public Func<Color> GetColor;
 		public Func<Color> GetColorDisabled;
 		public Func<Color> GetContrastColorDark;
 		public Func<Color> GetContrastColorLight;
-		public Func<bool> IsDisabled;
 		public Func<bool> IsHighlighted;
 		public Action<MouseInput> OnMouseDown = _ => { };
 		public Action<MouseInput> OnMouseUp = _ => { };
 
-		Lazy<TooltipContainerWidget> tooltipContainer;
-		[Translate] public string TooltipText;
+		protected Lazy<TooltipContainerWidget> tooltipContainer;
+
+		[FluentReference]
+		public string TooltipText;
 		public Func<string> GetTooltipText;
+
+		[FluentReference]
+		public string TooltipDesc;
+		public Func<string> GetTooltipDesc;
 
 		// Equivalent to OnMouseUp, but without an input arg
 		public Action OnClick = () => { };
-		public Action OnDoubleClick = () => { };
+		public Action OnDoubleClick = null;
 		public Action<KeyInput> OnKeyPress = _ => { };
+
+		public string Cursor = ChromeMetrics.Get<string>("ButtonCursor");
 
 		protected readonly Ruleset ModRules;
 
@@ -67,16 +77,20 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			ModRules = modData.DefaultRules;
 
-			GetText = () => Text;
+			var textCache = new CachedTransform<string, string>(s => !string.IsNullOrEmpty(s) ? FluentProvider.GetString(s) : "");
+			var tooltipTextCache = new CachedTransform<string, string>(s => !string.IsNullOrEmpty(s) ? FluentProvider.GetString(s) : "");
+			var tooltipDescCache = new CachedTransform<string, string>(s => !string.IsNullOrEmpty(s) ? FluentProvider.GetString(s) : "");
+
+			GetText = () => textCache.Update(Text);
 			GetColor = () => TextColor;
 			GetColorDisabled = () => TextColorDisabled;
 			GetContrastColorDark = () => ContrastColorDark;
 			GetContrastColorLight = () => ContrastColorLight;
 			OnMouseUp = _ => OnClick();
 			OnKeyPress = _ => OnClick();
-			IsDisabled = () => Disabled;
 			IsHighlighted = () => Highlighted;
-			GetTooltipText = () => TooltipText;
+			GetTooltipText = () => tooltipTextCache.Update(TooltipText);
+			GetTooltipDesc = () => tooltipDescCache.Update(TooltipDesc);
 			tooltipContainer = Exts.Lazy(() =>
 				Ui.Root.Get<TooltipContainerWidget>(TooltipContainer));
 		}
@@ -87,8 +101,10 @@ namespace OpenRA.Mods.Common.Widgets
 			ModRules = other.ModRules;
 
 			Text = other.Text;
+			Align = other.Align;
+			LeftMargin = other.LeftMargin;
+			RightMargin = other.RightMargin;
 			Font = other.Font;
-			BaseLine = other.BaseLine;
 			TextColor = other.TextColor;
 			TextColorDisabled = other.TextColorDisabled;
 			Contrast = other.Contrast;
@@ -101,11 +117,11 @@ namespace OpenRA.Mods.Common.Widgets
 			GetColorDisabled = other.GetColorDisabled;
 			ContrastColorDark = other.ContrastColorDark;
 			ContrastColorLight = other.ContrastColorLight;
+			ContrastRadius = other.ContrastRadius;
 			GetContrastColorDark = other.GetContrastColorDark;
 			GetContrastColorLight = other.GetContrastColorLight;
 			OnMouseDown = other.OnMouseDown;
 			Disabled = other.Disabled;
-			IsDisabled = other.IsDisabled;
 			Highlighted = other.Highlighted;
 			IsHighlighted = other.IsHighlighted;
 
@@ -115,6 +131,8 @@ namespace OpenRA.Mods.Common.Widgets
 			TooltipTemplate = other.TooltipTemplate;
 			TooltipText = other.TooltipText;
 			GetTooltipText = other.GetTooltipText;
+			TooltipDesc = other.TooltipDesc;
+			GetTooltipDesc = other.GetTooltipDesc;
 			TooltipContainer = other.TooltipContainer;
 			tooltipContainer = Exts.Lazy(() =>
 				Ui.Root.Get<TooltipContainerWidget>(TooltipContainer));
@@ -128,16 +146,17 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public override bool HandleKeyPress(KeyInput e)
 		{
-			if (Hotkey.FromKeyInput(e) != Key || e.Event != KeyInputEvent.Down)
+			if (!Key.IsActivatedBy(e) || e.Event != KeyInputEvent.Down || (DisableKeyRepeat && e.IsRepeat))
 				return false;
 
 			if (!IsDisabled())
 			{
 				OnKeyPress(e);
-				Game.Sound.PlayNotification(ModRules, null, "Sounds", "ClickSound", null);
+				if (!DisableKeySound)
+					Game.Sound.PlayNotification(ModRules, null, "Sounds", ClickSound, null);
 			}
-			else
-				Game.Sound.PlayNotification(ModRules, null, "Sounds", "ClickDisabledSound", null);
+			else if (!DisableKeySound)
+				Game.Sound.PlayNotification(ModRules, null, "Sounds", ClickDisabledSound, null);
 
 			return true;
 		}
@@ -151,7 +170,7 @@ namespace OpenRA.Mods.Common.Widgets
 				return false;
 
 			var disabled = IsDisabled();
-			if (HasMouseFocus && mi.Event == MouseInputEvent.Up && mi.MultiTapCount == 2)
+			if (HasMouseFocus && mi.Event == MouseInputEvent.Up && mi.MultiTapCount == 2 && OnDoubleClick != null)
 			{
 				if (!disabled)
 				{
@@ -175,12 +194,12 @@ namespace OpenRA.Mods.Common.Widgets
 				{
 					OnMouseDown(mi);
 					Depressed = true;
-					Game.Sound.PlayNotification(ModRules, null, "Sounds", "ClickSound", null);
+					Game.Sound.PlayNotification(ModRules, null, "Sounds", ClickSound, null);
 				}
 				else
 				{
 					YieldMouseFocus(mi);
-					Game.Sound.PlayNotification(ModRules, null, "Sounds", "ClickDisabledSound", null);
+					Game.Sound.PlayNotification(ModRules, null, "Sounds", ClickDisabledSound, null);
 				}
 			}
 			else if (mi.Event == MouseInputEvent.Move && HasMouseFocus)
@@ -191,11 +210,11 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public override void MouseEntered()
 		{
-			if (TooltipContainer == null || GetTooltipText() == null)
+			if (TooltipContainer == null)
 				return;
 
-			tooltipContainer.Value.SetTooltip(TooltipTemplate,
-				new WidgetArgs { { "button", this }, { "getText", GetTooltipText } });
+			if (GetTooltipText != null)
+				tooltipContainer.Value.SetTooltip(TooltipTemplate, new WidgetArgs { { "button", this }, { "getText", GetTooltipText }, { "getDesc", GetTooltipDesc } });
 		}
 
 		public override void MouseExited()
@@ -206,14 +225,11 @@ namespace OpenRA.Mods.Common.Widgets
 			tooltipContainer.Value.RemoveTooltip();
 		}
 
-		public override int2 ChildOrigin
-		{
-			get
-			{
-				return RenderOrigin +
-					(Depressed ? new int2(VisualHeight, VisualHeight) : new int2(0, 0));
-			}
-		}
+		public override string GetCursor(int2 pos) { return Cursor; }
+
+		public override int2 ChildOrigin =>
+			RenderOrigin +
+			(Depressed ? new int2(VisualHeight, VisualHeight) : new int2(0, 0));
 
 		public override void Draw()
 		{
@@ -226,14 +242,16 @@ namespace OpenRA.Mods.Common.Widgets
 			var colordisabled = GetColorDisabled();
 			var bgDark = GetContrastColorDark();
 			var bgLight = GetContrastColorLight();
-			var s = font.Measure(text);
-			var stateOffset = Depressed ? new int2(VisualHeight, VisualHeight) : new int2(0, 0);
-			var position = new int2(rb.X + (UsableWidth - s.X) / 2, rb.Y - BaseLine + (Bounds.Height - s.Y) / 2);
 
-			DrawBackground(rb, disabled, Depressed, Ui.MouseOverWidget == this, highlighted);
+			var stateOffset = Depressed ? new int2(VisualHeight, VisualHeight) : new int2(0, 0);
+
+			var position = GetTextPosition(text, font, rb);
+
+			var hover = Ui.MouseOverWidget == this || Children.FirstOrDefault(c => c == Ui.MouseOverWidget) != null;
+			DrawBackground(rb, disabled, Depressed, hover, highlighted);
 			if (Contrast)
 				font.DrawTextWithContrast(text, position + stateOffset,
-					disabled ? colordisabled : color, bgDark, bgLight, 2);
+					disabled ? colordisabled : color, bgDark, bgLight, ContrastRadius);
 			else if (Shadow)
 				font.DrawTextWithShadow(text, position, color, bgDark, bgLight, 1);
 			else
@@ -241,8 +259,25 @@ namespace OpenRA.Mods.Common.Widgets
 					disabled ? colordisabled : color);
 		}
 
+		int2 GetTextPosition(string text, SpriteFont font, Rectangle rb)
+		{
+			var textSize = font.Measure(text);
+			var y = rb.Y + (Bounds.Height - textSize.Y - font.TopOffset) / 2;
+
+			switch (Align)
+			{
+				case TextAlign.Left:
+					return new int2(rb.X + LeftMargin, y);
+				case TextAlign.Center:
+				default:
+					return new int2(rb.X + (UsableWidth - textSize.X) / 2, y);
+				case TextAlign.Right:
+					return new int2(rb.X + UsableWidth - textSize.X - RightMargin, y);
+			}
+		}
+
 		public override Widget Clone() { return new ButtonWidget(this); }
-		public virtual int UsableWidth { get { return Bounds.Width; } }
+		public virtual int UsableWidth => Bounds.Width;
 
 		public virtual void DrawBackground(Rectangle rect, bool disabled, bool pressed, bool hover, bool highlighted)
 		{
@@ -251,13 +286,13 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public static void DrawBackground(string baseName, Rectangle rect, bool disabled, bool pressed, bool hover, bool highlighted)
 		{
-			var variant = highlighted ? "-highlighted" : "";
-			var state = disabled ? "-disabled" :
-						pressed ? "-pressed" :
-						hover ? "-hover" :
-						"";
+			if (string.IsNullOrEmpty(baseName))
+				return;
 
-			WidgetUtils.DrawPanel(baseName + variant + state, rect);
+			var variantName = highlighted ? baseName + "-highlighted" : baseName;
+			var imageName = WidgetUtils.GetStatefulImageName(variantName, disabled, pressed, hover);
+
+			WidgetUtils.DrawPanel(imageName, rect);
 		}
 	}
 }

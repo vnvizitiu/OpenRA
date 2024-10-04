@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,14 +9,19 @@
  */
 #endregion
 
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public class ShakeOnDeathInfo : ITraitInfo
+	public class ShakeOnDeathInfo : TraitInfo
 	{
-		public readonly int Intensity = 10;
-		public object Create(ActorInitializer init) { return new ShakeOnDeath(this); }
+		[Desc("DeathType(s) that trigger the shake. Leave empty to always trigger a shake.")]
+		public readonly BitSet<DamageType> DeathTypes = default;
+
+		public readonly int Duration = 10;
+		public readonly int Intensity = 1;
+		public override object Create(ActorInitializer init) { return new ShakeOnDeath(this); }
 	}
 
 	public class ShakeOnDeath : INotifyKilled
@@ -28,9 +33,12 @@ namespace OpenRA.Mods.Common.Traits
 			this.info = info;
 		}
 
-		public void Killed(Actor self, AttackInfo e)
+		void INotifyKilled.Killed(Actor self, AttackInfo e)
 		{
-			self.World.WorldActor.Trait<ScreenShaker>().AddEffect(info.Intensity, self.CenterPosition, 1);
+			if (!info.DeathTypes.IsEmpty && !e.Damage.DamageTypes.Overlaps(info.DeathTypes))
+				return;
+
+			self.World.WorldActor.Trait<ScreenShaker>().AddEffect(info.Duration, self.CenterPosition, info.Intensity);
 		}
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,7 +10,6 @@
 #endregion
 
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Activities;
@@ -21,14 +20,18 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	[Desc("Transports actors with the `Carryable` trait.")]
-	public class CarryallInfo : ITraitInfo, Requires<BodyOrientationInfo>, Requires<AircraftInfo>
+	[Desc("Transports actors with the `" + nameof(Carryable) + "` trait.")]
+	public class CarryallInfo : ConditionalTraitInfo, Requires<BodyOrientationInfo>, Requires<AircraftInfo>
 	{
-		[Desc("Delay on the ground while attaching an actor to the carryall.")]
-		public readonly int LoadingDelay = 0;
+		[ActorReference(typeof(CarryableInfo))]
+		[Desc("Actor type that is initially spawned into this actor.")]
+		public readonly string InitialActor = null;
 
-		[Desc("Delay on the ground while detacting an actor to the carryall.")]
-		public readonly int UnloadingDelay = 0;
+		[Desc("Delay (in ticks) on the ground while attaching an actor to the carryall.")]
+		public readonly int BeforeLoadDelay = 0;
+
+		[Desc("Delay (in ticks) on the ground while detaching an actor from the carryall.")]
+		public readonly int BeforeUnloadDelay = 0;
 
 		[Desc("Carryable attachment point relative to body.")]
 		public readonly WVec LocalOffset = WVec.Zero;
@@ -36,13 +39,53 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Radius around the target drop location that are considered if the target tile is blocked.")]
 		public readonly WDist DropRange = WDist.FromCells(5);
 
+		[CursorReference]
+		[Desc("Cursor to display when able to unload the passengers.")]
+		public readonly string UnloadCursor = "deploy";
+
+		[CursorReference]
+		[Desc("Cursor to display when unable to unload the passengers.")]
+		public readonly string UnloadBlockedCursor = "deploy-blocked";
+
+		[Desc("Allow moving and unloading with one order using force-move")]
+		public readonly bool AllowDropOff = false;
+
+		[CursorReference]
+		[Desc("Cursor to display when able to drop off the passengers at location.")]
+		public readonly string DropOffCursor = "ability";
+
+		[CursorReference]
+		[Desc("Cursor to display when unable to drop off the passengers at location.")]
+		public readonly string DropOffBlockedCursor = "move-blocked";
+
+		[CursorReference]
+		[Desc("Cursor to display when picking up the passengers.")]
+		public readonly string PickUpCursor = "ability";
+
+		[GrantedConditionReference]
+		[Desc("Condition to grant to the Carryall while it is carrying something.")]
+		public readonly string CarryCondition = null;
+
+		[ActorReference(dictionaryReference: LintDictionaryReference.Keys)]
+		[Desc("Conditions to grant when a specified actor is being carried.",
+			"A dictionary of [actor name]: [condition].")]
+		public readonly Dictionary<string, string> CarryableConditions = new();
+
 		[VoiceReference]
 		public readonly string Voice = "Action";
 
-		public virtual object Create(ActorInitializer init) { return new Carryall(init.Self, this); }
+		[Desc("Color to use for the target line.")]
+		public readonly Color TargetLineColor = Color.Yellow;
+
+		[GrantedConditionReference]
+		public IEnumerable<string> LinterCarryableConditions => CarryableConditions.Values;
+
+		public override object Create(ActorInitializer init) { return new Carryall(init.Self, this); }
 	}
 
-	public class Carryall : INotifyKilled, ISync, IRender, INotifyActorDisposing, IIssueOrder, IResolveOrder, IOrderVoice
+	public class Carryall : ConditionalTrait<CarryallInfo>, INotifyKilled, ISync, ITick, IRender,
+		INotifyActorDisposing, IIssueOrder, IResolveOrder, IOrderVoice, IIssueDeployOrder,
+		IAircraftCenterPositionOffset, IOverrideAircraftLanding
 	{
 		public enum CarryallState
 		{
@@ -51,32 +94,65 @@ namespace OpenRA.Mods.Common.Traits
 			Carrying
 		}
 
-		public readonly CarryallInfo Info;
 		readonly AircraftInfo aircraftInfo;
+		readonly Aircraft aircraft;
 		readonly BodyOrientation body;
-		readonly IMove move;
 		readonly IFacing facing;
+		readonly Actor self;
 
 		// The actor we are currently carrying.
-		[Sync] public Actor Carryable { get; private set; }
-		public CarryallState State { get; private set; }
+		[Sync]
+		public Actor Carryable { get; protected set; }
+		public CarryallState State { get; protected set; }
 
-		IActorPreview[] carryablePreview = null;
+		WAngle cachedFacing;
+		IActorPreview[] carryablePreview;
+		HashSet<string> landableTerrainTypes;
+		int carryConditionToken = Actor.InvalidConditionToken;
+		int carryableConditionToken = Actor.InvalidConditionToken;
 
-		/// <summary>Offset between the carryall's and the carried actor's CenterPositions</summary>
+		/// <summary>Offset between the carryall's and the carried actor's CenterPositions.</summary>
 		public WVec CarryableOffset { get; private set; }
 
 		public Carryall(Actor self, CarryallInfo info)
+			: base(info)
 		{
-			this.Info = info;
-
 			Carryable = null;
 			State = CarryallState.Idle;
 
 			aircraftInfo = self.Info.TraitInfoOrDefault<AircraftInfo>();
+			aircraft = self.Trait<Aircraft>();
 			body = self.Trait<BodyOrientation>();
-			move = self.Trait<IMove>();
 			facing = self.Trait<IFacing>();
+			this.self = self;
+
+			if (!string.IsNullOrEmpty(info.InitialActor))
+			{
+				var cargo = self.World.CreateActor(false, info.InitialActor.ToLowerInvariant(), new TypeDictionary
+				{
+					new ParentActorInit(self),
+					new OwnerInit(self.Owner)
+				});
+
+				cargo.Trait<Carryable>().Attached(cargo, self);
+				AttachCarryable(self, cargo);
+			}
+		}
+
+		void ITick.Tick(Actor self)
+		{
+			// Cargo may be killed in the same tick as, but after they are attached.
+			if (State == CarryallState.Carrying && (Carryable == null || Carryable.IsDead))
+				DetachCarryable(self);
+
+			// HACK: We don't have an efficient way to know when the preview
+			// bounds change, so assume that we need to update the screen map
+			// (only) when the facing changes.
+			if (facing.Facing != cachedFacing && carryablePreview != null)
+			{
+				self.World.ScreenMap.AddOrUpdate(self);
+				cachedFacing = facing.Facing;
+			}
 		}
 
 		void INotifyActorDisposing.Disposing(Actor self)
@@ -94,23 +170,34 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			if (State == CarryallState.Carrying)
 			{
-				if (Carryable.IsInWorld && !Carryable.IsDead)
+				if (!Carryable.IsDead)
+				{
+					var positionable = Carryable.Trait<IPositionable>();
+					positionable.SetPosition(Carryable, self.Location);
 					Carryable.Kill(e.Attacker);
+				}
+
 				Carryable = null;
 			}
 
 			UnreserveCarryable(self);
 		}
 
-		public virtual bool RequestTransportNotify(Actor self, Actor carryable, CPos destination)
-		{
-			return false;
-		}
-
 		public virtual WVec OffsetForCarryable(Actor self, Actor carryable)
 		{
 			return Info.LocalOffset - carryable.Info.TraitInfo<CarryableInfo>().LocalOffset;
 		}
+
+		WVec IAircraftCenterPositionOffset.PositionOffset
+		{
+			get
+			{
+				var localOffset = CarryableOffset.Rotate(body.QuantizeOrientation(self.Orientation));
+				return body.LocalToWorld(localOffset);
+			}
+		}
+
+		HashSet<string> IOverrideAircraftLanding.LandableTerrainTypes => landableTerrainTypes ?? aircraft.Info.LandableTerrainTypes;
 
 		public virtual bool AttachCarryable(Actor self, Actor carryable)
 		{
@@ -119,20 +206,35 @@ namespace OpenRA.Mods.Common.Traits
 
 			Carryable = carryable;
 			State = CarryallState.Carrying;
+			self.World.ScreenMap.AddOrUpdate(self);
+			if (carryConditionToken == Actor.InvalidConditionToken)
+				carryConditionToken = self.GrantCondition(Info.CarryCondition);
+
+			if (Info.CarryableConditions.TryGetValue(carryable.Info.Name, out var carryableCondition))
+				carryableConditionToken = self.GrantCondition(carryableCondition);
 
 			CarryableOffset = OffsetForCarryable(self, carryable);
+			landableTerrainTypes = Carryable.Trait<Mobile>().Info.LocomotorInfo.TerrainSpeeds.Keys.ToHashSet();
+
 			return true;
 		}
 
 		public virtual void DetachCarryable(Actor self)
 		{
 			UnreserveCarryable(self);
+			self.World.ScreenMap.AddOrUpdate(self);
+			if (carryConditionToken != Actor.InvalidConditionToken)
+				carryConditionToken = self.RevokeCondition(carryConditionToken);
+
+			if (carryableConditionToken != Actor.InvalidConditionToken)
+				carryableConditionToken = self.RevokeCondition(carryableConditionToken);
 
 			carryablePreview = null;
+			landableTerrainTypes = null;
 			CarryableOffset = WVec.Zero;
 		}
 
-		public virtual bool ReserveCarryable(Actor self, Actor carryable)
+		public bool ReserveCarryable(Actor self, Actor carryable)
 		{
 			if (State == CarryallState.Reserved)
 				UnreserveCarryable(self);
@@ -148,7 +250,11 @@ namespace OpenRA.Mods.Common.Traits
 		public virtual void UnreserveCarryable(Actor self)
 		{
 			if (Carryable != null && Carryable.IsInWorld && !Carryable.IsDead)
-				Carryable.Trait<Carryable>().UnReserve(Carryable);
+			{
+				var carryable = Carryable.Trait<Carryable>();
+				if (carryable.Carrier == self)
+					carryable.UnReserve(Carryable);
+			}
 
 			Carryable = null;
 			State = CarryallState.Idle;
@@ -156,7 +262,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		IEnumerable<IRenderable> IRender.Render(Actor self, WorldRenderer wr)
 		{
-			if (State == CarryallState.Carrying)
+			if (State == CarryallState.Carrying && !Carryable.IsDead)
 			{
 				if (carryablePreview == null)
 				{
@@ -175,87 +281,97 @@ namespace OpenRA.Mods.Common.Traits
 						.ToArray();
 				}
 
-				var offset = body.LocalToWorld(CarryableOffset.Rotate(body.QuantizeOrientation(self, self.Orientation)));
+				var offset = body.LocalToWorld(CarryableOffset.Rotate(body.QuantizeOrientation(self.Orientation)));
 				var previewRenderables = carryablePreview
 					.SelectMany(p => p.Render(wr, self.CenterPosition + offset))
-					.OrderBy(WorldRenderer.RenderableScreenZPositionComparisonKey);
+					.OrderBy(WorldRenderer.RenderableZPositionComparisonKey);
 
 				foreach (var r in previewRenderables)
 					yield return r;
 			}
 		}
 
+		IEnumerable<Rectangle> IRender.ScreenBounds(Actor self, WorldRenderer wr)
+		{
+			if (carryablePreview == null)
+				yield break;
+
+			var pos = self.CenterPosition;
+			foreach (var p in carryablePreview)
+				foreach (var b in p.ScreenBounds(wr, pos))
+					yield return b;
+		}
+
+		// Check if we can drop the unit at our current location.
+		public bool CanUnload()
+		{
+			if (IsTraitDisabled)
+				return false;
+
+			var targetCell = self.World.Map.CellContaining(aircraft.GetPosition());
+			return Carryable != null && aircraft.CanLand(targetCell, blockedByMobile: false);
+		}
+
 		IEnumerable<IOrderTargeter> IIssueOrder.Orders
 		{
 			get
 			{
-				if (State != CarryallState.Carrying)
-					yield return new CarryallPickupOrderTargeter();
-				else
-					yield return new CarryallDeliverUnitTargeter(aircraftInfo, CarryableOffset);
+				if (IsTraitDisabled)
+					yield break;
+
+				yield return new CarryallPickupOrderTargeter(Info);
+				yield return new DeployOrderTargeter("Unload", 10,
+				() => CanUnload() ? Info.UnloadCursor : Info.UnloadBlockedCursor);
+				yield return new CarryallDeliverUnitTargeter(aircraftInfo, Info);
 			}
 		}
 
-		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, Target target, bool queued)
+		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
 		{
-			if (order.OrderID == "PickupUnit")
-			{
-				if (target.Type == TargetType.FrozenActor)
-					return new Order(order.OrderID, self, queued) { ExtraData = target.FrozenActor.ID };
-
-				return new Order(order.OrderID, self, queued) { TargetActor = target.Actor };
-			}
-			else if (order.OrderID == "DeliverUnit")
-			{
-				return new Order(order.OrderID, self, queued) { TargetLocation = self.World.Map.CellContaining(target.CenterPosition) };
-			}
-			else if (order.OrderID == "Unload")
-			{
-				return new Order(order.OrderID, self, queued) { TargetLocation = self.World.Map.CellContaining(target.CenterPosition) };
-			}
+			if (order.OrderID == "PickupUnit" || order.OrderID == "DeliverUnit" || order.OrderID == "Unload")
+				return new Order(order.OrderID, self, target, queued);
 
 			return null;
 		}
 
+		Order IIssueDeployOrder.IssueDeployOrder(Actor self, bool queued)
+		{
+			return new Order("Unload", self, queued);
+		}
+
+		bool IIssueDeployOrder.CanIssueDeployOrder(Actor self, bool queued)
+		{
+			return !IsTraitDisabled;
+		}
+
 		void IResolveOrder.ResolveOrder(Actor self, Order order)
 		{
-			if (State == CarryallState.Carrying)
+			if (order.OrderString == "DeliverUnit")
 			{
-				if (order.OrderString == "DeliverUnit")
-				{
-					var cell = self.World.Map.Clamp(order.TargetLocation);
+				if (!order.Target.IsValidFor(self))
+					return;
 
-					if (!aircraftInfo.MoveIntoShroud && !self.Owner.Shroud.IsExplored(cell))
-						return;
+				var cell = self.World.Map.Clamp(self.World.Map.CellContaining(order.Target.CenterPosition));
+				if (!aircraftInfo.MoveIntoShroud && !self.Owner.Shroud.IsExplored(cell))
+					return;
 
-					var targetLocation = move.NearestMoveableCell(order.TargetLocation);
-					self.SetTargetLine(Target.FromCell(self.World, targetLocation), Color.Yellow);
-					self.QueueActivity(order.Queued, new DeliverUnit(self, targetLocation));
-				}
-				else if (order.OrderString == "Unload")
-				{
-					var targetLocation = move.NearestMoveableCell(self.Location);
-					self.SetTargetLine(Target.FromCell(self.World, targetLocation), Color.Yellow);
-					self.QueueActivity(order.Queued, new DeliverUnit(self, targetLocation));
-				}
+				self.QueueActivity(order.Queued, new DeliverUnit(self, order.Target, Info.DropRange, Info.TargetLineColor));
+				self.ShowTargetLines();
 			}
-			else
+			else if (order.OrderString == "Unload")
 			{
-				if (order.OrderString == "PickupUnit")
-				{
-					var target = self.ResolveFrozenActorOrder(order, Color.Yellow);
-					if (target.Type != TargetType.Actor)
-						return;
+				if (!order.Queued && !CanUnload())
+					return;
 
-					if (!ReserveCarryable(self, target.Actor))
-						return;
+				self.QueueActivity(order.Queued, new DeliverUnit(self, Info.DropRange, Info.TargetLineColor));
+			}
+			else if (order.OrderString == "PickupUnit")
+			{
+				if (order.Target.Type != TargetType.Actor)
+					return;
 
-					if (!order.Queued)
-						self.CancelActivity();
-
-					self.SetTargetLine(target, Color.Yellow);
-					self.QueueActivity(order.Queued, new PickupUnit(self, target.Actor, Info.LoadingDelay));
-				}
+				self.QueueActivity(order.Queued, new PickupUnit(self, order.Target.Actor, Info.BeforeLoadDelay, Info.TargetLineColor));
+				self.ShowTargetLines();
 			}
 		}
 
@@ -272,22 +388,25 @@ namespace OpenRA.Mods.Common.Traits
 			}
 		}
 
-		class CarryallPickupOrderTargeter : UnitOrderTargeter
+		sealed class CarryallPickupOrderTargeter : UnitOrderTargeter
 		{
-			public CarryallPickupOrderTargeter()
-				: base("PickupUnit", 5, "ability", false, true)
+			public CarryallPickupOrderTargeter(CarryallInfo info)
+				: base("PickupUnit", 5, info.PickUpCursor, false, true)
 			{
 			}
 
 			static bool CanTarget(Actor self, Actor target)
 			{
-				if (!target.AppearsFriendlyTo(self))
+				if (target == null || !target.AppearsFriendlyTo(self))
 					return false;
+
 				var carryable = target.TraitOrDefault<Carryable>();
-				if (carryable == null)
+				if (carryable == null || carryable.IsTraitDisabled)
 					return false;
+
 				if (carryable.Reserved && carryable.Carrier != self)
 					return false;
+
 				return true;
 			}
 
@@ -302,44 +421,45 @@ namespace OpenRA.Mods.Common.Traits
 			}
 		}
 
-		class CarryallDeliverUnitTargeter : AircraftMoveOrderTargeter
+		sealed class CarryallDeliverUnitTargeter : IOrderTargeter
 		{
 			readonly AircraftInfo aircraftInfo;
-			readonly WVec carryableOffset;
+			readonly CarryallInfo info;
 
-			public CarryallDeliverUnitTargeter(AircraftInfo aircraftInfo, WVec carryableOffset)
-				: base(aircraftInfo)
+			public string OrderID => "DeliverUnit";
+			public int OrderPriority => 6;
+			public bool IsQueued { get; private set; }
+			public bool TargetOverridesSelection(Actor self, in Target target, List<Actor> actorsAt, CPos xy, TargetModifiers modifiers) { return true; }
+
+			public CarryallDeliverUnitTargeter(AircraftInfo aircraftInfo, CarryallInfo info)
 			{
-				OrderID = "DeliverUnit";
-				OrderPriority = 6;
-				this.carryableOffset = carryableOffset;
 				this.aircraftInfo = aircraftInfo;
+				this.info = info;
 			}
 
-			public override bool CanTarget(Actor self, Target target, List<Actor> othersAtTarget, ref TargetModifiers modifiers, ref string cursor)
+			public bool CanTarget(Actor self, in Target target, ref TargetModifiers modifiers, ref string cursor)
 			{
-				if (modifiers.HasModifier(TargetModifiers.ForceMove))
+				if (!info.AllowDropOff || !modifiers.HasModifier(TargetModifiers.ForceMove))
 					return false;
 
 				var type = target.Type;
-				if (type == TargetType.Actor && self == target.Actor)
-				{
-					var altitude = self.World.Map.DistanceAboveTerrain(self.CenterPosition);
-					if (altitude.Length - carryableOffset.Z < aircraftInfo.MinAirborneAltitude)
-					{
-						cursor = "deploy";
-						OrderID = "Unload";
-						return true;
-					}
-				}
-				else if ((type == TargetType.Actor && target.Actor.Info.HasTraitInfo<BuildingInfo>())
+				if ((type == TargetType.Actor && target.Actor.Info.HasTraitInfo<BuildingInfo>())
 					|| (target.Type == TargetType.FrozenActor && target.FrozenActor.Info.HasTraitInfo<BuildingInfo>()))
 				{
-					cursor = "move-blocked";
+					cursor = info.DropOffBlockedCursor;
 					return true;
 				}
 
-				return base.CanTarget(self, target, othersAtTarget, ref modifiers, ref cursor);
+				var location = self.World.Map.CellContaining(target.CenterPosition);
+				var explored = self.Owner.Shroud.IsExplored(location);
+				cursor = self.World.Map.Contains(location) ? info.DropOffCursor : info.DropOffBlockedCursor;
+
+				IsQueued = modifiers.HasModifier(TargetModifiers.ForceQueue);
+
+				if (!explored && !aircraftInfo.MoveIntoShroud)
+					cursor = info.DropOffBlockedCursor;
+
+				return true;
 			}
 		}
 	}

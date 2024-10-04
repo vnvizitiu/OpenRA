@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System;
+using OpenRA.Graphics;
 using OpenRA.Network;
 using OpenRA.Widgets;
 
@@ -17,11 +18,14 @@ namespace OpenRA.Mods.Common.Widgets
 {
 	public class ClientTooltipRegionWidget : Widget
 	{
-		public readonly string Template;
 		public readonly string TooltipContainer;
-		Lazy<TooltipContainerWidget> tooltipContainer;
+		readonly Lazy<TooltipContainerWidget> tooltipContainer;
+
+		public string Template;
+
 		OrderManager orderManager;
-		int clientIndex;
+		WorldRenderer worldRenderer;
+		Session.Client client;
 
 		public ClientTooltipRegionWidget()
 		{
@@ -35,28 +39,37 @@ namespace OpenRA.Mods.Common.Widgets
 			TooltipContainer = other.TooltipContainer;
 			tooltipContainer = Exts.Lazy(() => Ui.Root.Get<TooltipContainerWidget>(TooltipContainer));
 			orderManager = other.orderManager;
-			clientIndex = other.clientIndex;
+			worldRenderer = other.worldRenderer;
+			client = other.client;
 		}
 
 		public override Widget Clone() { return new ClientTooltipRegionWidget(this); }
 
-		public void Bind(OrderManager orderManager, int clientIndex)
+		public void Bind(OrderManager orderManager, WorldRenderer worldRenderer, Session.Client client)
 		{
 			this.orderManager = orderManager;
-			this.clientIndex = clientIndex;
+			this.worldRenderer = worldRenderer;
+			this.client = client;
 		}
 
 		public override void MouseEntered()
 		{
 			if (TooltipContainer == null)
 				return;
-			tooltipContainer.Value.SetTooltip(Template, new WidgetArgs() { { "orderManager", orderManager }, { "clientIndex", clientIndex } });
+
+			tooltipContainer.Value.SetTooltip(Template, new WidgetArgs()
+			{
+				{ "orderManager", orderManager },
+				{ "worldRenderer", worldRenderer },
+				{ "client", client }
+			});
 		}
 
 		public override void MouseExited()
 		{
 			if (TooltipContainer == null)
 				return;
+
 			tooltipContainer.Value.RemoveTooltip();
 		}
 	}

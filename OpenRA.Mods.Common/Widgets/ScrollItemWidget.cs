@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,14 +10,19 @@
 #endregion
 
 using System;
+using OpenRA.Graphics;
+using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
 {
 	public class ScrollItemWidget : ButtonWidget
 	{
+		public new readonly string Background = "scrollitem";
+		public readonly bool EnableChildMouseOver = false;
 		public string ItemKey;
-		public string BaseName = "scrollitem";
+
+		readonly CachedTransform<(bool, bool, bool, bool, bool), Sprite[]> getPanelCache;
 
 		[ObjectCreator.UseCtor]
 		public ScrollItemWidget(ModData modData)
@@ -25,7 +30,7 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			IsVisible = () => false;
 			VisualHeight = 0;
-			IgnoreChildMouseOver = true;
+			getPanelCache = WidgetUtils.GetCachedStatefulPanelImages(Background);
 		}
 
 		protected ScrollItemWidget(ScrollItemWidget other)
@@ -33,21 +38,34 @@ namespace OpenRA.Mods.Common.Widgets
 		{
 			IsVisible = () => false;
 			VisualHeight = 0;
-			IgnoreChildMouseOver = true;
 			Key = other.Key;
-			BaseName = other.BaseName;
+			Background = other.Background;
+			EnableChildMouseOver = other.EnableChildMouseOver;
+			getPanelCache = WidgetUtils.GetCachedStatefulPanelImages(Background);
+		}
+
+		public override void Initialize(WidgetArgs args)
+		{
+			base.Initialize(args);
+
+			// HACK: We want to default IgnoreChildMouseOver to true in this widget
+			// but still allow it to be disabled
+			IgnoreChildMouseOver = !EnableChildMouseOver;
 		}
 
 		public Func<bool> IsSelected = () => false;
 
 		public override void Draw()
 		{
-			var state = IsSelected() ? BaseName + "-selected" :
-				Ui.MouseOverWidget == this ? BaseName + "-hover" :
-				null;
+			if (string.IsNullOrEmpty(Background))
+				return;
 
-			if (state != null)
-				WidgetUtils.DrawPanel(state, RenderBounds);
+			// PERF: Only check for ourself or our direct children
+			var hover = Ui.MouseOverWidget == this;
+			if (!IgnoreChildMouseOver && !hover)
+				hover = Children.Contains(Ui.MouseOverWidget);
+
+			WidgetUtils.DrawPanel(RenderBounds, getPanelCache.Update((IsDisabled(), Depressed, hover, false, IsSelected() || IsHighlighted())));
 		}
 
 		public override Widget Clone() { return new ScrollItemWidget(this); }

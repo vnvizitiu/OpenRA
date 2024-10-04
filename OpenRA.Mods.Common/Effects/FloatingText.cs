@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,20 +11,20 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using OpenRA.Effects;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Graphics;
+using OpenRA.Primitives;
 
 namespace OpenRA.Mods.Common.Effects
 {
-	public class FloatingText : IEffect, IEffectAboveShroud
+	public class FloatingText : IEffect, IEffectAnnotation
 	{
-		static readonly WVec Velocity = new WVec(0, 0, 86);
+		static readonly WVec Velocity = new(0, 0, 86);
 
 		readonly SpriteFont font;
 		readonly string text;
-		Color color;
+		readonly Color color;
 		int remaining;
 		WPos pos;
 
@@ -37,7 +37,7 @@ namespace OpenRA.Mods.Common.Effects
 			remaining = duration;
 		}
 
-		public void Tick(World world)
+		void IEffect.Tick(World world)
 		{
 			if (--remaining <= 0)
 				world.AddFrameEndTask(w => w.Remove(this));
@@ -45,20 +45,19 @@ namespace OpenRA.Mods.Common.Effects
 			pos += Velocity;
 		}
 
-		public IEnumerable<IRenderable> Render(WorldRenderer wr) { return SpriteRenderable.None; }
+		IEnumerable<IRenderable> IEffect.Render(WorldRenderer wr) { return SpriteRenderable.None; }
 
-		public IEnumerable<IRenderable> RenderAboveShroud(WorldRenderer wr)
+		IEnumerable<IRenderable> IEffectAnnotation.RenderAnnotation(WorldRenderer wr)
 		{
 			if (wr.World.FogObscures(pos) || wr.World.ShroudObscures(pos))
 				yield break;
 
-			// Arbitrary large value used for the z-offset to try and ensure the text displays above everything else.
-			yield return new TextRenderable(font, pos, 4096, color, text);
+			yield return new TextAnnotationRenderable(font, pos, 0, color, text);
 		}
 
 		public static string FormatCashTick(int cashAmount)
 		{
-			return "{0}${1}".F(cashAmount < 0 ? "-" : "+", Math.Abs(cashAmount));
+			return $"{(cashAmount < 0 ? "-" : "+")}${Math.Abs(cashAmount)}";
 		}
 	}
 }

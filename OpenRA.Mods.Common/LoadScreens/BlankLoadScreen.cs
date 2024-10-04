@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,8 +12,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using OpenRA.FileFormats;
+using OpenRA.Mods.Common.FileSystem;
 using OpenRA.Mods.Common.Widgets.Logic;
 using OpenRA.Widgets;
 
@@ -22,56 +22,55 @@ namespace OpenRA.Mods.Common.LoadScreens
 	public class BlankLoadScreen : ILoadScreen
 	{
 		public LaunchArguments Launch;
-		ModData modData;
+		protected ModData ModData { get; private set; }
+
+		bool initialized;
 
 		public virtual void Init(ModData modData, Dictionary<string, string> info)
 		{
-			this.modData = modData;
+			ModData = modData;
 		}
 
 		public virtual void Display()
 		{
-			if (Game.Renderer == null)
+			if (Game.Renderer == null || initialized)
 				return;
 
 			// Draw a black screen
-			Game.Renderer.BeginFrame(int2.Zero, 1f);
+			Game.Renderer.BeginUI();
 			Game.Renderer.EndFrame(new NullInputHandler());
+
+			// PERF: draw the screen only once
+			initialized = true;
 		}
 
-		public void StartGame(Arguments args)
+		public virtual void StartGame(Arguments args)
 		{
 			Launch = new LaunchArguments(args);
 			Ui.ResetAll();
 			Game.Settings.Save();
 
-			if (Launch.Benchmark)
+			if (!string.IsNullOrEmpty(Launch.Benchmark))
 			{
-				Log.AddChannel("cpu", "cpu.csv");
-				Log.Write("cpu", "tick;time [ms]");
+				Console.WriteLine($"Saving benchmark data into {Path.Combine(Platform.SupportDir, "Logs")}");
 
-				Log.AddChannel("render", "render.csv");
-				Log.Write("render", "frame;time [ms]");
-
-				Console.WriteLine("Saving benchmark data into {0}".F(Path.Combine(Platform.SupportDir, "Logs")));
-
-				Game.BenchmarkMode = true;
+				Game.BenchmarkMode(Launch.Benchmark);
 			}
 
 			// Join a server directly
-			var connect = Launch.GetConnectAddress();
-			if (!string.IsNullOrEmpty(connect))
+			var connect = Launch.GetConnectEndPoint();
+			if (connect != null)
 			{
-				var parts = connect.Split(':');
+				Game.LoadShellMap();
+				Game.RemoteDirectConnect(connect);
+				return;
+			}
 
-				if (parts.Length == 2)
-				{
-					var host = parts[0];
-					var port = Exts.ParseIntegerInvariant(parts[1]);
-					Game.LoadShellMap();
-					Game.RemoteDirectConnect(host, port);
-					return;
-				}
+			// Start a map directly
+			if (!string.IsNullOrEmpty(Launch.Map))
+			{
+				Game.LoadMap(Launch.Map);
+				return;
 			}
 
 			// Load a replay directly
@@ -84,7 +83,7 @@ namespace OpenRA.Mods.Common.LoadScreens
 				}
 				catch { }
 
-				if (ReplayUtils.PromptConfirmReplayCompatibility(replayMeta, Game.LoadShellMap))
+				if (ReplayUtils.PromptConfirmReplayCompatibility(replayMeta, Game.ModData, Game.LoadShellMap))
 					Game.JoinReplay(Launch.Replay);
 
 				if (replayMeta != null)
@@ -109,12 +108,28 @@ namespace OpenRA.Mods.Common.LoadScreens
 			GC.SuppressFinalize(this);
 		}
 
-		public bool RequiredContentIsInstalled()
+		public virtual bool BeforeLoad()
 		{
-			var content = modData.Manifest.Get<ModContent>();
-			return content.Packages
-				.Where(p => p.Value.Required)
-				.All(p => p.Value.TestFiles.All(f => File.Exists(Platform.ResolvePath(f))));
+			var graphicSettings = Game.Settings.Graphics;
+
+			// Reset the UI scaling if the user has configured a UI scale that pushes us below the minimum allowed effective resolution
+			var minResolution = ModData.Manifest.Get<WorldViewportSizes>().MinEffectiveResolution;
+			var resolution = Game.Renderer.Resolution;
+			if ((resolution.Width < minResolution.Width || resolution.Height < minResolution.Height) && Game.Settings.Graphics.UIScale > 1.0f)
+			{
+				graphicSettings.UIScale = 1.0f;
+				Game.Renderer.SetUIScale(1.0f);
+			}
+
+			// Saved settings may have been invalidated by a hardware change
+			graphicSettings.VideoDisplay = Game.Renderer.CurrentDisplay;
+			if (graphicSettings.GLProfile != GLProfile.Automatic && graphicSettings.GLProfile != Game.Renderer.GLProfile)
+				graphicSettings.GLProfile = GLProfile.Automatic;
+
+			if (ModData.FileSystemLoader is not IFileSystemExternalContent content)
+				return true;
+
+			return !content.InstallContentIfRequired(ModData);
 		}
 	}
 }

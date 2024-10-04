@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,30 +10,39 @@
 #endregion
 
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
+using OpenRA.Primitives;
 
 namespace OpenRA.Graphics
 {
-	public struct TargetLineRenderable : IRenderable, IFinalizedRenderable
+	public class TargetLineRenderable : IRenderable, IFinalizedRenderable
 	{
 		readonly IEnumerable<WPos> waypoints;
 		readonly Color color;
+		readonly int width;
+		readonly int markerSize;
 
-		public TargetLineRenderable(IEnumerable<WPos> waypoints, Color color)
+		public TargetLineRenderable(IEnumerable<WPos> waypoints, Color color, int width, int markerSize)
 		{
 			this.waypoints = waypoints;
 			this.color = color;
+			this.width = width;
+			this.markerSize = markerSize;
 		}
 
-		public WPos Pos { get { return waypoints.First(); } }
-		public PaletteReference Palette { get { return null; } }
-		public int ZOffset { get { return 0; } }
-		public bool IsDecoration { get { return true; } }
+		public WPos Pos => waypoints.First();
+		public int ZOffset => 0;
+		public bool IsDecoration => true;
 
-		public IRenderable WithPalette(PaletteReference newPalette) { return new TargetLineRenderable(waypoints, color); }
-		public IRenderable WithZOffset(int newOffset) { return new TargetLineRenderable(waypoints, color); }
-		public IRenderable OffsetBy(WVec vec) { return new TargetLineRenderable(waypoints.Select(w => w + vec), color); }
+		public IRenderable WithZOffset(int newOffset) { return this; }
+
+		public IRenderable OffsetBy(in WVec vec)
+		{
+			// Lambdas can't use 'in' variables, so capture a copy for later
+			var offset = vec;
+			return new TargetLineRenderable(waypoints.Select(w => w + offset), color, width, markerSize);
+		}
+
 		public IRenderable AsDecoration() { return this; }
 
 		public IFinalizedRenderable PrepareRender(WorldRenderer wr) { return this; }
@@ -42,26 +51,24 @@ namespace OpenRA.Graphics
 			if (!waypoints.Any())
 				return;
 
-			var iz = 1 / wr.Viewport.Zoom;
-			var first = wr.Screen3DPosition(waypoints.First());
+			var first = wr.Viewport.WorldToViewPx(wr.Screen3DPosition(waypoints.First()));
 			var a = first;
-			foreach (var b in waypoints.Skip(1).Select(pos => wr.Screen3DPosition(pos)))
+			foreach (var b in waypoints.Skip(1).Select(pos => wr.Viewport.WorldToViewPx(wr.Screen3DPosition(pos))))
 			{
-				Game.Renderer.WorldRgbaColorRenderer.DrawLine(a, b, iz, color);
-				DrawTargetMarker(wr, color, b);
+				Game.Renderer.RgbaColorRenderer.DrawLine(a, b, width, color);
+				DrawTargetMarker(color, b, markerSize);
 				a = b;
 			}
 
-			DrawTargetMarker(wr, color, first);
+			DrawTargetMarker(color, first);
 		}
 
-		public static void DrawTargetMarker(WorldRenderer wr, Color color, float3 location)
+		public static void DrawTargetMarker(Color color, int2 screenPos, int size = 1)
 		{
-			var iz = 1 / wr.Viewport.Zoom;
-			var offset = new float2(iz, iz);
-			var tl = location - offset;
-			var br = location + offset;
-			Game.Renderer.WorldRgbaColorRenderer.FillRect(tl, br, color);
+			var offset = new int2(size, size);
+			var tl = screenPos - offset;
+			var br = screenPos + offset;
+			Game.Renderer.RgbaColorRenderer.FillRect(tl, br, color);
 		}
 
 		public void RenderDebugGeometry(WorldRenderer wr) { }

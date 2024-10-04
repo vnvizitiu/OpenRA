@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,13 +18,13 @@ namespace OpenRA.Mods.Common.Widgets
 	{
 		public readonly string TooltipTemplate;
 		public readonly string TooltipContainer;
-		Lazy<TooltipContainerWidget> tooltipContainer;
+		protected Lazy<TooltipContainerWidget> tooltipContainer;
 
 		public Func<string> GetTooltipText = () => "";
 
 		[ObjectCreator.UseCtor]
-		public LabelWithTooltipWidget(World world)
-			: base()
+		public LabelWithTooltipWidget(ModData modData)
+			: base(modData)
 		{
 			tooltipContainer = Exts.Lazy(() =>
 				Ui.Root.Get<TooltipContainerWidget>(TooltipContainer));
@@ -55,10 +55,10 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public override void MouseExited()
 		{
-			if (TooltipContainer == null)
-				return;
-
-			tooltipContainer.Value.RemoveTooltip();
+			// Only try to remove the tooltip if we know it has been created
+			// This avoids a crash if the widget (and the container it refers to) are being removed
+			if (TooltipContainer != null && tooltipContainer.IsValueCreated)
+				tooltipContainer.Value.RemoveTooltip();
 		}
 	}
 }

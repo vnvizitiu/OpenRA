@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,6 +11,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using OpenRA.Network;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
@@ -20,7 +21,7 @@ namespace OpenRA.Mods.Common.Traits
 	public class StrategicPoint { }
 
 	[Desc("Allows King of the Hill (KotH) style gameplay.")]
-	public class StrategicVictoryConditionsInfo : ITraitInfo, Requires<MissionObjectivesInfo>
+	public class StrategicVictoryConditionsInfo : TraitInfo, Requires<MissionObjectivesInfo>
 	{
 		[Desc("Amount of time (in game ticks) that the player has to hold all the strategic points.", "Defaults to 7500 ticks (5 minutes at default speed).")]
 		public readonly int HoldDuration = 7500;
@@ -35,18 +36,30 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly int NotificationDelay = 1500;
 
 		[Desc("Description of the objective")]
-		[Translate] public readonly string Objective = "Hold all the strategic positions!";
+		public readonly string Objective = "Hold all the strategic positions!";
 
-		public object Create(ActorInitializer init) { return new StrategicVictoryConditions(init.Self, this); }
+		[Desc("Disable the win/loss messages and audio notifications?")]
+		public readonly bool SuppressNotifications = false;
+
+		public override object Create(ActorInitializer init) { return new StrategicVictoryConditions(init.Self, this); }
 	}
 
-	public class StrategicVictoryConditions : ITick, ISync, INotifyObjectivesUpdated
+	public class StrategicVictoryConditions : ITick, ISync, INotifyWinStateChanged, INotifyTimeLimit
 	{
+		[FluentReference("player")]
+		const string PlayerIsVictorious = "notification-player-is-victorious";
+
+		[FluentReference("player")]
+		const string PlayerIsDefeated = "notification-player-is-defeated";
+
 		readonly StrategicVictoryConditionsInfo info;
 
-		[Sync] public int TicksLeft;
+		[Sync]
+		public int TicksLeft;
+
 		readonly Player player;
 		readonly MissionObjectives mo;
+		readonly bool shortGame;
 		int objectiveID = -1;
 
 		public StrategicVictoryConditions(Actor self, StrategicVictoryConditionsInfo svcInfo)
@@ -55,35 +68,42 @@ namespace OpenRA.Mods.Common.Traits
 			TicksLeft = info.HoldDuration;
 			player = self.Owner;
 			mo = self.Trait<MissionObjectives>();
+			shortGame = player.World.WorldActor.Trait<MapOptions>().ShortGame;
 		}
 
-		public IEnumerable<Actor> AllPoints
+		public IEnumerable<Actor> AllPoints => player.World.ActorsHavingTrait<StrategicPoint>();
+
+		public int Total => AllPoints.Count();
+		int Owned { get { return AllPoints.Count(a => a.Owner.RelationshipWith(player) == PlayerRelationship.Ally); } }
+
+		public bool Holding => Owned >= info.RatioRequired * Total / 100;
+
+		void ITick.Tick(Actor self)
 		{
-			get { return player.World.ActorsHavingTrait<StrategicPoint>(); }
-		}
-
-		public int Total { get { return AllPoints.Count(); } }
-		int Owned { get { return AllPoints.Count(a => WorldUtils.AreMutualAllies(player, a.Owner)); } }
-
-		public bool Holding { get { return Owned >= info.RatioRequired * Total / 100; } }
-
-		public void Tick(Actor self)
-		{
-			if (player.WinState != WinState.Undefined || player.NonCombatant) return;
+			if (player.WinState != WinState.Undefined || player.NonCombatant)
+				return;
 
 			if (objectiveID < 0)
-				objectiveID = mo.Add(player, info.Objective, ObjectiveType.Primary, true);
+				objectiveID = mo.Add(player, info.Objective, "Primary", inhibitAnnouncement: true);
 
-			if (!self.Owner.NonCombatant && self.Owner.HasNoRequiredUnits())
+			if (!self.Owner.NonCombatant && self.Owner.HasNoRequiredUnits(shortGame))
 				mo.MarkFailed(self.Owner, objectiveID);
 
-			var others = self.World.Players.Where(p => !p.NonCombatant
-				&& !p.IsAlliedWith(self.Owner));
+			var allOthersLost = true;
+			var anyOtherWon = false;
+			foreach (var other in self.World.Players)
+			{
+				if (other.NonCombatant || other.IsAlliedWith(self.Owner))
+					continue;
 
-			if (others.All(p => p.WinState == WinState.Lost))
+				allOthersLost = allOthersLost && other.WinState == WinState.Lost;
+				anyOtherWon = anyOtherWon || other.WinState == WinState.Won;
+			}
+
+			if (allOthersLost)
 				mo.MarkCompleted(player, objectiveID);
 
-			if (others.Any(p => p.WinState == WinState.Won))
+			if (anyOtherWon)
 				mo.MarkFailed(player, objectiveID);
 
 			// See if any of the conditions are met to increase the count
@@ -101,33 +121,61 @@ namespace OpenRA.Mods.Common.Traits
 			}
 		}
 
-		public void OnPlayerLost(Player player)
+		void INotifyTimeLimit.NotifyTimerExpired(Actor self)
 		{
-			Game.Debug("{0} is defeated.", player.PlayerName);
+			if (objectiveID < 0)
+				return;
 
-			foreach (var a in player.World.Actors.Where(a => a.Owner == player))
-				a.Kill(a);
+			var myTeam = self.World.LobbyInfo.ClientWithIndex(self.Owner.ClientIndex).Team;
+			var victoriousTeam = self.World.Players.Where(p => !p.NonCombatant && p.Playable)
+				.Select(p => (Player: p, PlayerStatistics: p.PlayerActor.TraitOrDefault<PlayerStatistics>()))
+				.OrderByDescending(p => p.PlayerStatistics?.Experience ?? 0)
+				.GroupBy(p => (self.World.LobbyInfo.ClientWithIndex(p.Player.ClientIndex) ?? new Session.Client()).Team)
+				.OrderByDescending(g => g.Sum(gg => gg.PlayerStatistics?.Experience ?? 0))
+				.First();
 
+			if (victoriousTeam.Key == myTeam && (myTeam != 0 || victoriousTeam.First().Player == self.Owner))
+			{
+				mo.MarkCompleted(self.Owner, objectiveID);
+				return;
+			}
+
+			mo.MarkFailed(self.Owner, objectiveID);
+		}
+
+		void INotifyWinStateChanged.OnPlayerLost(Player player)
+		{
+			foreach (var a in player.World.ActorsWithTrait<INotifyOwnerLost>().Where(a => a.Actor.Owner == player))
+				a.Trait.OnOwnerLost(a.Actor);
+
+			if (info.SuppressNotifications)
+				return;
+
+			TextNotificationsManager.AddSystemLine(PlayerIsDefeated, "player", player.ResolvedPlayerName);
 			Game.RunAfterDelay(info.NotificationDelay, () =>
 			{
 				if (Game.IsCurrentWorld(player.World) && player == player.World.LocalPlayer)
-					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", "Lose", player.Faction.InternalName);
+				{
+					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", mo.Info.LoseNotification, player.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(player, mo.Info.LoseTextNotification);
+				}
 			});
 		}
 
-		public void OnPlayerWon(Player player)
+		void INotifyWinStateChanged.OnPlayerWon(Player player)
 		{
-			Game.Debug("{0} is victorious.", player.PlayerName);
+			if (info.SuppressNotifications)
+				return;
 
+			TextNotificationsManager.AddSystemLine(PlayerIsVictorious, "player", player.ResolvedPlayerName);
 			Game.RunAfterDelay(info.NotificationDelay, () =>
 			{
 				if (Game.IsCurrentWorld(player.World) && player == player.World.LocalPlayer)
-					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", "Win", player.Faction.InternalName);
+				{
+					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", mo.Info.WinNotification, player.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(player, mo.Info.WinTextNotification);
+				}
 			});
 		}
-
-		public void OnObjectiveAdded(Player player, int id) { }
-		public void OnObjectiveCompleted(Player player, int id) { }
-		public void OnObjectiveFailed(Player player, int id) { }
 	}
 }

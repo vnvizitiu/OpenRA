@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -15,48 +15,78 @@ using System.Linq;
 
 namespace OpenRA.Traits
 {
-	public enum TargetType { Invalid, Actor, Terrain, FrozenActor }
-	public struct Target
+	public enum TargetType : byte { Invalid, Actor, Terrain, FrozenActor }
+	public readonly struct Target : IEquatable<Target>
 	{
-		public static readonly Target[] None = { };
-		public static readonly Target Invalid = new Target { type = TargetType.Invalid };
+		public static readonly Target[] None = Array.Empty<Target>();
+		public static readonly Target Invalid = default;
+		public Actor Actor { get; }
+		public FrozenActor FrozenActor { get; }
 
-		TargetType type;
-		Actor actor;
-		FrozenActor frozen;
-		WPos pos;
-		int generation;
+		readonly TargetType type;
+		readonly WPos terrainCenterPosition;
+		readonly WPos[] terrainPositions;
+		readonly CPos? cell;
+		readonly SubCell? subCell;
+		readonly int generation;
 
-		public static Target FromPos(WPos p) { return new Target { pos = p, type = TargetType.Terrain }; }
-		public static Target FromCell(World w, CPos c, SubCell subCell = SubCell.FullCell)
+		Target(WPos terrainCenterPosition, WPos[] terrainPositions = null)
 		{
-			return new Target { pos = w.Map.CenterOfSubCell(c, subCell), type = TargetType.Terrain };
+			type = TargetType.Terrain;
+			this.terrainCenterPosition = terrainCenterPosition;
+			this.terrainPositions = terrainPositions ?? new[] { terrainCenterPosition };
+
+			Actor = null;
+			FrozenActor = null;
+			cell = null;
+			subCell = null;
+			generation = 0;
 		}
 
-		public static Target FromOrder(World w, Order o)
+		Target(World w, CPos c, SubCell subCell)
 		{
-			return o.TargetActor != null
-				? FromActor(o.TargetActor)
-				: FromCell(w, o.TargetLocation);
+			type = TargetType.Terrain;
+			terrainCenterPosition = w.Map.CenterOfSubCell(c, subCell);
+			terrainPositions = new[] { terrainCenterPosition };
+			cell = c;
+			this.subCell = subCell;
+
+			Actor = null;
+			FrozenActor = null;
+			generation = 0;
 		}
 
-		public static Target FromActor(Actor a)
+		Target(Actor a, int generation)
 		{
-			if (a == null)
-				return Invalid;
+			type = TargetType.Actor;
+			Actor = a;
+			this.generation = generation;
 
-			return new Target
-			{
-				actor = a,
-				type = TargetType.Actor,
-				generation = a.Generation,
-			};
+			terrainCenterPosition = WPos.Zero;
+			terrainPositions = null;
+			FrozenActor = null;
+			cell = null;
+			subCell = null;
 		}
 
-		public static Target FromFrozenActor(FrozenActor a) { return new Target { frozen = a, type = TargetType.FrozenActor }; }
+		Target(FrozenActor fa)
+		{
+			type = TargetType.FrozenActor;
+			FrozenActor = fa;
 
-		public Actor Actor { get { return actor; } }
-		public FrozenActor FrozenActor { get { return frozen; } }
+			terrainCenterPosition = WPos.Zero;
+			terrainPositions = null;
+			Actor = null;
+			cell = null;
+			subCell = null;
+			generation = 0;
+		}
+
+		public static Target FromPos(WPos p) { return new Target(p); }
+		public static Target FromTargetPositions(in Target t) { return new Target(t.CenterPosition, t.Positions.ToArray()); }
+		public static Target FromCell(World w, CPos c, SubCell subCell = SubCell.FullCell) { return new Target(w, c, subCell); }
+		public static Target FromActor(Actor a) { return a != null ? new Target(a, a.Generation) : Invalid; }
+		public static Target FromFrozenActor(FrozenActor fa) { return new Target(fa); }
 
 		public TargetType Type
 		{
@@ -65,11 +95,11 @@ namespace OpenRA.Traits
 				if (type == TargetType.Actor)
 				{
 					// Actor is no longer in the world
-					if (!actor.IsInWorld || actor.IsDead)
+					if (!Actor.IsInWorld || Actor.IsDead)
 						return TargetType.Invalid;
 
 					// Actor generation has changed (teleported or captured)
-					if (actor.Generation != generation)
+					if (Actor.Generation != generation)
 						return TargetType.Invalid;
 				}
 
@@ -79,13 +109,21 @@ namespace OpenRA.Traits
 
 		public bool IsValidFor(Actor targeter)
 		{
-			if (targeter == null || Type == TargetType.Invalid)
+			if (targeter == null)
 				return false;
 
-			if (actor != null && !actor.IsTargetableBy(targeter))
-				return false;
-
-			return true;
+			switch (Type)
+			{
+				case TargetType.Actor:
+					return Actor.IsTargetableBy(targeter);
+				case TargetType.FrozenActor:
+					return FrozenActor.IsValid && FrozenActor.Visible && !FrozenActor.Hidden;
+				case TargetType.Invalid:
+					return false;
+				case TargetType.Terrain:
+				default:
+					return true;
+			}
 		}
 
 		// Currently all or nothing.
@@ -94,12 +132,12 @@ namespace OpenRA.Traits
 		{
 			get
 			{
-				if (actor == null)
+				if (Actor == null)
 					return false;
 
 				// PERF: Avoid LINQ.
 				var isTargetable = false;
-				foreach (var targetable in actor.Targetables)
+				foreach (var targetable in Actor.Targetables)
 				{
 					if (!targetable.IsTraitEnabled())
 						continue;
@@ -121,20 +159,20 @@ namespace OpenRA.Traits
 				switch (Type)
 				{
 					case TargetType.Actor:
-						return actor.CenterPosition;
+						return Actor.CenterPosition;
 					case TargetType.FrozenActor:
-						return frozen.CenterPosition;
+						return FrozenActor.CenterPosition;
 					case TargetType.Terrain:
-						return pos;
-					default:
+						return terrainCenterPosition;
 					case TargetType.Invalid:
+					default:
 						throw new InvalidOperationException("Attempting to query the position of an invalid Target");
 				}
 			}
 		}
 
 		// Positions available to target for range checks
-		static readonly WPos[] NoPositions = { };
+		static readonly WPos[] NoPositions = Array.Empty<WPos>();
 		public IEnumerable<WPos> Positions
 		{
 			get
@@ -142,24 +180,14 @@ namespace OpenRA.Traits
 				switch (Type)
 				{
 					case TargetType.Actor:
-						if (!actor.Targetables.Any(Exts.IsTraitEnabled))
-							return new[] { actor.CenterPosition };
-
-						var targetablePositions = actor.TraitOrDefault<ITargetablePositions>();
-						if (targetablePositions != null)
-						{
-							var positions = targetablePositions.TargetablePositions(actor);
-							if (positions.Any())
-								return positions;
-						}
-
-						return new[] { actor.CenterPosition };
+						return Actor.GetTargetablePositions();
 					case TargetType.FrozenActor:
-						return new[] { frozen.CenterPosition };
+						// TargetablePositions may be null if it is Invalid
+						return FrozenActor.TargetablePositions ?? NoPositions;
 					case TargetType.Terrain:
-						return new[] { pos };
-					default:
+						return terrainPositions;
 					case TargetType.Invalid:
+					default:
 						return NoPositions;
 				}
 			}
@@ -179,18 +207,89 @@ namespace OpenRA.Traits
 			switch (Type)
 			{
 				case TargetType.Actor:
-					return actor.ToString();
+					return Actor.ToString();
 
 				case TargetType.FrozenActor:
-					return frozen.ToString();
+					return FrozenActor.ToString();
 
 				case TargetType.Terrain:
-					return pos.ToString();
+					return terrainCenterPosition.ToString();
 
-				default:
 				case TargetType.Invalid:
+				default:
 					return "Invalid";
 			}
 		}
+
+		public static bool operator ==(in Target me, in Target other)
+		{
+			if (me.type != other.type)
+				return false;
+
+			switch (me.type)
+			{
+				case TargetType.Terrain:
+					return me.terrainCenterPosition == other.terrainCenterPosition
+						&& me.terrainPositions == other.terrainPositions
+						&& me.cell == other.cell && me.subCell == other.subCell;
+
+				case TargetType.Actor:
+					return me.Actor == other.Actor && me.generation == other.generation;
+
+				case TargetType.FrozenActor:
+					return me.FrozenActor == other.FrozenActor;
+
+				case TargetType.Invalid:
+				default:
+					return false;
+			}
+		}
+
+		public static bool operator !=(in Target me, in Target other)
+		{
+			return !(me == other);
+		}
+
+		public override int GetHashCode()
+		{
+			switch (type)
+			{
+				case TargetType.Terrain:
+					var hash = terrainCenterPosition.GetHashCode() ^ terrainPositions.GetHashCode();
+					if (cell != null)
+						hash ^= cell.GetHashCode();
+
+					if (subCell != null)
+						hash ^= subCell.GetHashCode();
+
+					return hash;
+
+				case TargetType.Actor:
+					return Actor.GetHashCode() ^ generation.GetHashCode();
+
+				case TargetType.FrozenActor:
+					return FrozenActor.GetHashCode();
+
+				case TargetType.Invalid:
+				default:
+					return 0;
+			}
+		}
+
+		public bool Equals(Target other)
+		{
+			return other == this;
+		}
+
+		public override bool Equals(object other)
+		{
+			return other is Target t && t == this;
+		}
+
+		// Expose internal state for serialization by the orders code *only*
+		internal static Target FromSerializedActor(Actor a, int generation) { return a != null ? new Target(a, generation) : Invalid; }
+		internal static Target FromSerializedTerrainPosition(WPos centerPosition, WPos[] terrainPositions) { return new Target(centerPosition, terrainPositions); }
+		internal (TargetType Type, Actor Actor, int Generation, CPos? Cell, SubCell? SubCell, WPos Pos, WPos[] TerrainPositions) SerializableState =>
+			(type, Actor, generation, cell, subCell, terrainCenterPosition, terrainPositions);
 	}
 }

@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: allies03b.lua
+		Scripts: campaign.lua, utils.lua, allies03b.lua
 	MissionData:
 		Briefing: LANDCOM 16 HQS.\nTOP SECRET.\nTO: FIELD COMMANDER A9\n\nINTELLIGENCE RECON SHOWS HEAVY\nSOVIET MOVEMENT IN YOUR AREA.\nNEARBY BRIDGES ARE KEY TO SOVIET\nADVANCEMENT. DESTROY ALL BRIDGES\nASAP. TANYA WILL ASSIST. KEEP HER\nALIVE AT ALL COSTS.\n\nCONFIRMATION CODE 1612.\n\nTRANSMISSION ENDS.\n
 		StartVideo: brdgtilt.vqa
@@ -8,66 +8,49 @@ World:
 		LossVideo: sovtstar.vqa
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-		Default: easy
-
-^Building:
-	Capturable:
-		CaptureThreshold: 25
-
-^TechBuilding:
-	Capturable:
-		Type: ~disabled
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+		Default: normal
 
 powerproxy.paratroopers:
 	ParatroopersPower:
 		DropItems: E1,E1,E1,E2,E2
 
-HACKE6:
-	Inherits: E6
+E6:
+	Buildable:
+		Prerequisites: ~disabled
 	-RepairsBridges:
-	-ExternalCaptures:
-	Captures:
-		CaptureTypes: building
-	WithInfantryBody:
 	Targetable:
-		UpgradeTypes: jail
-		UpgradeMaxEnabledLevel: 0
+		RequiresCondition: !jail
 	Targetable@PRISONER:
 		TargetTypes: Prisoner
-	RenderSprites:
-		Image: E6
+	ExternalCondition@JAIL:
+		Condition: jail
 
 MEDI:
 	Targetable:
-		UpgradeTypes: jail
-		UpgradeMaxEnabledLevel: 0
+		RequiresCondition: !jail
 	Targetable@PRISONER:
 		TargetTypes: Prisoner
+	ExternalCondition@JAIL:
+		Condition: jail
 
 PRISON:
 	HiddenUnderShroud:
 		Type: CenterPosition
 	Immobile:
 		OccupiesSpace: false
-	UpgradeActorsNear:
-		Upgrades: jail
+	ProximityExternalCondition:
+		Condition: jail
 		Range: 1c0
 
 CAMERA:
 	RevealsShroud:
 		Range: 8c5
-
-FTUR:
-	DetectCloaked:
-		Range: 0
-
-DOME:
-	DetectCloaked:
-		Range: 0
 
 CAMERA.VeryLarge:
 	Inherits: CAMERA
@@ -77,17 +60,10 @@ CAMERA.VeryLarge:
 CAMERA.Jeep:
 	AlwaysVisible:
 	Mobile:
-		TerrainSpeeds:
+		Locomotor: immobile
 	RevealsShroud:
 		Range: 4c0
 	ScriptTriggers:
-
-MONEYCRATE:
-	Tooltip:
-		Name: Crate
-	WithCrateBody:
-	RenderSprites:
-		Image: scrate
 
 E1.Autotarget:
 	Inherits: E1
@@ -122,7 +98,7 @@ DOG:
 TRUK:
 	-Demolishable:
 	Targetable:
-		TargetTypes: Ground, Truk
+		TargetTypes: GroundActor, Truk
 	Armor:
 		Type: Truk
 
@@ -131,8 +107,10 @@ TRAN:
 	-Selectable:
 	RevealsShroud:
 		Range: 0c0
+	-RevealsShroud@GAPGEN:
 	Cargo:
 		Types: ~disabled
+	Interactable:
 
 JEEP.mission:
 	Inherits: JEEP
@@ -149,6 +127,7 @@ JEEP.mission:
 		Range: 0c0
 	RenderSprites:
 		Image: JEEP
+	Interactable:
 
 E3:
 	Buildable:
@@ -158,15 +137,7 @@ E4:
 	Buildable:
 		Prerequisites: ~disabled
 
-E6:
-	Buildable:
-		Prerequisites: ~disabled
-
-SNIPER:
-	Buildable:
-		Prerequisites: ~disabled
-
-HIJACKER:
+THF:
 	Buildable:
 		Prerequisites: ~disabled
 

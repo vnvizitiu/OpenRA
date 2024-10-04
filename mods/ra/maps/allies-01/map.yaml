@@ -1,8 +1,8 @@
-MapFormat: 11
+MapFormat: 12
 
 RequiresMod: ra
 
-Title: 01:   In the thick of it
+Title: 01:   In the Thick of It
 
 Author: Westwood Studios
 
@@ -21,6 +21,7 @@ LockPreview: True
 Players:
 	PlayerReference@USSR:
 		Name: USSR
+		Bot: campaign
 		Faction: soviet
 		Color: FE1100
 		Enemies: Greece, England
@@ -31,8 +32,8 @@ Players:
 		Faction: allies
 	PlayerReference@Greece:
 		Name: Greece
-		Playable: True
 		AllowBots: False
+		Playable: True
 		Required: True
 		LockFaction: True
 		Faction: allies
@@ -44,6 +45,7 @@ Players:
 		Enemies: USSR
 	PlayerReference@England:
 		Name: England
+		Bot: campaign
 		Faction: allies
 		Color: A1EF8C
 		Allies: Greece
@@ -125,7 +127,7 @@ Actors:
 	Actor24: powr
 		Location: 67,57
 		Owner: USSR
-	Actor25: powr
+	BarrelPower: powr
 		Location: 61,57
 		Owner: USSR
 	Actor27: fact
@@ -149,11 +151,9 @@ Actors:
 	Actor33: proc
 		Location: 73,58
 		Owner: USSR
-		FreeActor: False
 	Actor34: kenn
 		Location: 64,65
 		Owner: USSR
-		Health: 99
 	Actor35: powr
 		Location: 65,57
 		Owner: USSR
@@ -190,63 +190,63 @@ Actors:
 	Actor47: jeep
 		Location: 63,50
 		Owner: Greece
-		Facing: 128
+		Facing: 512
 	Actor49: jeep
 		Location: 62,50
 		Owner: Greece
-		Facing: 128
+		Facing: 512
 	Actor50: jeep
 		Location: 64,50
 		Owner: Greece
-		Facing: 128
+		Facing: 512
 	Actor55: e2
 		Location: 73,66
 		Owner: USSR
 		SubCell: 1
-	Actor56: e1
+	Response3: e1
 		Location: 62,67
 		Owner: USSR
-		Facing: 128
 		SubCell: 4
-	Actor57: e1
+		Facing: 512
+	Response5: e1
 		Location: 67,67
 		Owner: USSR
-		Facing: 160
 		SubCell: 3
-	Actor58: e1
+		Facing: 640
+	Response4: e1
 		Location: 65,67
 		Owner: USSR
-		Facing: 160
 		SubCell: 3
-	Actor59: e1
+		Facing: 640
+	Response1: e1
 		Location: 56,60
 		Owner: USSR
-		Facing: 96
 		SubCell: 1
-	Actor63: e1
+		Facing: 384
+	Response2: e1
 		Location: 58,60
 		Owner: USSR
-		Facing: 64
 		SubCell: 1
+		Facing: 256
 	Actor64: e1
 		Location: 64,49
 		Owner: Greece
-		Facing: 128
+		Facing: 512
 		SubCell: 1
 	Actor65: e1
 		Location: 63,49
 		Owner: Greece
-		Facing: 128
+		Facing: 512
 		SubCell: 0
 	Actor66: e1
 		Location: 62,49
 		Owner: Greece
-		Facing: 160
+		Facing: 640
 		SubCell: 2
 	Actor69: e2
 		Location: 62,56
 		Owner: USSR
-		Facing: 32
+		Facing: 128
 		SubCell: 1
 	Actor70: e2
 		Location: 62,56
@@ -255,12 +255,12 @@ Actors:
 	Actor71: e1
 		Location: 64,49
 		Owner: Greece
-		Facing: 128
+		Facing: 512
 		SubCell: 2
 	Actor72: e1
 		Location: 62,49
 		Owner: Greece
-		Facing: 128
+		Facing: 512
 		SubCell: 1
 	Actor48: fenc
 		Location: 53,60
@@ -364,10 +364,6 @@ Actors:
 	OilPump: v19
 		Location: 59,57
 		Owner: USSR
-	Harvester: harv
-		Location: 72,60
-		Owner: USSR
-		Facing: 224
 	LabGuard1: e1
 		Location: 64,61
 		Owner: USSR
@@ -375,12 +371,12 @@ Actors:
 	LabGuard2: e1
 		Location: 63,63
 		Owner: USSR
-		Facing: 96
+		Facing: 384
 		SubCell: 0
 	LabGuard3: e1
 		Location: 61,63
 		Owner: USSR
-		Facing: 128
+		Facing: 512
 		SubCell: 0
 	Patrol1: dog
 		Location: 63,59
@@ -407,7 +403,7 @@ Actors:
 		Owner: England
 		SubCell: 3
 	EinsteinSpawnPoint: waypoint
-		Location: 62,61
+		Location: 62,60
 		Owner: Neutral
 	InsertionEntry: waypoint
 		Location: 63,45
@@ -445,7 +441,12 @@ Actors:
 	CruiserPoint3: waypoint
 		Location: 68,76
 		Owner: Neutral
+	CivMove: waypoint
+		Location: 69,56
+		Owner: Neutral
 
-Rules: ra|rules/campaign-rules.yaml, ra|rules/campaign-tooltips.yaml, rules.yaml
+Rules: ra|rules/campaign-rules.yaml, ra|rules/campaign-tooltips.yaml, ra|rules/campaign-palettes.yaml, rules.yaml
 
 Weapons: weapons.yaml
+
+Translations: ra|languages/lua/en.ftl, ra|languages/campaign/en.ftl

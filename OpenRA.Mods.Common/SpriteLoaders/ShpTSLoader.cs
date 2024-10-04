@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,22 +9,23 @@
  */
 #endregion
 
-using System.Drawing;
 using System.IO;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.FileFormats;
+using OpenRA.Primitives;
 
 namespace OpenRA.Mods.Common.SpriteLoaders
 {
 	public class ShpTSLoader : ISpriteLoader
 	{
-		class ShpTSFrame : ISpriteFrame
+		sealed class ShpTSFrame : ISpriteFrame
 		{
-			public Size Size { get; private set; }
-			public Size FrameSize { get; private set; }
-			public float2 Offset { get; private set; }
+			public SpriteFrameType Type => SpriteFrameType.Indexed8;
+			public Size Size { get; }
+			public Size FrameSize { get; }
+			public float2 Offset { get; }
 			public byte[] Data { get; set; }
-			public bool DisableExportPadding { get { return false; } }
+			public bool DisableExportPadding => false;
 
 			public readonly uint FileOffset;
 			public readonly byte Format;
@@ -40,10 +41,10 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 				var dataWidth = width;
 				var dataHeight = height;
 				if (dataWidth % 2 == 1)
-					dataWidth += 1;
+					dataWidth++;
 
 				if (dataHeight % 2 == 1)
-					dataHeight += 1;
+					dataHeight++;
 
 				Offset = new int2(x + (dataWidth - frameSize.Width) / 2, y + (dataHeight - frameSize.Height) / 2);
 				Size = new Size(dataWidth, dataHeight);
@@ -84,7 +85,7 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 			}
 		}
 
-		bool IsShpTS(Stream s)
+		static bool IsShpTS(Stream s)
 		{
 			var start = s.Position;
 
@@ -104,7 +105,7 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 				return false;
 			}
 
-			// Check the size and format flag
+			// Check the image size and compression type format flag
 			// Some files define bogus frames, so loop until we find a valid one
 			s.Position += 4;
 			ushort w, h, f = 0;
@@ -114,14 +115,20 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 				w = s.ReadUInt16();
 				h = s.ReadUInt16();
 				type = s.ReadUInt8();
+
+				// Zero sized frames always define a non-zero type
+				if ((w == 0 || h == 0) && type == 0)
+					return false;
+
+				s.Position += 19;
 			}
-			while (w == 0 && h == 0 && f++ < imageCount);
+			while (w == 0 && h == 0 && ++f < imageCount);
 
 			s.Position = start;
-			return type < 4;
+			return f == imageCount || type < 4;
 		}
 
-		ShpTSFrame[] ParseFrames(Stream s)
+		static ShpTSFrame[] ParseFrames(Stream s)
 		{
 			var start = s.Position;
 
@@ -139,8 +146,9 @@ namespace OpenRA.Mods.Common.SpriteLoaders
 			return frames;
 		}
 
-		public bool TryParseSprite(Stream s, out ISpriteFrame[] frames)
+		public bool TryParseSprite(Stream s, string filename, out ISpriteFrame[] frames, out TypeDictionary metadata)
 		{
+			metadata = null;
 			if (!IsShpTS(s))
 			{
 				frames = null;

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,74 +10,79 @@
 #endregion
 
 using System.Linq;
-using OpenRA.Effects;
 using OpenRA.Mods.Common.Effects;
 using OpenRA.Mods.Common.Traits;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Activities
 {
-	class Demolish : Enter
+	sealed class Demolish : Enter
 	{
-		readonly Actor target;
-		readonly IDemolishable[] demolishables;
 		readonly int delay;
 		readonly int flashes;
 		readonly int flashesDelay;
 		readonly int flashInterval;
-		readonly int flashDuration;
+		readonly BitSet<DamageType> damageTypes;
+		readonly INotifyDemolition[] notifiers;
+		readonly EnterBehaviour enterBehaviour;
 
-		readonly Cloak cloak;
+		Actor enterActor;
+		IDemolishable[] enterDemolishables;
 
-		public Demolish(Actor self, Actor target, EnterBehaviour enterBehaviour, int delay,
-			int flashes, int flashesDelay, int flashInterval, int flashDuration)
-			: base(self, target, enterBehaviour)
+		public Demolish(Actor self, in Target target, EnterBehaviour enterBehaviour, int delay, int flashes,
+			int flashesDelay, int flashInterval, BitSet<DamageType> damageTypes, Color? targetLineColor)
+			: base(self, target, targetLineColor)
 		{
-			this.target = target;
-			demolishables = target.TraitsImplementing<IDemolishable>().ToArray();
+			notifiers = self.TraitsImplementing<INotifyDemolition>().ToArray();
 			this.delay = delay;
 			this.flashes = flashes;
 			this.flashesDelay = flashesDelay;
 			this.flashInterval = flashInterval;
-			this.flashDuration = flashDuration;
-			cloak = self.TraitOrDefault<Cloak>();
+			this.damageTypes = damageTypes;
+			this.enterBehaviour = enterBehaviour;
 		}
 
-		protected override bool CanReserve(Actor self)
+		protected override bool TryStartEnter(Actor self, Actor targetActor)
 		{
-			return demolishables.Any(i => i.IsValidTarget(target, self));
+			enterActor = targetActor;
+			enterDemolishables = targetActor.TraitsImplementing<IDemolishable>().ToArray();
+
+			// Make sure we can still demolish the target before entering
+			// (but not before, because this may stop the actor in the middle of nowhere)
+			if (!enterDemolishables.Any(i => i.IsValidTarget(enterActor, self)))
+			{
+				Cancel(self, true);
+				return false;
+			}
+
+			return true;
 		}
 
-		protected override void OnInside(Actor self)
+		protected override void OnEnterComplete(Actor self, Actor targetActor)
 		{
 			self.World.AddFrameEndTask(w =>
 			{
-				if (target.IsDead)
+				// Make sure the target hasn't changed while entering
+				// OnEnterComplete is only called if targetActor is alive
+				if (targetActor != enterActor)
 					return;
 
-				if (cloak != null && cloak.Info.UncloakOn.HasFlag(UncloakType.Demolish))
-					cloak.Uncloak();
+				if (!enterDemolishables.Any(i => i.IsValidTarget(enterActor, self)))
+					return;
 
-				var building = target.TraitOrDefault<Building>();
-				if (building != null)
-					building.Lock();
+				w.Add(new FlashTarget(enterActor, Color.White, count: flashes, interval: flashInterval, delay: flashesDelay));
 
-				for (var f = 0; f < flashes; f++)
-					w.Add(new DelayedAction(flashesDelay + f * flashInterval, () =>
-						w.Add(new FlashTarget(target, ticks: flashDuration))));
+				foreach (var ind in notifiers)
+					ind.Demolishing(self);
 
-				w.Add(new DelayedAction(delay, () =>
-				{
-					if (target.IsDead)
-						return;
+				foreach (var d in enterDemolishables)
+					d.Demolish(enterActor, self, delay, damageTypes);
 
-					var modifiers = target.TraitsImplementing<IDamageModifier>()
-						.Concat(self.Owner.PlayerActor.TraitsImplementing<IDamageModifier>())
-						.Select(t => t.GetDamageModifier(self, null));
-
-					if (Util.ApplyPercentageModifiers(100, modifiers) > 0)
-						demolishables.Do(d => d.Demolish(target, self));
-				}));
+				if (enterBehaviour == EnterBehaviour.Dispose)
+					self.Dispose();
+				else if (enterBehaviour == EnterBehaviour.Suicide)
+					self.Kill(self);
 			});
 		}
 	}

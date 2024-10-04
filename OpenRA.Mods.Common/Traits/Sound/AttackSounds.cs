@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,16 +9,16 @@
  */
 #endregion
 
-using System.Linq;
+using System;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Sound
 {
 	[Desc("Played when preparing for an attack or attacking.")]
-	public class AttackSoundsInfo : UpgradableTraitInfo
+	public class AttackSoundsInfo : ConditionalTraitInfo
 	{
 		[Desc("Play a randomly selected sound from this list when preparing for an attack or attacking.")]
-		public readonly string[] Sounds = { };
+		public readonly string[] Sounds = Array.Empty<string>();
 
 		[Desc("Delay in ticks before sound starts, either relative to attack preparation or attack.")]
 		public readonly int Delay = 0;
@@ -26,15 +26,15 @@ namespace OpenRA.Mods.Common.Traits.Sound
 		[Desc("Should the sound be delayed relative to preparation or actual attack?")]
 		public readonly AttackDelayType DelayRelativeTo = AttackDelayType.Preparation;
 
-		public override object Create(ActorInitializer init) { return new AttackSounds(init, this); }
+		public override object Create(ActorInitializer init) { return new AttackSounds(this); }
 	}
 
-	public class AttackSounds : UpgradableTrait<AttackSoundsInfo>, INotifyAttack, ITick
+	public class AttackSounds : ConditionalTrait<AttackSoundsInfo>, INotifyAttack, ITick
 	{
 		readonly AttackSoundsInfo info;
 		int tick;
 
-		public AttackSounds(ActorInitializer init, AttackSoundsInfo info)
+		public AttackSounds(AttackSoundsInfo info)
 			: base(info)
 		{
 			this.info = info;
@@ -42,11 +42,11 @@ namespace OpenRA.Mods.Common.Traits.Sound
 
 		void PlaySound(Actor self)
 		{
-			if (info.Sounds.Any())
-				Game.Sound.Play(info.Sounds.Random(self.World.SharedRandom), self.CenterPosition);
+			if (info.Sounds.Length > 0)
+				Game.Sound.Play(SoundType.World, info.Sounds, self.World, self.CenterPosition);
 		}
 
-		void INotifyAttack.Attacking(Actor self, Target target, Armament a, Barrel barrel)
+		void INotifyAttack.Attacking(Actor self, in Target target, Armament a, Barrel barrel)
 		{
 			if (info.DelayRelativeTo == AttackDelayType.Attack)
 			{
@@ -57,7 +57,7 @@ namespace OpenRA.Mods.Common.Traits.Sound
 			}
 		}
 
-		void INotifyAttack.PreparingAttack(Actor self, Target target, Armament a, Barrel barrel)
+		void INotifyAttack.PreparingAttack(Actor self, in Target target, Armament a, Barrel barrel)
 		{
 			if (info.DelayRelativeTo == AttackDelayType.Preparation)
 			{

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,18 +9,22 @@
  */
 #endregion
 
-using System.Drawing;
 using OpenRA.Mods.Common.Activities;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("The player can give this unit the order to follow and protect friendly units with the Guardable trait.")]
-	public class GuardInfo : ITraitInfo, Requires<IMoveInfo>
+	public class GuardInfo : TraitInfo, Requires<IMoveInfo>
 	{
-		[VoiceReference] public readonly string Voice = "Action";
+		[VoiceReference]
+		public readonly string Voice = "Action";
 
-		public object Create(ActorInitializer init) { return new Guard(this); }
+		[Desc("Color to use for the target line.")]
+		public readonly Color TargetLineColor = Color.OrangeRed;
+
+		public override object Create(ActorInitializer init) { return new Guard(this); }
 	}
 
 	public class Guard : IResolveOrder, IOrderVoice, INotifyCreated
@@ -33,7 +37,7 @@ namespace OpenRA.Mods.Common.Traits
 			this.info = info;
 		}
 
-		public void Created(Actor self)
+		void INotifyCreated.Created(Actor self)
 		{
 			move = self.Trait<IMove>();
 		}
@@ -41,19 +45,17 @@ namespace OpenRA.Mods.Common.Traits
 		public void ResolveOrder(Actor self, Order order)
 		{
 			if (order.OrderString == "Guard")
-			{
-				var target = Target.FromActor(order.TargetActor);
-
-				GuardTarget(self, target);
-			}
+				GuardTarget(self, order.Target, order.Queued);
 		}
 
-		public void GuardTarget(Actor self, Target target)
+		public void GuardTarget(Actor self, Target target, bool queued = false)
 		{
-			self.SetTargetLine(target, Color.Yellow);
+			if (target.Type != TargetType.Actor)
+				return;
 
 			var range = target.Actor.Info.TraitInfo<GuardableInfo>().Range;
-			self.QueueActivity(false, new AttackMoveActivity(self, move.MoveFollow(self, target, WDist.Zero, range)));
+			self.QueueActivity(queued, new AttackMoveActivity(self, () => move.MoveFollow(self, target, WDist.Zero, range, targetLineColor: info.TargetLineColor)));
+			self.ShowTargetLines();
 		}
 
 		public string VoicePhraseForOrder(Actor self, Order order)

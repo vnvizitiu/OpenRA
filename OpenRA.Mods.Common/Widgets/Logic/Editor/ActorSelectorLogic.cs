@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,119 +10,210 @@
 #endregion
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Primitives;
-using OpenRA.Traits;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
 {
-	public class ActorSelectorLogic : ChromeLogic
+	public class ActorSelectorLogic : CommonSelectorLogic
 	{
-		readonly EditorViewportControllerWidget editor;
+		[FluentReference("actorType")]
+		const string ActorTypeTooltip = "label-actor-type";
+
+		sealed class ActorSelectorActor
+		{
+			public readonly ActorInfo Actor;
+			public readonly string[] Categories;
+			public readonly string[] SearchTerms;
+			public readonly string Tooltip;
+
+			public ActorSelectorActor(ActorInfo actor, string[] categories, string[] searchTerms, string tooltip)
+			{
+				Actor = actor;
+				Categories = categories;
+				SearchTerms = searchTerms;
+				Tooltip = tooltip;
+			}
+		}
+
 		readonly DropDownButtonWidget ownersDropDown;
-		readonly ScrollPanelWidget panel;
-		readonly ScrollItemWidget itemTemplate;
 		readonly Ruleset mapRules;
-		readonly World world;
-		readonly WorldRenderer worldRenderer;
+		readonly ActorSelectorActor[] allActors;
+		readonly EditorViewportControllerWidget editor;
 
 		PlayerReference selectedOwner;
 
 		[ObjectCreator.UseCtor]
-		public ActorSelectorLogic(Widget widget, World world, WorldRenderer worldRenderer)
+		public ActorSelectorLogic(Widget widget, ModData modData, World world, WorldRenderer worldRenderer)
+			: base(widget, modData, world, worldRenderer, "ACTORTEMPLATE_LIST", "ACTORPREVIEW_TEMPLATE")
 		{
 			mapRules = world.Map.Rules;
-			this.world = world;
-			this.worldRenderer = worldRenderer;
-
-			editor = widget.Parent.Get<EditorViewportControllerWidget>("MAP_EDITOR");
 			ownersDropDown = widget.Get<DropDownButtonWidget>("OWNERS_DROPDOWN");
-
-			panel = widget.Get<ScrollPanelWidget>("ACTORTEMPLATE_LIST");
-			itemTemplate = panel.Get<ScrollItemWidget>("ACTORPREVIEW_TEMPLATE");
-			panel.Layout = new GridLayout(panel);
-
+			editor = widget.Parent.Parent.Get<EditorViewportControllerWidget>("MAP_EDITOR");
 			var editorLayer = world.WorldActor.Trait<EditorActorLayer>();
 
 			selectedOwner = editorLayer.Players.Players.Values.First();
-			Func<PlayerReference, ScrollItemWidget, ScrollItemWidget> setupItem = (option, template) =>
+			ScrollItemWidget SetupItem(PlayerReference option, ScrollItemWidget template)
 			{
-				var item = ScrollItemWidget.Setup(template, () => selectedOwner == option, () =>
-				{
-					selectedOwner = option;
-
-					ownersDropDown.Text = selectedOwner.Name;
-					ownersDropDown.TextColor = selectedOwner.Color.RGB;
-
-					IntializeActorPreviews();
-				});
+				var item = ScrollItemWidget.Setup(template, () => selectedOwner == option, () => SelectOwner(option));
 
 				item.Get<LabelWidget>("LABEL").GetText = () => option.Name;
-				item.GetColor = () => option.Color.RGB;
+				item.GetColor = () => option.Color;
 
 				return item;
+			}
+
+			editorLayer.OnPlayerRemoved = () =>
+			{
+				if (editorLayer.Players.Players.Values.Any(p => p.Name == selectedOwner.Name))
+					return;
+				SelectOwner(editorLayer.Players.Players.Values.First());
 			};
 
 			ownersDropDown.OnClick = () =>
 			{
 				var owners = editorLayer.Players.Players.Values.OrderBy(p => p.Name);
-				ownersDropDown.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 270, owners, setupItem);
+				ownersDropDown.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 270, owners, SetupItem);
 			};
 
-			ownersDropDown.Text = selectedOwner.Name;
-			ownersDropDown.TextColor = selectedOwner.Color.RGB;
+			var selectedOwnerName = selectedOwner.Name;
+			ownersDropDown.GetText = () => selectedOwnerName;
+			ownersDropDown.TextColor = selectedOwner.Color;
 
-			IntializeActorPreviews();
+			var tileSetId = world.Map.Rules.TerrainInfo.Id;
+			var allActorsTemp = new List<ActorSelectorActor>();
+			foreach (var a in mapRules.Actors.Values)
+			{
+				// Partial templates are not allowed
+				if (a.Name.Contains('^'))
+					continue;
+
+				// Actor must have a preview associated with it
+				if (!a.HasTraitInfo<IRenderActorPreviewInfo>())
+					continue;
+
+				var editorData = a.TraitInfoOrDefault<MapEditorDataInfo>();
+
+				// Actor must be included in at least one category
+				if (editorData == null || editorData.Categories == null)
+					continue;
+
+				// Excluded by tileset
+				if (editorData.ExcludeTilesets != null && editorData.ExcludeTilesets.Contains(tileSetId))
+					continue;
+
+				if (editorData.RequireTilesets != null && !editorData.RequireTilesets.Contains(tileSetId))
+					continue;
+
+				var tooltip = a.TraitInfos<EditorOnlyTooltipInfo>().FirstOrDefault(ti => ti.EnabledByDefault) as TooltipInfoBase
+					?? a.TraitInfos<TooltipInfo>().FirstOrDefault(ti => ti.EnabledByDefault);
+
+				var actorType = FluentProvider.GetString(ActorTypeTooltip, "actorType", a.Name);
+
+				var searchTerms = new List<string>() { a.Name };
+				if (tooltip != null)
+				{
+					var actorName = FluentProvider.GetString(tooltip.Name);
+					searchTerms.Add(actorName);
+					allActorsTemp.Add(new ActorSelectorActor(a, editorData.Categories, searchTerms.ToArray(), actorName + $"\n{actorType}"));
+				}
+				else
+					allActorsTemp.Add(new ActorSelectorActor(a, editorData.Categories, searchTerms.ToArray(), actorType));
+			}
+
+			allActors = allActorsTemp.ToArray();
+
+			allCategories = allActors.SelectMany(ac => ac.Categories)
+				.Distinct()
+				.OrderBy(x => x)
+				.ToArray();
+
+			foreach (var c in allCategories)
+			{
+				SelectedCategories.Add(c);
+				FilteredCategories.Add(c);
+			}
+
+			SearchTextField.OnTextEdited = () =>
+			{
+				searchFilter = SearchTextField.Text.Trim();
+				FilteredCategories.Clear();
+
+				if (!string.IsNullOrEmpty(searchFilter))
+					FilteredCategories.AddRange(
+						allActors.Where(t => t.SearchTerms.Any(
+							s => s.Contains(searchFilter, StringComparison.CurrentCultureIgnoreCase)))
+						.SelectMany(t => t.Categories)
+						.Distinct()
+						.OrderBy(x => x));
+				else
+					FilteredCategories.AddRange(allCategories);
+
+				InitializePreviews();
+			};
+
+			InitializePreviews();
 		}
 
-		void IntializeActorPreviews()
+		void SelectOwner(PlayerReference option)
 		{
-			panel.RemoveChildren();
+			selectedOwner = option;
+			var optionName = option.Name;
+			ownersDropDown.GetText = () => optionName;
+			ownersDropDown.TextColor = option.Color;
+			InitializePreviews();
 
-			var actors = mapRules.Actors.Where(a => !a.Value.Name.Contains('^'))
-				.Select(a => a.Value);
-
-			foreach (var a in actors)
+			if (editor.CurrentBrush is EditorActorBrush brush)
 			{
-				var actor = a;
-				if (actor.HasTraitInfo<BridgeInfo>()) // bridge layer takes care about that automatically
+				var actor = brush.Preview;
+				actor.Owner = option;
+				actor.ReplaceInit(new OwnerInit(option.Name));
+				actor.ReplaceInit(new FactionInit(option.Faction));
+			}
+		}
+
+		protected override void InitializePreviews()
+		{
+			Panel.RemoveChildren();
+			if (SelectedCategories.Count == 0)
+				return;
+
+			foreach (var a in allActors)
+			{
+				if (!SelectedCategories.Overlaps(a.Categories))
 					continue;
 
-				if (!actor.HasTraitInfo<IRenderActorPreviewInfo>())
+				if (!string.IsNullOrEmpty(searchFilter) &&
+					!a.SearchTerms.Any(s => s.Contains(searchFilter, StringComparison.CurrentCultureIgnoreCase)))
 					continue;
 
-				var filter = actor.TraitInfoOrDefault<EditorTilesetFilterInfo>();
-				if (filter != null)
+				var actor = a.Actor;
+				var td = new TypeDictionary
 				{
-					if (filter.ExcludeTilesets != null && filter.ExcludeTilesets.Contains(world.Map.Rules.TileSet.Id))
-						continue;
-					if (filter.RequireTilesets != null && !filter.RequireTilesets.Contains(world.Map.Rules.TileSet.Id))
-						continue;
-				}
-
-				var td = new TypeDictionary();
-				td.Add(new FacingInit(92));
-				td.Add(new TurretFacingInit(92));
-				td.Add(new HideBibPreviewInit());
-				td.Add(new OwnerInit(selectedOwner.Name));
-				td.Add(new FactionInit(selectedOwner.Faction));
+					new OwnerInit(selectedOwner.Name),
+					new FactionInit(selectedOwner.Faction)
+				};
+				foreach (var api in actor.TraitInfos<IActorPreviewInitInfo>())
+					foreach (var o in api.ActorPreviewInits(actor, ActorPreviewType.MapEditorSidebar))
+						td.Add(o);
 
 				try
 				{
-					var item = ScrollItemWidget.Setup(itemTemplate,
-						() => { var brush = editor.CurrentBrush as EditorActorBrush; return brush != null && brush.Actor == actor; },
-						() => editor.SetBrush(new EditorActorBrush(editor, actor, selectedOwner, worldRenderer)));
+					var item = ScrollItemWidget.Setup(ItemTemplate,
+						() => Editor.CurrentBrush is EditorActorBrush eab && eab.Preview.Info == actor,
+						() => Editor.SetBrush(new EditorActorBrush(Editor, actor, selectedOwner, WorldRenderer)));
 
 					var preview = item.Get<ActorPreviewWidget>("ACTOR_PREVIEW");
 					preview.SetPreview(actor, td);
 
 					// Scale templates to fit within the panel
 					var scale = 1f;
-					if (scale * preview.IdealPreviewSize.X > itemTemplate.Bounds.Width)
-						scale = (itemTemplate.Bounds.Width - panel.ItemSpacing) / (float)preview.IdealPreviewSize.X;
+					if (scale * preview.IdealPreviewSize.X > ItemTemplate.Bounds.Width)
+						scale = (ItemTemplate.Bounds.Width - Panel.ItemSpacing) / (float)preview.IdealPreviewSize.X;
 
 					preview.GetScale = () => scale;
 					preview.Bounds.Width = (int)(scale * preview.IdealPreviewSize.X);
@@ -132,18 +223,14 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					item.Bounds.Height = preview.Bounds.Height + 2 * preview.Bounds.Y;
 					item.IsVisible = () => true;
 
-					var tooltip = actor.TraitInfos<EditorOnlyTooltipInfo>().FirstOrDefault(Exts.IsTraitEnabled) as TooltipInfoBase
-						?? actor.TraitInfos<TooltipInfo>().FirstOrDefault(Exts.IsTraitEnabled);
+					item.GetTooltipText = () => a.Tooltip;
 
-					item.GetTooltipText = () => (tooltip == null ? "Type: " : tooltip.Name + "\nType: ") + actor.Name;
-
-					panel.AddChild(item);
+					Panel.AddChild(item);
 				}
 				catch
 				{
-					Log.Write("debug", "Map editor ignoring actor {0}, because of missing sprites for tileset {1}.",
-						actor.Name, world.Map.Rules.TileSet.Id);
-					continue;
+					Log.Write("debug", $"Map editor ignoring actor {actor.Name}, "
+						+ $"because of missing sprites for tileset {World.Map.Rules.TerrainInfo.Id}.");
 				}
 			}
 		}

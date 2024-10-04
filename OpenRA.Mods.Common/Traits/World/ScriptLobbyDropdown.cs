@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,41 +10,52 @@
 #endregion
 
 using System.Collections.Generic;
-using System.Linq;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Controls the map difficulty, tech level, and short game lobby options.")]
-	public class ScriptLobbyDropdownInfo : ITraitInfo, ILobbyOptions
+	[TraitLocation(SystemActors.World)]
+	public class ScriptLobbyDropdownInfo : TraitInfo, ILobbyOptions
 	{
 		[FieldLoader.Require]
 		[Desc("Internal id for this option.")]
 		public readonly string ID = null;
 
 		[FieldLoader.Require]
-		[Desc("Display name for this option.")]
+		[FluentReference]
+		[Desc("Descriptive label for this option.")]
 		public readonly string Label = null;
+
+		[FluentReference]
+		[Desc("Tooltip description for this option.")]
+		public readonly string Description = null;
 
 		[FieldLoader.Require]
 		[Desc("Default option key in the `Values` list.")]
 		public readonly string Default = null;
 
 		[FieldLoader.Require]
-		[Desc("Difficulty levels supported by the map.")]
+		[FluentReference(dictionaryReference: LintDictionaryReference.Values)]
+		[Desc("Options to choose from.")]
 		public readonly Dictionary<string, string> Values = null;
 
 		[Desc("Prevent the option from being changed from its default value.")]
 		public readonly bool Locked = false;
 
-		IEnumerable<LobbyOption> ILobbyOptions.LobbyOptions(Ruleset rules)
+		[Desc("Whether to display the option in the lobby.")]
+		public readonly bool Visible = true;
+
+		[Desc("Display order for the option in the lobby.")]
+		public readonly int DisplayOrder = 0;
+
+		IEnumerable<LobbyOption> ILobbyOptions.LobbyOptions(MapPreview map)
 		{
-			yield return new LobbyOption(ID, Label,
-				new ReadOnlyDictionary<string, string>(Values),
-					Default, Locked);
+			yield return new LobbyOption(map, ID, Label, Description, Visible, DisplayOrder,
+				Values, Default, Locked);
 		}
 
-		public object Create(ActorInitializer init) { return new ScriptLobbyDropdown(this); }
+		public override object Create(ActorInitializer init) { return new ScriptLobbyDropdown(this); }
 	}
 
 	public class ScriptLobbyDropdown : INotifyCreated

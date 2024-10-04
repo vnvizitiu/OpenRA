@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,10 +11,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using OpenRA.Effects;
 using OpenRA.FileFormats;
-using OpenRA.GameRules;
 using OpenRA.Graphics;
 using OpenRA.Network;
 using OpenRA.Orders;
@@ -28,21 +28,33 @@ namespace OpenRA
 
 	public sealed class World : IDisposable
 	{
-		internal readonly TraitDictionary TraitDict = new TraitDictionary();
-		readonly SortedDictionary<uint, Actor> actors = new SortedDictionary<uint, Actor>();
-		readonly List<IEffect> effects = new List<IEffect>();
-		readonly List<ISync> syncedEffects = new List<ISync>();
+		internal readonly TraitDictionary TraitDict = new();
+		readonly SortedDictionary<uint, Actor> actors = new();
+		readonly List<IEffect> effects = new();
+		readonly List<IEffect> unpartitionedEffects = new();
+		readonly List<ISync> syncedEffects = new();
+		readonly GameSettings gameSettings;
+		readonly ModData modData;
 
-		readonly Queue<Action<World>> frameEndActions = new Queue<Action<World>>();
+		readonly Queue<Action<World>> frameEndActions = new();
 
-		public int Timestep;
+		public readonly GameSpeed GameSpeed;
+
+		public readonly int Timestep;
+
+		public int ReplayTimestep;
 
 		internal readonly OrderManager OrderManager;
-		public Session LobbyInfo { get { return OrderManager.LobbyInfo; } }
+		public Session LobbyInfo => OrderManager.LobbyInfo;
 
 		public readonly MersenneTwister SharedRandom;
+		public readonly MersenneTwister LocalRandom;
+		public LongBitSet<PlayerBitMask> AllPlayersMask = default;
+		public readonly LongBitSet<PlayerBitMask> NoPlayersMask = default;
 
-		public Player[] Players = new Player[0];
+		public Player[] Players = Array.Empty<Player>();
+
+		public event Action<Player> RenderPlayerChanged;
 
 		public void SetPlayers(IEnumerable<Player> players, Player localPlayer)
 		{
@@ -55,16 +67,21 @@ namespace OpenRA
 		public Player LocalPlayer { get; private set; }
 
 		public event Action GameOver = () => { };
+
+		/// <summary>Indicates that the game has ended.</summary>
+		/// <remarks>Should only be set in <see cref="EndGame"/>.</remarks>
 		public bool IsGameOver { get; private set; }
 		public void EndGame()
 		{
 			if (!IsGameOver)
 			{
+				SetPauseState(true);
 				IsGameOver = true;
 
 				foreach (var t in WorldActor.TraitsImplementing<IGameOver>())
 					t.GameOver(this);
 
+				gameInfo.FinalGameTick = WorldTick;
 				GameOver();
 			}
 		}
@@ -72,21 +89,32 @@ namespace OpenRA
 		Player renderPlayer;
 		public Player RenderPlayer
 		{
-			get { return renderPlayer == null || (renderPlayer.WinState != WinState.Undefined && !Map.Visibility.HasFlag(MapVisibility.MissionSelector)) ? null : renderPlayer; }
-			set { renderPlayer = value; }
+			get => renderPlayer;
+
+			set
+			{
+				if (LocalPlayer == null || LocalPlayer.UnlockedRenderPlayer)
+				{
+					renderPlayer = value;
+
+					RenderPlayerChanged?.Invoke(value);
+				}
+			}
 		}
 
-		public bool FogObscures(Actor a) { return RenderPlayer != null && !RenderPlayer.CanViewActor(a); }
+		public bool FogObscures(Actor a) { return RenderPlayer != null && !a.CanBeViewedByPlayer(RenderPlayer); }
 		public bool FogObscures(CPos p) { return RenderPlayer != null && !RenderPlayer.Shroud.IsVisible(p); }
 		public bool FogObscures(WPos pos) { return RenderPlayer != null && !RenderPlayer.Shroud.IsVisible(pos); }
 		public bool ShroudObscures(CPos p) { return RenderPlayer != null && !RenderPlayer.Shroud.IsExplored(p); }
+		public bool ShroudObscures(MPos uv) { return RenderPlayer != null && !RenderPlayer.Shroud.IsExplored(uv); }
 		public bool ShroudObscures(WPos pos) { return RenderPlayer != null && !RenderPlayer.Shroud.IsExplored(pos); }
 		public bool ShroudObscures(PPos uv) { return RenderPlayer != null && !RenderPlayer.Shroud.IsExplored(uv); }
 
-		public bool IsReplay
-		{
-			get { return OrderManager.Connection is ReplayConnection; }
-		}
+		public bool IsReplay => OrderManager.Connection is ReplayConnection;
+
+		public bool IsLoadingGameSave => OrderManager.NetFrameNumber <= OrderManager.GameSaveLastFrame;
+
+		public int GameSaveLoadingPercentage => OrderManager.NetFrameNumber * 100 / OrderManager.GameSaveLastFrame;
 
 		void SetLocalPlayer(Player localPlayer)
 		{
@@ -94,45 +122,53 @@ namespace OpenRA
 				return;
 
 			if (!Players.Contains(localPlayer))
-				throw new ArgumentException("The local player must be one of the players in the world.", "localPlayer");
+				throw new ArgumentException("The local player must be one of the players in the world.", nameof(localPlayer));
 
 			if (IsReplay)
 				return;
 
 			LocalPlayer = localPlayer;
-			RenderPlayer = LocalPlayer;
+
+			// Set the property backing field directly
+			renderPlayer = LocalPlayer;
 		}
 
 		public readonly Actor WorldActor;
 
 		public readonly Map Map;
 
-		public readonly ActorMap ActorMap;
+		public readonly IActorMap ActorMap;
 		public readonly ScreenMap ScreenMap;
 		public readonly WorldType Type;
 
+		public readonly IValidateOrder[] OrderValidators;
+		readonly INotifyPlayerDisconnected[] notifyDisconnected;
+
 		readonly GameInformation gameInfo;
 
-		public void IssueOrder(Order o) { OrderManager.IssueOrder(o); } /* avoid exposing the OM to mod code */
+		// Hide the OrderManager from mod code
+		public void IssueOrder(Order o) { OrderManager.IssueOrder(o); }
+
+		readonly Type defaultOrderGeneratorType;
 
 		IOrderGenerator orderGenerator;
 		public IOrderGenerator OrderGenerator
 		{
-			get
-			{
-				return orderGenerator;
-			}
+			get => orderGenerator;
 
 			set
 			{
 				Sync.AssertUnsynced("The current order generator may not be changed from synced code");
+				orderGenerator?.Deactivate();
+
 				orderGenerator = value;
 			}
 		}
 
-		public Selection Selection = new Selection();
+		public readonly ISelection Selection;
+		public readonly IControlGroups ControlGroups;
 
-		public void CancelInputMode() { OrderGenerator = new UnitOrderGenerator(); }
+		public void CancelInputMode() { OrderGenerator = (IOrderGenerator)modData.ObjectCreator.CreateBasic(defaultOrderGeneratorType); }
 
 		public bool ToggleInputMode<T>() where T : IOrderGenerator, new()
 		{
@@ -148,29 +184,50 @@ namespace OpenRA
 			}
 		}
 
-		internal World(Map map, OrderManager orderManager, WorldType type)
+		public bool RulesContainTemporaryBlocker { get; }
+
+		bool wasLoadingGameSave;
+
+		internal World(string mapUID, ModData modData, OrderManager orderManager, WorldType type)
 		{
+			this.modData = modData;
 			Type = type;
 			OrderManager = orderManager;
-			orderGenerator = new UnitOrderGenerator();
-			Map = map;
-			Timestep = orderManager.LobbyInfo.GlobalSettings.Timestep;
+			using (new PerfTimer("PrepareMap"))
+				Map = modData.PrepareMap(mapUID);
+
+			if (string.IsNullOrEmpty(modData.Manifest.DefaultOrderGenerator))
+				throw new InvalidDataException("mod.yaml must define a DefaultOrderGenerator");
+
+			defaultOrderGeneratorType = modData.ObjectCreator.FindType(modData.Manifest.DefaultOrderGenerator);
+			if (defaultOrderGeneratorType == null)
+				throw new InvalidDataException($"{modData.Manifest.DefaultOrderGenerator} is not a valid DefaultOrderGenerator");
+
+			orderGenerator = (IOrderGenerator)modData.ObjectCreator.CreateBasic(defaultOrderGeneratorType);
+
+			var gameSpeeds = modData.Manifest.Get<GameSpeeds>();
+			var gameSpeedName = orderManager.LobbyInfo.GlobalSettings.OptionOrDefault("gamespeed", gameSpeeds.DefaultSpeed);
+			GameSpeed = gameSpeeds.Speeds[gameSpeedName];
+			Timestep = ReplayTimestep = GameSpeed.Timestep;
+
 			SharedRandom = new MersenneTwister(orderManager.LobbyInfo.GlobalSettings.RandomSeed);
+			LocalRandom = new MersenneTwister();
 
-			var worldActorType = type == WorldType.Editor ? "EditorWorld" : "World";
-			WorldActor = CreateActor(worldActorType, new TypeDictionary());
-			ActorMap = WorldActor.Trait<ActorMap>();
+			var worldActorType = type == WorldType.Editor ? SystemActors.EditorWorld : SystemActors.World;
+			WorldActor = CreateActor(worldActorType.ToString(), new TypeDictionary());
+			ActorMap = WorldActor.Trait<IActorMap>();
 			ScreenMap = WorldActor.Trait<ScreenMap>();
+			Selection = WorldActor.Trait<ISelection>();
+			ControlGroups = WorldActor.Trait<IControlGroups>();
+			OrderValidators = WorldActor.TraitsImplementing<IValidateOrder>().ToArray();
+			notifyDisconnected = WorldActor.TraitsImplementing<INotifyPlayerDisconnected>().ToArray();
 
-			// Add players
+			LongBitSet<PlayerBitMask>.Reset();
+
+			// Create an isolated RNG to simplify synchronization between client and server player faction/spawn assignments
+			var playerRandom = new MersenneTwister(orderManager.LobbyInfo.GlobalSettings.RandomSeed);
 			foreach (var cmp in WorldActor.TraitsImplementing<ICreatePlayers>())
-				cmp.CreatePlayers(this);
-
-			// Set defaults for any unset stances
-			foreach (var p in Players)
-				foreach (var q in Players)
-					if (!p.Stances.ContainsKey(q))
-						p.Stances[q] = Stance.Neutral;
+				cmp.CreatePlayers(this, playerRandom);
 
 			Game.Sound.SoundVolumeModifier = 1.0f;
 
@@ -182,15 +239,16 @@ namespace OpenRA
 				MapUid = Map.Uid,
 				MapTitle = Map.Title
 			};
+
+			RulesContainTemporaryBlocker = Map.Rules.Actors.Any(a => a.Value.HasTraitInfo<ITemporaryBlockerInfo>());
+			gameSettings = Game.Settings.Game;
 		}
 
 		public void AddToMaps(Actor self, IOccupySpace ios)
 		{
 			ActorMap.AddInfluence(self, ios);
 			ActorMap.AddPosition(self, ios);
-
-			if (!self.Bounds.Size.IsEmpty)
-				ScreenMap.Add(self);
+			ScreenMap.AddOrUpdate(self);
 		}
 
 		public void UpdateMaps(Actor self, IOccupySpace ios)
@@ -198,9 +256,7 @@ namespace OpenRA
 			if (!self.IsInWorld)
 				return;
 
-			if (!self.Bounds.Size.IsEmpty)
-				ScreenMap.Update(self);
-
+			ScreenMap.AddOrUpdate(self);
 			ActorMap.UpdatePosition(self, ios);
 		}
 
@@ -208,36 +264,59 @@ namespace OpenRA
 		{
 			ActorMap.RemoveInfluence(self, ios);
 			ActorMap.RemovePosition(self, ios);
-
-			if (!self.Bounds.Size.IsEmpty)
-				ScreenMap.Remove(self);
+			ScreenMap.Remove(self);
 		}
 
 		public void LoadComplete(WorldRenderer wr)
 		{
+			if (IsLoadingGameSave)
+			{
+				wasLoadingGameSave = true;
+				Game.Sound.DisableAllSounds = true;
+				foreach (var nsr in WorldActor.TraitsImplementing<INotifyGameLoading>())
+					nsr.GameLoading(this);
+			}
+
 			// ScreenMap must be initialized before anything else
 			using (new PerfTimer("ScreenMap.WorldLoaded"))
 				ScreenMap.WorldLoaded(this, wr);
 
-			foreach (var wlh in WorldActor.TraitsImplementing<IWorldLoaded>())
+			foreach (var iwl in WorldActor.TraitsImplementing<IWorldLoaded>())
 			{
 				// These have already been initialized
-				if (wlh == ScreenMap)
+				if (iwl == ScreenMap)
 					continue;
 
-				using (new PerfTimer(wlh.GetType().Name + ".WorldLoaded"))
-					wlh.WorldLoaded(this, wr);
+				using (new PerfTimer(iwl.GetType().Name + ".WorldLoaded"))
+					iwl.WorldLoaded(this, wr);
 			}
 
-			gameInfo.StartTimeUtc = DateTime.UtcNow;
+			foreach (var p in Players)
+				foreach (var iwl in p.PlayerActor.TraitsImplementing<IWorldLoaded>())
+					using (new PerfTimer(iwl.GetType().Name + ".WorldLoaded"))
+						iwl.WorldLoaded(this, wr);
+
 			foreach (var player in Players)
 				gameInfo.AddPlayer(player, OrderManager.LobbyInfo);
 
-			var echo = OrderManager.Connection as EchoConnection;
-			var rc = echo != null ? echo.Recorder : null;
+			gameInfo.DisabledSpawnPoints = OrderManager.LobbyInfo.DisabledSpawnPoints;
 
-			if (rc != null)
-				rc.Metadata = new ReplayMetadata(gameInfo);
+			gameInfo.StartTimeUtc = DateTime.UtcNow;
+
+			if (OrderManager.Connection is NetworkConnection nc && nc.Recorder != null)
+				nc.Recorder.Metadata = new ReplayMetadata(gameInfo);
+		}
+
+		public void PostLoadComplete(WorldRenderer wr)
+		{
+			foreach (var iwl in WorldActor.TraitsImplementing<IPostWorldLoaded>())
+				using (new PerfTimer(iwl.GetType().Name + ".PostWorldLoaded"))
+					iwl.PostWorldLoaded(this, wr);
+
+			foreach (var p in Players)
+				foreach (var iwl in p.PlayerActor.TraitsImplementing<IPostWorldLoaded>())
+					using (new PerfTimer(iwl.GetType().Name + ".PostWorldLoaded"))
+						iwl.PostWorldLoaded(this, wr);
 		}
 
 		public void SetWorldOwner(Player p)
@@ -250,13 +329,15 @@ namespace OpenRA
 			return CreateActor(true, name, initDict);
 		}
 
+		public Actor CreateActor(bool addToWorld, ActorReference reference)
+		{
+			return CreateActor(addToWorld, reference.Type, reference.InitDict);
+		}
+
 		public Actor CreateActor(bool addToWorld, string name, TypeDictionary initDict)
 		{
 			var a = new Actor(this, name, initDict);
-			foreach (var t in a.TraitsImplementing<INotifyCreated>())
-				t.Created(a);
-			if (addToWorld)
-				Add(a);
+			a.Initialize(addToWorld);
 			return a;
 		}
 
@@ -283,22 +364,29 @@ namespace OpenRA
 		public void Add(IEffect e)
 		{
 			effects.Add(e);
-			var se = e as ISync;
-			if (se != null)
+
+			if (e is not ISpatiallyPartitionable)
+				unpartitionedEffects.Add(e);
+
+			if (e is ISync se)
 				syncedEffects.Add(se);
 		}
 
 		public void Remove(IEffect e)
 		{
 			effects.Remove(e);
-			var se = e as ISync;
-			if (se != null)
+
+			if (e is not ISpatiallyPartitionable)
+				unpartitionedEffects.Remove(e);
+
+			if (e is ISync se)
 				syncedEffects.Remove(se);
 		}
 
 		public void RemoveAll(Predicate<IEffect> predicate)
 		{
 			effects.RemoveAll(predicate);
+			unpartitionedEffects.RemoveAll(e => predicate(e));
 			syncedEffects.RemoveAll(e => predicate((IEffect)e));
 		}
 
@@ -307,19 +395,23 @@ namespace OpenRA
 		public event Action<Actor> ActorAdded = _ => { };
 		public event Action<Actor> ActorRemoved = _ => { };
 
-		public bool ShouldTick { get { return Type != WorldType.Shellmap || Game.Settings.Game.ShowShellmap; } }
 		public bool Paused { get; internal set; }
 		public bool PredictedPaused { get; internal set; }
-		public bool PauseStateLocked { get; set; }
 
 		public int WorldTick { get; private set; }
 
+		readonly Dictionary<int, MiniYaml> gameSaveTraitData = new();
+		internal void AddGameSaveTraitData(int traitIndex, MiniYaml yaml)
+		{
+			gameSaveTraitData[traitIndex] = yaml;
+		}
+
 		public void SetPauseState(bool paused)
 		{
-			if (PauseStateLocked)
+			if (IsGameOver)
 				return;
 
-			IssueOrder(Order.PauseGame(paused));
+			IssueOrder(Order.FromTargetString("PauseGame", paused ? "Pause" : "UnPause", false));
 			PredictedPaused = paused;
 		}
 
@@ -330,20 +422,40 @@ namespace OpenRA
 
 		public void Tick()
 		{
-			if (!Paused)
+			if (wasLoadingGameSave && !IsLoadingGameSave)
+			{
+				foreach (var kv in gameSaveTraitData)
+				{
+					var tp = TraitDict.ActorsWithTrait<IGameSaveTraitData>()
+						.Skip(kv.Key)
+						.FirstOrDefault();
+
+					if (tp.Actor == null)
+						break;
+
+					tp.Trait.ResolveTraitData(tp.Actor, kv.Value);
+				}
+
+				gameSaveTraitData.Clear();
+
+				Game.Sound.DisableAllSounds = false;
+				foreach (var nsr in WorldActor.TraitsImplementing<INotifyGameLoaded>())
+					nsr.GameLoaded(this);
+
+				wasLoadingGameSave = false;
+			}
+
+			// Allow users to pause the shellmap via the settings menu
+			// Some traits initialize important state during the first tick, so we must allow it to tick at least once
+			if (!Paused && (Type != WorldType.Shellmap || !gameSettings.PauseShellmap || WorldTick == 0))
 			{
 				WorldTick++;
 
-				using (new PerfSample("tick_idle"))
-					foreach (var ni in ActorsWithTrait<INotifyIdle>())
-						if (ni.Actor.IsIdle)
-							ni.Trait.TickIdle(ni.Actor);
-
-				using (new PerfSample("tick_activities"))
+				using (new PerfSample("tick_actors"))
 					foreach (var a in actors.Values)
 						a.Tick();
 
-				ActorsWithTrait<ITick>().DoTimed(x => x.Trait.Tick(x.Actor), "Trait");
+				ApplyToActorsWithTraitTimed<ITick>((actor, trait) => trait.Tick(actor), "Trait");
 
 				effects.DoTimed(e => e.Tick(this), "Effect");
 			}
@@ -355,17 +467,18 @@ namespace OpenRA
 		// For things that want to update their render state once per tick, ignoring pause state
 		public void TickRender(WorldRenderer wr)
 		{
-			ActorsWithTrait<ITickRender>().DoTimed(x => x.Trait.TickRender(wr, x.Actor), "Render");
+			ApplyToActorsWithTraitTimed<ITickRender>((actor, trait) => trait.TickRender(wr, actor), "Render");
+			ScreenMap.TickRender();
 		}
 
-		public IEnumerable<Actor> Actors { get { return actors.Values; } }
-		public IEnumerable<IEffect> Effects { get { return effects; } }
-		public IEnumerable<ISync> SyncedEffects { get { return syncedEffects; } }
+		public IEnumerable<Actor> Actors => actors.Values;
+		public IEnumerable<IEffect> Effects => effects;
+		public IEnumerable<IEffect> UnpartitionedEffects => unpartitionedEffects;
+		public IEnumerable<ISync> SyncedEffects => syncedEffects;
 
 		public Actor GetActorById(uint actorId)
 		{
-			Actor a;
-			if (actors.TryGetValue(actorId, out a))
+			if (actors.TryGetValue(actorId, out var a))
 				return a;
 			return null;
 		}
@@ -390,7 +503,7 @@ namespace OpenRA
 				// Hash fields marked with the ISync interface.
 				foreach (var actor in ActorsHavingTrait<ISync>())
 					foreach (var syncHash in actor.SyncHashes)
-						ret += n++ * (int)(1 + actor.ActorID) * syncHash.Hash;
+						ret += n++ * (int)(1 + actor.ActorID) * syncHash.Hash();
 
 				// Hash game state relevant effects such as projectiles.
 				foreach (var sync in SyncedEffects)
@@ -399,6 +512,11 @@ namespace OpenRA
 				// Hash the shared random number generator.
 				ret += SharedRandom.Last;
 
+				// Hash player RenderPlayer status
+				foreach (var p in Players)
+					if (p.UnlockedRenderPlayer)
+						ret += Sync.HashPlayer(p);
+
 				return ret;
 			}
 		}
@@ -406,6 +524,16 @@ namespace OpenRA
 		public IEnumerable<TraitPair<T>> ActorsWithTrait<T>()
 		{
 			return TraitDict.ActorsWithTrait<T>();
+		}
+
+		public void ApplyToActorsWithTraitTimed<T>(Action<Actor, T> action, string text)
+		{
+			TraitDict.ApplyToActorsWithTraitTimed(action, text);
+		}
+
+		public void ApplyToActorsWithTrait<T>(Action<Actor, T> action)
+		{
+			TraitDict.ApplyToActorsWithTrait(action);
 		}
 
 		public IEnumerable<Actor> ActorsHavingTrait<T>()
@@ -428,16 +556,57 @@ namespace OpenRA
 			}
 		}
 
+		internal void OnClientDisconnected(int clientId)
+		{
+			foreach (var player in Players.Where(p => p.ClientIndex == clientId && p.PlayerReference.Playable))
+			{
+				foreach (var np in notifyDisconnected)
+					np.PlayerDisconnected(WorldActor, player);
+
+				foreach (var p in Players)
+					p.PlayerDisconnected(player);
+
+				var pi = gameInfo.GetPlayer(player);
+				if (pi != null)
+					pi.DisconnectFrame = OrderManager.NetFrameNumber;
+			}
+		}
+
+		public void RequestGameSave(string filename)
+		{
+			// Allow traits to save arbitrary data that will be passed back via IGameSaveTraitData.ResolveTraitData
+			// at the end of the save restoration
+			// TODO: This will need to be generalized to a request / response pair for multiplayer game saves
+			var i = 0;
+			foreach (var tp in TraitDict.ActorsWithTrait<IGameSaveTraitData>())
+			{
+				var data = tp.Trait.IssueTraitData(tp.Actor);
+				if (data != null)
+				{
+					var yaml = new List<MiniYamlNode>() { new(i.ToStringInvariant(), new MiniYaml("", data)) };
+					IssueOrder(Order.FromTargetString("GameSaveTraitData", yaml.WriteToString(), true));
+				}
+
+				i++;
+			}
+
+			IssueOrder(Order.FromTargetString("CreateGameSave", filename, true));
+		}
+
 		public bool Disposing;
 
 		public void Dispose()
 		{
 			Disposing = true;
 
+			OrderGenerator?.Deactivate();
+
 			frameEndActions.Clear();
 
 			Game.Sound.StopAudio();
 			Game.Sound.StopVideo();
+			if (IsLoadingGameSave)
+				Game.Sound.DisableAllSounds = false;
 
 			// Dispose newer actors first, and the world actor last
 			foreach (var a in actors.Values.Reverse())
@@ -446,10 +615,28 @@ namespace OpenRA
 			// Actor disposals are done in a FrameEndTask
 			while (frameEndActions.Count != 0)
 				frameEndActions.Dequeue()(this);
+
+			// HACK: The shellmap OrderManager is owned by its world in order to avoid
+			// problems with having multiple OMs active when joining a game lobby from the main menu.
+			// A matching check in Game.JoinInner handles OM disposal for all other cases.
+			if (Type == WorldType.Shellmap)
+				OrderManager.Dispose();
+
+			Map.Dispose();
+
+			Game.FinishBenchmark();
+		}
+
+		public void OutOfSync()
+		{
+			EndGame();
+
+			// In the event the replay goes out of sync, it becomes no longer usable. For polish we permanently pause the world.
+			ReplayTimestep = 0;
 		}
 	}
 
-	public struct TraitPair<T> : IEquatable<TraitPair<T>>
+	public readonly struct TraitPair<T> : IEquatable<TraitPair<T>>
 	{
 		public readonly Actor Actor;
 		public readonly T Trait;
@@ -462,8 +649,8 @@ namespace OpenRA
 		public override int GetHashCode() { return Actor.GetHashCode() ^ Trait.GetHashCode(); }
 
 		public bool Equals(TraitPair<T> other) { return this == other; }
-		public override bool Equals(object obj) { return obj is TraitPair<T> && Equals((TraitPair<T>)obj); }
+		public override bool Equals(object obj) { return obj is TraitPair<T> pair && Equals(pair); }
 
-		public override string ToString() { return "{0}->{1}".F(Actor.Info.Name, Trait.GetType().Name); }
+		public override string ToString() { return Actor.Info.Name + "->" + Trait.GetType().Name; }
 	}
 }

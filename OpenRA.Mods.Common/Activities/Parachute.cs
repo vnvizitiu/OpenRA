@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,88 +11,48 @@
 
 using OpenRA.Activities;
 using OpenRA.Mods.Common.Traits;
-using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Activities
 {
 	public class Parachute : Activity
 	{
-		readonly UpgradeManager um;
 		readonly IPositionable pos;
-		readonly ParachutableInfo para;
 		readonly WVec fallVector;
-		readonly Actor ignore;
 
-		WPos dropPosition;
-		WPos currentPosition;
-		bool triggered = false;
+		int groundLevel;
 
-		public Parachute(Actor self, WPos dropPosition, Actor ignoreActor = null)
+		public Parachute(Actor self)
 		{
-			um = self.TraitOrDefault<UpgradeManager>();
-			pos = self.TraitOrDefault<IPositionable>();
-			ignore = ignoreActor;
-
-			// Parachutable trait is a prerequisite for running this activity
-			para = self.Info.TraitInfo<ParachutableInfo>();
-			fallVector = new WVec(0, 0, para.FallRate);
-			this.dropPosition = dropPosition;
+			pos = self.OccupiesSpace as IPositionable;
+			fallVector = new WVec(0, 0, self.Info.TraitInfo<ParachutableInfo>().FallRate);
+			IsInterruptible = false;
 		}
 
-		Activity FirstTick(Actor self)
+		protected override void OnFirstRun(Actor self)
 		{
-			triggered = true;
-
-			if (um != null)
-				foreach (var u in para.ParachuteUpgrade)
-					um.GrantUpgrade(self, u, this);
-
-			// Place the actor and retrieve its visual position (CenterPosition)
-			pos.SetPosition(self, dropPosition);
-			currentPosition = self.CenterPosition;
-
-			return this;
+			groundLevel = self.World.Map.CenterOfCell(self.Location).Z;
+			foreach (var np in self.TraitsImplementing<INotifyParachute>())
+				np.OnParachute(self);
 		}
 
-		Activity LastTick(Actor self)
+		public override bool Tick(Actor self)
 		{
-			var dat = self.World.Map.DistanceAboveTerrain(currentPosition);
-			pos.SetPosition(self, currentPosition - new WVec(WDist.Zero, WDist.Zero, dat));
+			var nextPosition = self.CenterPosition - fallVector;
+			if (nextPosition.Z < groundLevel)
+				return true;
 
-			if (um != null)
-				foreach (var u in para.ParachuteUpgrade)
-					um.RevokeUpgrade(self, u, this);
+			pos.SetCenterPosition(self, nextPosition);
 
-			foreach (var npl in self.TraitsImplementing<INotifyParachuteLanded>())
-				npl.OnLanded(ignore);
-
-			return NextActivity;
+			return false;
 		}
 
-		public override Activity Tick(Actor self)
+		protected override void OnLastRun(Actor self)
 		{
-			// If this is the first tick
-			if (!triggered)
-				return FirstTick(self);
+			var centerPosition = self.CenterPosition;
+			pos.SetPosition(self, centerPosition + new WVec(0, 0, groundLevel - centerPosition.Z));
 
-			currentPosition -= fallVector;
-
-			// If the unit has landed, this will be the last tick
-			if (self.World.Map.DistanceAboveTerrain(currentPosition).Length <= 0)
-				return LastTick(self);
-
-			pos.SetVisualPosition(self, currentPosition);
-
-			return this;
+			foreach (var np in self.TraitsImplementing<INotifyParachute>())
+				np.OnLanded(self);
 		}
-
-		// Only the last queued activity (given order) is kept
-		public override void Queue(Activity activity)
-		{
-			NextActivity = activity;
-		}
-
-		// Cannot be cancelled
-		public override void Cancel(Actor self) { }
 	}
 }

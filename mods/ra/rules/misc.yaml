@@ -1,12 +1,19 @@
-MINP:
-	Inherits: ^Mine
-	Explodes:
-		Weapon: APMine
-
 MINV:
 	Inherits: ^Mine
-	Explodes:
+	RenderSprites:
+		Image: minv
+		FactionImages:
+			soviet: minp
+			russia: minp
+			ukraine: minp
+	FireWarheadsOnDeath:
 		Weapon: ATMine
+
+# Only kept for backwards-compatibility with existing and imported maps, use MINV instead
+MINP:
+	Inherits: MINV
+	FireWarheadsOnDeath:
+		Weapon: APMine
 
 CRATE:
 	Inherits: ^Crate
@@ -24,43 +31,54 @@ CRATE:
 		SelectionShares: 5
 	HideMapCrateAction:
 		SelectionShares: 5
-		Effect: hide-map
-	HealUnitsCrateAction:
-		Notification: heal2.aud
+		Sequence: hide-map
+	HealActorsCrateAction:
+		Sound: heal2.aud
 		SelectionShares: 2
-		Effect: heal
+		Sequence: heal
 	RevealMapCrateAction:
 		SelectionShares: 1
-		Effect: reveal-map
+		Sequence: reveal-map
 	DuplicateUnitCrateAction:
 		SelectionShares: 10
 		MaxAmount: 5
 		MinAmount: 1
 		MaxDuplicateValue: 1500
-	GiveMcvCrateAction:
+		ValidTargets: GroundActor, WaterActor, Submarine
+	GiveBaseBuilderCrateAction:
 		SelectionShares: 0
 		NoBaseSelectionShares: 100
 		Units: mcv
 	GiveUnitCrateAction@jeep:
-		SelectionShares: 7
+		SelectionShares: 6
 		Units: jeep
 		ValidFactions: allies, england, france, germany
 		Prerequisites: techlevel.low
-	GiveUnitCrateAction@arty:
+	GiveUnitCrateAction@1tnk:
 		SelectionShares: 6
+		Units: 1tnk
+		ValidFactions: allies, england, france, germany
+		Prerequisites: techlevel.low
+	GiveUnitCrateAction@apc:
+		SelectionShares: 6
+		Units: apc
+		ValidFactions: soviet, russia, ukraine
+		Prerequisites: techlevel.low
+	GiveUnitCrateAction@ftrk:
+		SelectionShares: 6
+		Units: ftrk
+		ValidFactions: soviet, russia, ukraine
+		Prerequisites: techlevel.low
+	GiveUnitCrateAction@arty:
+		SelectionShares: 5
 		Units: arty
 		ValidFactions: allies, england, france, germany
 		Prerequisites: techlevel.medium, dome
 	GiveUnitCrateAction@v2rl:
-		SelectionShares: 6
+		SelectionShares: 5
 		Units: v2rl
 		ValidFactions: soviet, russia, ukraine
 		Prerequisites: techlevel.medium, dome
-	GiveUnitCrateAction@1tnk:
-		SelectionShares: 5
-		Units: 1tnk
-		ValidFactions: allies, england, france, germany
-		Prerequisites: techlevel.low
 	GiveUnitCrateAction@2tnk:
 		SelectionShares: 4
 		Units: 2tnk
@@ -71,13 +89,8 @@ CRATE:
 		Units: 3tnk
 		ValidFactions: soviet, russia, ukraine
 		Prerequisites: techlevel.medium, fix
-	GiveUnitCrateAction@4tnk:
-		SelectionShares: 3
-		Units: 4tnk
-		ValidFactions: soviet, russia, ukraine
-		Prerequisites: techlevel.high, fix, techcenter
 	GiveUnitCrateAction@squadlight:
-		SelectionShares: 7
+		SelectionShares: 10
 		Units: e1,e1,e1,e3,e3
 		ValidFactions: allies, england, france, germany, soviet, russia, ukraine
 	GiveUnitCrateAction@squadheavyallies:
@@ -87,20 +100,56 @@ CRATE:
 		TimeDelay: 4500
 	GiveUnitCrateAction@squadheavysoviet:
 		SelectionShares: 7
-		Units: e1,e1,e4,e4,e3,e3,e3
+		Units: e1,e1,e4,e4,e3,e3,e3,e6
 		ValidFactions: soviet, russia, ukraine
 		TimeDelay: 4500
-	GrantUpgradeCrateAction@invuln:
+	GrantExternalConditionCrateAction@invuln:
 		SelectionShares: 5
-		Effect: invuln
-		Notification: ironcur9.aud
-		Upgrades: invulnerability
+		Sequence: invuln
+		Sound: ironcur9.aud
+		Condition: invulnerability
 		Duration: 600
+	GiveUnitCrateAction@lst:
+		SelectionShares: 6
+		Units: lst
+		ValidFactions: allies, england, france, germany, soviet, russia, ukraine
+		Prerequisites: techlevel.low
+	GiveUnitCrateAction@pt:
+		SelectionShares: 6
+		Units: pt
+		ValidFactions: allies, england, france, germany
+		Prerequisites: techlevel.low
+	GiveUnitCrateAction@ss:
+		SelectionShares: 4
+		Units: ss
+		ValidFactions: soviet, russia, ukraine
+		Prerequisites: techlevel.low
+	GiveUnitCrateAction@dd:
+		SelectionShares: 4
+		Units: dd
+		ValidFactions: allies, england, france, germany
+		Prerequisites: techlevel.medium, dome
+	GiveUnitCrateAction@ss2:
+		SelectionShares: 4
+		Units: ss
+		ValidFactions: soviet, russia, ukraine
+		Prerequisites: techlevel.medium, dome
+	GiveUnitCrateAction@ca:
+		SelectionShares: 3
+		Units: ca
+		ValidFactions: allies, england, france, germany
+		Prerequisites: techlevel.high, atek
+	GiveUnitCrateAction@msub:
+		SelectionShares: 3
+		Units: msub
+		ValidFactions: soviet, russia, ukraine
+		Prerequisites: techlevel.high, stek
+
 
 MONEYCRATE:
 	Inherits: ^Crate
 	Tooltip:
-		Name: Money Crate
+		Name: actor-moneycrate-name
 	GiveCashCrateAction:
 		Amount: 500
 		SelectionShares: 1
@@ -111,27 +160,28 @@ MONEYCRATE:
 HEALCRATE:
 	Inherits: ^Crate
 	Tooltip:
-		Name: Heal Crate
-	HealUnitsCrateAction:
-		Notification: heal2.aud
+		Name: actor-healcrate-name
+	HealActorsCrateAction:
+		Sound: heal2.aud
 		SelectionShares: 1
-		Effect: heal
+		Sequence: heal
 
 WCRATE:
 	Inherits: ^Crate
 	Tooltip:
-		Name: Wooden Crate
+		Name: actor-wcrate-name
 	RenderSprites:
 		Image: wcrate
 
 SCRATE:
 	Inherits: ^Crate
 	Tooltip:
-		Name: Steel Crate
+		Name: actor-scrate-name
 
 CAMERA:
+	Interactable:
 	EditorOnlyTooltip:
-		Name: (reveals area to owner)
+		Name: actor-camera-name
 	AlwaysVisible:
 	Immobile:
 		OccupiesSpace: false
@@ -143,29 +193,29 @@ CAMERA:
 	WithSpriteBody:
 	RenderSpritesEditorOnly:
 		Image: camera
+	MapEditorData:
+		Categories: System
 
 camera.paradrop:
 	Inherits: CAMERA
 	EditorOnlyTooltip:
-		Name: (support power proxy camera)
+		Name: actor-camera-paradrop-name
 	RevealsShroud:
 		Range: 6c0
 
 camera.spyplane:
 	Inherits: CAMERA
 	EditorOnlyTooltip:
-		Name: (support power proxy camera)
-	DetectCloaked:
-		Range: 10c0
-		CloakTypes: Cloak, Hijacker
+		Name: actor-camera-spyplane-name
 
 SONAR:
 	Inherits: camera.spyplane
 	EditorOnlyTooltip:
-		Name: (support power proxy camera)
+		Name: actor-sonar-name
 	-RevealsShroud:
 	DetectCloaked:
-		CloakTypes: Underwater
+		DetectionTypes: Underwater
+		Range: 10c0
 
 FLARE:
 	Immobile:
@@ -181,16 +231,19 @@ FLARE:
 		QuantizedFacings: 1
 	HiddenUnderFog:
 		Type: CenterPosition
+	Interactable:
 	Tooltip:
-		Name: Flare
+		Name: actor-flare-name
 		ShowOwnerRow: false
-	AutoSelectionSize:
+	MapEditorData:
+		Categories: Decoration
 
 MINE:
 	Inherits@1: ^SpriteActor
+	Interactable:
 	HiddenUnderShroud:
 	Tooltip:
-		Name: Ore Mine
+		Name: actor-mine-name
 	RenderSprites:
 		Palette: terrain
 	WithSpriteBody:
@@ -200,14 +253,20 @@ MINE:
 	AppearsOnRadar:
 	RadarColorFromTerrain:
 		Terrain: Ore
-	AutoTargetIgnore:
+	AppearsOnMapPreview:
+		Terrain: Ore
 	SeedsResource:
+	MapEditorData:
+		Categories: Resource spawn
+	RequiresSpecificOwners:
+		ValidOwnerNames: Neutral
 
 GMINE:
 	Inherits@1: ^SpriteActor
+	Interactable:
 	HiddenUnderShroud:
 	Tooltip:
-		Name: Gem Mine
+		Name: actor-gmine-name
 	RenderSprites:
 		Palette: player
 	WithSpriteBody:
@@ -217,43 +276,56 @@ GMINE:
 	AppearsOnRadar:
 	RadarColorFromTerrain:
 		Terrain: Gems
-	AutoTargetIgnore:
+	AppearsOnMapPreview:
+		Terrain: Gems
 	SeedsResource:
 		ResourceType: Gems
+	MapEditorData:
+		Categories: Resource spawn
+	RequiresSpecificOwners:
+		ValidOwnerNames: Neutral
 
 RAILMINE:
 	Inherits@1: ^SpriteActor
+	Interactable:
 	HiddenUnderShroud:
 	Tooltip:
-		Name: Abandoned Mine
+		Name: actor-railmine-name
 	RenderSprites:
 		Palette: player
 	WithSpriteBody:
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
-	AutoTargetIgnore:
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: INTERIOR
+		Categories: Civilian building
+	RequiresSpecificOwners:
+		ValidOwnerNames: Neutral
 
 QUEE:
 	Inherits@1: ^SpriteActor
+	Inherits@shape: ^2x1Shape
+	Interactable:
 	HiddenUnderShroud:
 	Tooltip:
-		Name: Queen Ant
+		Name: actor-quee-name
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
 	WithSpriteBody:
 	AppearsOnRadar:
-	EditorTilesetFilter:
+	MapEditorData:
 		RequireTilesets: INTERIOR
+		Categories: Critter
 
 LAR1:
 	Inherits@1: ^SpriteActor
+	Inherits@shape: ^1x1Shape
+	Interactable:
 	HiddenUnderShroud:
 	Tooltip:
-		Name: Ant Larva
+		Name: actor-lar1-name
 	Building:
 		Footprint: x
 		Dimensions: 1,1
@@ -261,57 +333,74 @@ LAR1:
 		Palette: terrain
 	WithSpriteBody:
 	AppearsOnRadar:
-	EditorTilesetFilter:
+	MapEditorData:
 		RequireTilesets: INTERIOR
+		Categories: Critter
 
 LAR2:
 	Inherits@1: LAR1
 	Tooltip:
-		Name: Ant Larvae
+		Name: actor-lar2-name
 
 powerproxy.parabombs:
 	AlwaysVisible:
 	AirstrikePower:
 		Icon: parabombs
-		Description: Parabombs (Single Use)
-		LongDesc: A Badger drops a load of parachuted\nbombs on your target.
+		Name: actor-powerproxy-parabombs.name
+		Description: actor-powerproxy-parabombs.description
 		OneShot: true
 		AllowMultiple: true
 		UnitType: badr.bomber
 		SelectTargetSpeechNotification: SelectTarget
+		SelectTargetTextNotification: notification-select-target
 		QuantizedFacings: 8
 		DisplayBeacon: True
 		BeaconPoster: pbmbicon
 		CameraActor: camera
+		CameraRemoveDelay: 150
+		ArrowSequence: arrow
+		ClockSequence: clock
+		CircleSequence: circles
 
 powerproxy.sonarpulse:
 	AlwaysVisible:
 	SpawnActorPower:
 		Icon: sonar
-		Description: Sonar Pulse
-		LongDesc: Reveals all submarines in the vicinity for a \nshort time.
-		ChargeTime: 30
+		Name: actor-powerproxy-sonarpulse.name
+		Description: actor-powerproxy-sonarpulse.description
+		ChargeInterval: 750
 		EndChargeSpeechNotification: SonarPulseReady
 		SelectTargetSpeechNotification: SelectTarget
+		EndChargeTextNotification: notification-sonar-pulse-ready
+		SelectTargetTextNotification: notification-select-target
 		Actor: sonar
+		Terrain: Water
+		AllowUnderShroud: false
 		LifeTime: 250
 		DeploySound: sonpulse.aud
 		EffectImage: moveflsh
 		EffectPalette: moveflash
+		SupportPowerPaletteOrder: 80
+		EffectSequence: idle
+		BlockedCursor: move-blocked
 
 powerproxy.paratroopers:
 	AlwaysVisible:
 	ParatroopersPower:
 		Icon: paratroopers
-		Description: Paratroopers
-		LongDesc: A Badger drops a squad of infantry\nanywhere on the map.
+		Name: actor-powerproxy-paratroopers.name
+		Description: actor-powerproxy-paratroopers.description
 		DropItems: E1,E1,E1,E3,E3
 		SelectTargetSpeechNotification: SelectTarget
+		SelectTargetTextNotification: notification-select-target
 		AllowImpassableCells: false
 		QuantizedFacings: 8
 		CameraActor: camera.paradrop
 		DisplayBeacon: true
 		BeaconPoster: pinficon
+		ArrowSequence: arrow
+		ClockSequence: clock
+		CircleSequence: circles
 
 barracks.upgraded:
 	AlwaysVisible:
@@ -326,8 +415,9 @@ aircraft.upgraded:
 	ProvidesPrerequisite:
 
 mpspawn:
+	Interactable:
 	EditorOnlyTooltip:
-		Name: (multiplayer player starting point)
+		Name: actor-mpspawn-name
 	AlwaysVisible:
 	Immobile:
 		OccupiesSpace: false
@@ -335,10 +425,15 @@ mpspawn:
 	RenderSpritesEditorOnly:
 	BodyOrientation:
 		QuantizedFacings: 1
+	MapEditorData:
+		Categories: System
+	RequiresSpecificOwners:
+		ValidOwnerNames: Neutral
 
 waypoint:
+	Interactable:
 	EditorOnlyTooltip:
-		Name: (waypoint for scripted behavior)
+		Name: actor-waypoint-name
 	AlwaysVisible:
 	Immobile:
 		OccupiesSpace: false
@@ -346,9 +441,14 @@ waypoint:
 	RenderSpritesEditorOnly:
 	BodyOrientation:
 		QuantizedFacings: 1
+	MapEditorData:
+		Categories: System
 
-^fact.colorpicker:
+fact.colorpicker:
 	Inherits: FACT
+	-Buildable:
+	-MapEditorData:
+	-BaseBuilding:
 	RenderSprites:
 		Image: fact
 		Palette: colorpicker
@@ -359,11 +459,14 @@ CTFLAG:
 		Footprint: x
 		Dimensions: 1,1
 	Tooltip:
-		Name: Flag
-	Bib:
-		HasMinibib: Yes
-	DamageMultiplier@INVULNERABLE:
-		Modifier: 0
+		Name: actor-ctflag-name
+	WithBuildingBib:
+		HasMinibib: true
+	-HitShape:
+	-Health:
+	-FireWarheadsOnDeath:
 	-Selectable:
-	-SelectionDecorations:
 	-Targetable:
+	MapEditorData:
+		Categories: Decoration
+	Interactable:

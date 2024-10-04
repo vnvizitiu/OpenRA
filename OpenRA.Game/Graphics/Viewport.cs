@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,13 +11,18 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
+using OpenRA.Primitives;
 
 namespace OpenRA.Graphics
 {
 	[Flags]
 	public enum ScrollDirection { None = 0, Up = 1, Left = 2, Down = 4, Right = 8 }
+
+	public interface INotifyViewportZoomExtentsChanged
+	{
+		void ViewportZoomExtentsChanged(float minZoom, float maxZoom);
+	}
 
 	public static class ViewportExts
 	{
@@ -36,6 +41,8 @@ namespace OpenRA.Graphics
 	public class Viewport
 	{
 		readonly WorldRenderer worldRenderer;
+		readonly WorldViewportSizes viewportSizes;
+		readonly GraphicSettings graphicSettings;
 
 		// Map bounds (world-px)
 		readonly Rectangle mapBounds;
@@ -44,61 +51,73 @@ namespace OpenRA.Graphics
 		// Viewport geometry (world-px)
 		public int2 CenterLocation { get; private set; }
 
-		public WPos CenterPosition { get { return worldRenderer.ProjectedPosition(CenterLocation); } }
+		public WPos CenterPosition => worldRenderer.ProjectedPosition(CenterLocation);
 
-		public int2 TopLeft { get { return CenterLocation - viewportSize / 2; } }
-		public int2 BottomRight { get { return CenterLocation + viewportSize / 2; } }
+		public Rectangle Rectangle => new(TopLeft, new Size(viewportSize.X, viewportSize.Y));
+		public int2 TopLeft => CenterLocation - viewportSize / 2;
+		public int2 BottomRight => CenterLocation + viewportSize / 2;
 		int2 viewportSize;
 		ProjectedCellRegion cells;
 		bool cellsDirty = true;
 
 		ProjectedCellRegion allCells;
 		bool allCellsDirty = true;
-		readonly float[] availableZoomSteps = new[] { 2f, 1f, 0.5f, 0.25f };
+
+		WorldViewport lastViewportDistance;
 
 		float zoom = 1f;
-
-		public float[] AvailableZoomSteps
-		{
-			get { return availableZoomSteps; }
-		}
+		bool unlockMinZoom;
+		float unlockedMinZoomScale;
+		float unlockedMinZoom = 1f;
 
 		public float Zoom
 		{
-			get
-			{
-				return zoom;
-			}
+			get => zoom;
 
-			set
+			private set
 			{
-				var newValue = ClosestTo(AvailableZoomSteps, value);
-				zoom = newValue;
-				viewportSize = (1f / zoom * new float2(Game.Renderer.Resolution)).ToInt2();
+				zoom = value;
+				viewportSize = (1f / zoom * new float2(Game.Renderer.NativeResolution)).ToInt2();
 				cellsDirty = true;
 				allCellsDirty = true;
 			}
 		}
 
-		public static long TicksSinceLastMove = 0;
-		public static int2 LastMousePos;
+		public float MinZoom { get; private set; } = 1f;
+		public float MaxZoom { get; private set; } = 2f;
 
-		float ClosestTo(float[] collection, float target)
+		public void AdjustZoom(float dz)
 		{
-			var closestValue = collection.First();
-			var subtractResult = Math.Abs(closestValue - target);
-
-			foreach (var element in collection)
-			{
-				if (Math.Abs(element - target) < subtractResult)
-				{
-					subtractResult = Math.Abs(element - target);
-					closestValue = element;
-				}
-			}
-
-			return closestValue;
+			// Exponential ensures that equal positive and negative steps have the same effect
+			Zoom = (zoom * (float)Math.Exp(dz)).Clamp(unlockMinZoom ? unlockedMinZoom : MinZoom, MaxZoom);
 		}
+
+		public void AdjustZoom(float dz, int2 center)
+		{
+			var oldCenter = worldRenderer.Viewport.ViewToWorldPx(center);
+			AdjustZoom(dz);
+			var newCenter = worldRenderer.Viewport.ViewToWorldPx(center);
+			CenterLocation += oldCenter - newCenter;
+		}
+
+		public void ToggleZoom()
+		{
+			// Unlocked zooms always reset to the default zoom
+			if (zoom < MinZoom)
+				Zoom = MinZoom;
+			else
+				Zoom = zoom > MinZoom ? MinZoom : MaxZoom;
+		}
+
+		public void UnlockMinimumZoom(float scale)
+		{
+			unlockMinZoom = true;
+			unlockedMinZoomScale = scale;
+			UpdateViewportZooms(false);
+		}
+
+		public static long LastMoveRunTime = 0;
+		public static int2 LastMousePos;
 
 		public ScrollDirection GetBlockedDirections()
 		{
@@ -119,6 +138,8 @@ namespace OpenRA.Graphics
 		{
 			worldRenderer = wr;
 			var grid = Game.ModData.Manifest.Get<MapGrid>();
+			viewportSizes = Game.ModData.Manifest.Get<WorldViewportSizes>();
+			graphicSettings = Game.Settings.Graphics;
 
 			// Calculate map bounds in world-px
 			if (wr.World.Type == WorldType.Editor)
@@ -140,8 +161,83 @@ namespace OpenRA.Graphics
 				CenterLocation = (tl + br) / 2;
 			}
 
-			Zoom = Game.Settings.Graphics.PixelDouble ? 2 : 1;
 			tileSize = grid.TileSize;
+
+			UpdateViewportZooms();
+		}
+
+		public void Tick()
+		{
+			if (lastViewportDistance != graphicSettings.ViewportDistance)
+				UpdateViewportZooms();
+		}
+
+		static float CalculateMinimumZoom(float minHeight, float maxHeight)
+		{
+			var h = Game.Renderer.NativeResolution.Height;
+
+			// Check the easy case: the native resolution is within the maximum limit
+			// Also catches the case where the user may force a resolution smaller than the minimum window size
+			if (h <= maxHeight)
+				return 1;
+
+			// Find a clean fraction that brings us within the desired range to reduce aliasing
+			var step = 1f;
+			while (true)
+			{
+				var testZoom = 1f;
+				while (true)
+				{
+					var nextZoom = testZoom + step;
+					if (h < minHeight * nextZoom)
+						break;
+
+					testZoom = nextZoom;
+				}
+
+				if (h < maxHeight * testZoom)
+					return testZoom;
+
+				step /= 2;
+			}
+		}
+
+		void UpdateViewportZooms(bool resetCurrentZoom = true)
+		{
+			lastViewportDistance = graphicSettings.ViewportDistance;
+
+			var vd = graphicSettings.ViewportDistance;
+			if (viewportSizes.AllowNativeZoom && vd == WorldViewport.Native)
+				MinZoom = viewportSizes.DefaultScale;
+			else
+			{
+				var range = viewportSizes.GetSizeRange(vd);
+				MinZoom = CalculateMinimumZoom(range.X, range.Y) * viewportSizes.DefaultScale;
+			}
+
+			MaxZoom = Math.Min(
+				MinZoom * viewportSizes.MaxZoomScale,
+				Game.Renderer.NativeResolution.Height * viewportSizes.DefaultScale / viewportSizes.MaxZoomWindowHeight);
+
+			if (unlockMinZoom)
+			{
+				// Spectators and the map editor support zooming out by an extra factor of two.
+				// TODO: Allow zooming out until the full map is visible
+				// We need to improve our viewport scroll handling to center the map as we zoom out
+				// before this will work well enough to enable
+				unlockedMinZoom = MinZoom * unlockedMinZoomScale;
+			}
+
+			if (resetCurrentZoom)
+				Zoom = MinZoom;
+			else
+				Zoom = Zoom.Clamp(MinZoom, MaxZoom);
+
+			var maxSize = 1f / (unlockMinZoom ? unlockedMinZoom : MinZoom) * new float2(Game.Renderer.NativeResolution);
+			Game.Renderer.SetMaximumViewportSize(new Size((int)maxSize.X, (int)maxSize.Y));
+
+			foreach (var t in worldRenderer.World.WorldActor.TraitsImplementing<INotifyViewportZoomExtentsChanged>())
+				t.ViewportZoomExtentsChanged(MinZoom, MaxZoom);
 		}
 
 		public CPos ViewToWorld(int2 view)
@@ -149,7 +245,6 @@ namespace OpenRA.Graphics
 			var world = worldRenderer.Viewport.ViewToWorldPx(view);
 			var map = worldRenderer.World.Map;
 			var candidates = CandidateMouseoverCells(world).ToList();
-			var tileSet = worldRenderer.World.Map.Rules.TileSet;
 
 			foreach (var uv in candidates)
 			{
@@ -158,18 +253,9 @@ namespace OpenRA.Graphics
 				var s = worldRenderer.ScreenPxPosition(p);
 				if (Math.Abs(s.X - world.X) <= tileSize.Width && Math.Abs(s.Y - world.Y) <= tileSize.Height)
 				{
-					var ramp = 0;
-					if (map.Contains(uv))
-					{
-						var ti = tileSet.GetTileInfo(map.Tiles[uv]);
-						if (ti != null)
-							ramp = ti.RampType;
-					}
-
-					var corners = map.Grid.CellCorners[ramp];
-					var pos = map.CenterOfCell(uv.ToCPos(map));
-					var screen = corners.Select(c => worldRenderer.ScreenPxPosition(pos + c)).ToArray();
-
+					var ramp = map.Grid.Ramps[map.Ramp.Contains(uv) ? map.Ramp[uv] : 0];
+					var pos = map.CenterOfCell(uv.ToCPos(map)) - new WVec(0, 0, ramp.CenterHeightOffset);
+					var screen = ramp.Corners.Select(c => worldRenderer.ScreenPxPosition(pos + c)).ToArray();
 					if (screen.PolygonContains(world))
 						return uv.ToCPos(map);
 				}
@@ -179,7 +265,7 @@ namespace OpenRA.Graphics
 			// Try and find the closest cell
 			if (candidates.Count > 0)
 			{
-				return candidates.OrderBy(uv =>
+				return candidates.MinBy(uv =>
 				{
 					var p = map.CenterOfCell(uv.ToCPos(map.Grid.Type));
 					var s = worldRenderer.ScreenPxPosition(p);
@@ -187,37 +273,53 @@ namespace OpenRA.Graphics
 					var dy = Math.Abs(s.Y - world.Y);
 
 					return dx * dx + dy * dy;
-				}).First().ToCPos(map);
+				}).ToCPos(map);
 			}
 
 			// Something is very wrong, but lets return something that isn't completely bogus and hope the caller can recover
 			return worldRenderer.World.Map.CellContaining(worldRenderer.ProjectedPosition(ViewToWorldPx(view)));
 		}
 
-		/// <summary> Returns an unfiltered list of all cells that could potentially contain the mouse cursor</summary>
+		/// <summary>Returns an unfiltered list of all cells that could potentially contain the mouse cursor.</summary>
 		IEnumerable<MPos> CandidateMouseoverCells(int2 world)
 		{
 			var map = worldRenderer.World.Map;
+			var tileScale = map.Grid.TileScale / 2;
 			var minPos = worldRenderer.ProjectedPosition(world);
 
-			// Find all the cells that could potentially have been clicked
-			var a = map.CellContaining(minPos - new WVec(1024, 0, 0)).ToMPos(map.Grid.Type);
-			var b = map.CellContaining(minPos + new WVec(512, 512 * map.Grid.MaximumTerrainHeight, 0)).ToMPos(map.Grid.Type);
+			// Find all the cells that could potentially have been clicked.
+			MPos a;
+			MPos b;
+			if (map.Grid.Type == MapGridType.RectangularIsometric)
+			{
+				// TODO: this generates too many cells.
+				a = map.CellContaining(minPos - new WVec(tileScale, 0, 0)).ToMPos(map.Grid.Type);
+				b = map.CellContaining(minPos + new WVec(tileScale, tileScale * map.Grid.MaximumTerrainHeight, 0)).ToMPos(map.Grid.Type);
+			}
+			else
+			{
+				a = map.CellContaining(minPos).ToMPos(map.Grid.Type);
+				b = map.CellContaining(minPos + new WVec(0, tileScale * map.Grid.MaximumTerrainHeight, 0)).ToMPos(map.Grid.Type);
+			}
 
 			for (var v = b.V; v >= a.V; v--)
 				for (var u = b.U; u >= a.U; u--)
 					yield return new MPos(u, v);
 		}
 
-		public int2 ViewToWorldPx(int2 view) { return (1f / Zoom * view.ToFloat2()).ToInt2() + TopLeft; }
-		public int2 WorldToViewPx(int2 world) { return (Zoom * (world - TopLeft).ToFloat2()).ToInt2(); }
+		public int2 ViewToWorldPx(int2 view) { return (graphicSettings.UIScale / Zoom * view.ToFloat2()).ToInt2() + TopLeft; }
+		public int2 WorldToViewPx(int2 world) { return (Zoom / graphicSettings.UIScale * (world - TopLeft).ToFloat2()).ToInt2(); }
+		public int2 WorldToViewPx(in float3 world) { return (Zoom / graphicSettings.UIScale * (world - TopLeft).XY).ToInt2(); }
 
 		public void Center(IEnumerable<Actor> actors)
 		{
-			if (!actors.Any())
+			var actorsCollection = actors as IReadOnlyCollection<Actor>;
+			actorsCollection ??= actors.ToList();
+
+			if (actorsCollection.Count == 0)
 				return;
 
-			Center(actors.Select(a => a.CenterPosition).Average());
+			Center(actorsCollection.Select(a => a.CenterPosition).Average());
 		}
 
 		public void Center(WPos pos)
@@ -239,7 +341,6 @@ namespace OpenRA.Graphics
 		}
 
 		// Rectangle (in viewport coords) that contains things to be drawn
-		static readonly Rectangle ScreenClip = Rectangle.FromLTRB(0, 0, Game.Renderer.Resolution.Width, Game.Renderer.Resolution.Height);
 		public Rectangle GetScissorBounds(bool insideBounds)
 		{
 			// Visible rectangle in world coordinates (expanded to the corners of the cells)
@@ -249,12 +350,12 @@ namespace OpenRA.Graphics
 			var cbr = map.CenterOfCell(((MPos)bounds.BottomRight).ToCPos(map)) + new WVec(512, 512, 0);
 
 			// Convert to screen coordinates
-			var tl = WorldToViewPx(worldRenderer.ScreenPxPosition(ctl - new WVec(0, 0, ctl.Z))).Clamp(ScreenClip);
-			var br = WorldToViewPx(worldRenderer.ScreenPxPosition(cbr - new WVec(0, 0, cbr.Z))).Clamp(ScreenClip);
+			var tl = worldRenderer.ScreenPxPosition(ctl - new WVec(0, 0, ctl.Z)) - TopLeft;
+			var br = worldRenderer.ScreenPxPosition(cbr - new WVec(0, 0, cbr.Z)) - TopLeft;
 
-			// Add an extra one cell fudge in each direction for safety
-			return Rectangle.FromLTRB(tl.X - tileSize.Width, tl.Y - tileSize.Height,
-				br.X + tileSize.Width, br.Y + tileSize.Height);
+			// Add an extra half-cell fudge to avoid clipping isometric tiles
+			return Rectangle.FromLTRB(tl.X - tileSize.Width / 2, tl.Y - tileSize.Height / 2,
+				br.X + tileSize.Width / 2, br.Y + tileSize.Height / 2);
 		}
 
 		ProjectedCellRegion CalculateVisibleCells(bool insideBounds)

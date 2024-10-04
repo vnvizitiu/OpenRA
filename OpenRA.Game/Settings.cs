@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,17 +11,15 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Linq.Expressions;
-using OpenRA.Graphics;
-using OpenRA.Traits;
+using OpenRA.Primitives;
 
 namespace OpenRA
 {
 	public enum MouseScrollType { Disabled, Standard, Inverted, Joystick }
 	public enum StatusBarsType { Standard, DamageShow, AlwaysShow }
+	public enum TargetLinesType { Disabled, Manual, Automatic }
 
 	[Flags]
 	public enum MPGameFilters
@@ -34,16 +32,23 @@ namespace OpenRA
 		Incompatible = 16
 	}
 
+	[Flags]
+	public enum TextNotificationPoolFilters
+	{
+		None = 0,
+		Feedback = 1,
+		Transients = 2
+	}
+
+	public enum WorldViewport { Native, Close, Medium, Far }
+
 	public class ServerSettings
 	{
 		[Desc("Sets the server name.")]
-		public string Name = "OpenRA Game";
+		public string Name = "";
 
 		[Desc("Sets the internal port.")]
 		public int ListenPort = 1234;
-
-		[Desc("Sets the port advertised to the master server.")]
-		public int ExternalPort = 1234;
 
 		[Desc("Reports the game to the master server list.")]
 		public bool AdvertiseOnline = true;
@@ -51,25 +56,26 @@ namespace OpenRA
 		[Desc("Locks the game with a password.")]
 		public string Password = "";
 
-		public string MasterServer = "http://master.openra.net/";
-
-		[Desc("Allow users to enable NAT discovery for external IP detection and automatic port forwarding.")]
+		[Desc("Allow users to search UPnP/NAT-PMP enabled devices for automatic port forwarding.")]
 		public bool DiscoverNatDevices = false;
 
-		[Desc("Set this to false to disable UPnP even if compatible devices are found.")]
-		public bool AllowPortForward = true;
-
-		[Desc("Time in milliseconds to search for UPnP enabled NAT devices.")]
-		public int NatDiscoveryTimeout = 1000;
+		[Desc("Time in seconds for UPnP/NAT-PMP mappings to last.")]
+		public int NatPortMappingLifetime = 36000;
 
 		[Desc("Starts the game with a default map. Input as hash that can be obtained by the utility.")]
 		public string Map = null;
 
 		[Desc("Takes a comma separated list of IP addresses that are not allowed to join.")]
-		public string[] Ban = { };
+		public string[] Ban = Array.Empty<string>();
 
-		[Desc("Value in milliseconds when to terminate the game. Needs to be at least 10000 (10 s) to enable the timer.")]
-		public int TimeOut = 0;
+		[Desc("For dedicated servers only, allow anonymous clients to join.")]
+		public bool RequireAuthentication = false;
+
+		[Desc("For dedicated servers only, if non-empty, only allow authenticated players with these profile IDs to join.")]
+		public int[] ProfileIDWhitelist = Array.Empty<int>();
+
+		[Desc("For dedicated servers only, if non-empty, always reject players with these user IDs from joining.")]
+		public int[] ProfileIDBlacklist = Array.Empty<int>();
 
 		[Desc("For dedicated servers only, controls whether a game can be started with just one human player in the lobby.")]
 		public bool EnableSingleplayer = false;
@@ -77,7 +83,47 @@ namespace OpenRA
 		[Desc("Query map information from the Resource Center if they are not available locally.")]
 		public bool QueryMapRepository = true;
 
-		public string TimestampFormat = "s";
+		[Desc("Enable client-side report generation to help debug desync errors.")]
+		public bool EnableSyncReports = false;
+
+		[Desc("Sets the timestamp format. Defaults to the ISO 8601 standard.")]
+		public string TimestampFormat = "yyyy-MM-ddTHH:mm:ss";
+
+		[Desc("Allow clients to see anonymised IPs for other clients.")]
+		public bool ShareAnonymizedIPs = true;
+
+		[Desc("Allow clients to see the country of other clients.")]
+		public bool EnableGeoIP = true;
+
+		[Desc("For dedicated servers only, save replays for all games played.")]
+		public bool RecordReplays = false;
+
+		[Desc("For dedicated servers only, treat maps that fail the lint checks as invalid.")]
+		public bool EnableLintChecks = true;
+
+		[Desc("For dedicated servers only, a comma separated list of map uids that are allowed to be used.")]
+		public string[] MapPool = Array.Empty<string>();
+
+		[Desc("Delay in milliseconds before newly joined players can send chat messages.")]
+		public int FloodLimitJoinCooldown = 5000;
+
+		[Desc("Amount of milliseconds player chat messages are tracked for.")]
+		public int FloodLimitInterval = 5000;
+
+		[Desc("Amount of chat messages per FloodLimitInterval a players can send before flood is detected.")]
+		public int FloodLimitMessageCount = 5;
+
+		[Desc("Delay in milliseconds before players can send chat messages after flood was detected.")]
+		public int FloodLimitCooldown = 15000;
+
+		[Desc("Can players vote to kick other players?")]
+		public bool EnableVoteKick = true;
+
+		[Desc("After how much time in miliseconds should the vote kick fail after idling?")]
+		public int VoteKickTimer = 30000;
+
+		[Desc("If a vote kick was unsuccessful for how long should the player who started the vote not be able to start new votes?")]
+		public int VoteKickerCooldown = 120000;
 
 		public ServerSettings Clone()
 		{
@@ -87,17 +133,50 @@ namespace OpenRA
 
 	public class DebugSettings
 	{
-		public bool BotDebug = false;
-		public bool LuaDebug = false;
+		[Desc("Display average FPS and tick/render times")]
 		public bool PerfText = false;
+
+		[Desc("Display a graph with various profiling traces")]
 		public bool PerfGraph = false;
-		public float LongTickThresholdMs = 1;
-		public bool SanityCheckUnsyncedCode = false;
+
+		[Desc("Number of samples to average over when calculating tick and render times.")]
 		public int Samples = 25;
-		public bool IgnoreVersionMismatch = false;
+
+		[Desc("Check whether a newer version is available online.")]
+		public bool CheckVersion = true;
+
+		[Desc("Allow the collection of anonymous data such as Operating System, .NET runtime, OpenGL version and language settings.")]
 		public bool SendSystemInformation = true;
+
+		[Desc("Version of sysinfo that the player last opted in or out of.")]
 		public int SystemInformationVersionPrompt = 0;
-		public string UUID = System.Guid.NewGuid().ToString();
+
+		[Desc("Sysinfo anonymous user identifier.")]
+		public string UUID = Guid.NewGuid().ToString();
+
+		[Desc("Enable hidden developer settings in the Advanced settings tab.")]
+		public bool DisplayDeveloperSettings = false;
+
+		[Desc("Display bot debug messages in the game chat.")]
+		public bool BotDebug = false;
+
+		[Desc("Display Lua debug messages in the game chat.")]
+		public bool LuaDebug = false;
+
+		[Desc("Enable the chat field during replays to allow use of console commands.")]
+		public bool EnableDebugCommandsInReplays = false;
+
+		[Desc("Enable perf.log output for traits, activities and effects.")]
+		public bool EnableSimulationPerfLogging = false;
+
+		[Desc("Amount of time required for triggering perf.log output.")]
+		public float LongTickThresholdMs = 1;
+
+		[Desc("Throw an exception if the world sync hash changes while evaluating user input.")]
+		public bool SyncCheckUnsyncedCode = false;
+
+		[Desc("Throw an exception if the world sync hash changes while evaluating BotModules.")]
+		public bool SyncCheckBotModuleCode = false;
 	}
 
 	public class GraphicSettings
@@ -105,30 +184,46 @@ namespace OpenRA
 		[Desc("This can be set to Windowed, Fullscreen or PseudoFullscreen.")]
 		public WindowMode Mode = WindowMode.PseudoFullscreen;
 
+		[Desc("Enable VSync.")]
+		public bool VSync = true;
+
 		[Desc("Screen resolution in fullscreen mode.")]
-		public int2 FullscreenSize = new int2(0, 0);
+		public int2 FullscreenSize = new(0, 0);
 
 		[Desc("Screen resolution in windowed mode.")]
-		public int2 WindowedSize = new int2(1024, 768);
+		public int2 WindowedSize = new(1024, 768);
 
-		public bool HardwareCursors = true;
-
-		public bool PixelDouble = false;
 		public bool CursorDouble = false;
+		public WorldViewport ViewportDistance = WorldViewport.Medium;
+		public float UIScale = 1;
 
-		[Desc("Add a frame rate limiter. It is recommended to not disable this.")]
-		public bool CapFramerate = true;
+		[Desc("Add a frame rate limiter.")]
+		public bool CapFramerate = false;
 
 		[Desc("At which frames per second to cap the framerate.")]
 		public int MaxFramerate = 60;
 
+		[Desc("Set a frame rate limit of 1 render frame per game simulation frame (overrides CapFramerate/MaxFramerate).")]
+		public bool CapFramerateToGameFps = false;
+
+		[Desc("Disable the OpenGL debug message callback feature.")]
+		public bool DisableGLDebugMessageCallback = false;
+
+		[Desc("Disable operating-system provided cursor rendering.")]
+		public bool DisableHardwareCursors = false;
+
+		[Desc("Display index to use in a multi-monitor fullscreen setup.")]
+		public int VideoDisplay = 0;
+
+		[Desc("Preferred OpenGL profile to use.",
+			"Modern: OpenGL Core Profile 3.2 or greater.",
+			"Embedded: OpenGL ES 3.0 or greater.",
+			"Legacy: OpenGL 2.1 with framebuffer_object extension (requires DisableLegacyGL: False)",
+			"Automatic: Use the first supported profile.")]
+		public GLProfile GLProfile = GLProfile.Automatic;
+
 		public int BatchSize = 8192;
 		public int SheetSize = 2048;
-
-		public string Language = "english";
-		public string DefaultLanguage = "english";
-
-		public ImageFormat ScreenshotFormat = ImageFormat.Png;
 	}
 
 	public class SoundSettings
@@ -144,216 +239,84 @@ namespace OpenRA
 
 		public bool CashTicks = true;
 		public bool Mute = false;
+		public bool MuteBackgroundMusic = false;
 	}
 
 	public class PlayerSettings
 	{
-		public string Name = "Newbie";
-		public HSLColor Color = new HSLColor(75, 255, 180);
+		[Desc("Sets the player nickname.")]
+		public string Name = "Commander";
+		public Color Color = Color.FromArgb(200, 32, 32);
 		public string LastServer = "localhost:1234";
+		public Color[] CustomColors = Array.Empty<Color>();
+		public string Language = "en";
 	}
 
 	public class GameSettings
 	{
-		[Desc("Load a specific mod on startup. Shipped ones include: ra, cnc and d2k")]
-		public string Mod = "modchooser";
-		public string PreviousMod = "ra";
-
 		public string Platform = "Default";
 
-		public bool ShowShellmap = true;
-
 		public bool ViewportEdgeScroll = true;
+		public int ViewportEdgeScrollMargin = 5;
+
 		public bool LockMouseWindow = false;
-		public MouseScrollType MiddleMouseScroll = MouseScrollType.Standard;
-		public MouseScrollType RightMouseScroll = MouseScrollType.Disabled;
-		public MouseButtonPreference MouseButtonPreference = new MouseButtonPreference();
-		public float ViewportEdgeScrollStep = 10f;
+		public MouseScrollType MouseScroll = MouseScrollType.Joystick;
+		public MouseButtonPreference MouseButtonPreference = new();
+		public float ViewportEdgeScrollStep = 30f;
 		public float UIScrollSpeed = 50f;
+		public float ZoomSpeed = 0.04f;
 		public int SelectionDeadzone = 24;
 		public int MouseScrollDeadzone = 8;
 
 		public bool UseClassicMouseStyle = false;
+		public bool UseAlternateScrollButton = false;
+
+		public bool HideReplayChat = false;
+
 		public StatusBarsType StatusBars = StatusBarsType.Standard;
+		public TargetLinesType TargetLines = TargetLinesType.Manual;
 		public bool UsePlayerStanceColors = false;
-		public bool DrawTargetLine = true;
 
 		public bool AllowDownloading = true;
-		public string MapRepository = "http://resource.openra.net/map/";
 
-		public bool AllowZoom = true;
-		public Modifiers ZoomModifier = Modifiers.Ctrl;
+		[Desc("Filename of the authentication profile to use.")]
+		public string AuthProfile = "player.oraid";
+
+		public Modifiers ZoomModifier = Modifiers.None;
 
 		public bool FetchNews = true;
-		public string NewsUrl = "http://master.openra.net/gamenews";
+
+		[Desc("Version of introduction prompt that the player last viewed.")]
+		public int IntroductionPromptVersion = 0;
 
 		public MPGameFilters MPGameFilters = MPGameFilters.Waiting | MPGameFilters.Empty | MPGameFilters.Protected | MPGameFilters.Started;
-	}
 
-	public class KeySettings
-	{
-		public Hotkey CycleBaseKey = new Hotkey(Keycode.H, Modifiers.None);
-		public Hotkey ToLastEventKey = new Hotkey(Keycode.SPACE, Modifiers.None);
-		public Hotkey ToSelectionKey = new Hotkey(Keycode.HOME, Modifiers.None);
-		public Hotkey SelectAllUnitsKey = new Hotkey(Keycode.Q, Modifiers.None);
-		public Hotkey SelectUnitsByTypeKey = new Hotkey(Keycode.W, Modifiers.None);
+		public bool PauseShellmap = false;
 
-		public Hotkey MapScrollUp = new Hotkey(Keycode.UP, Modifiers.None);
-		public Hotkey MapScrollDown = new Hotkey(Keycode.DOWN, Modifiers.None);
-		public Hotkey MapScrollLeft = new Hotkey(Keycode.LEFT, Modifiers.None);
-		public Hotkey MapScrollRight = new Hotkey(Keycode.RIGHT, Modifiers.None);
+		[Desc("Allow mods to enable the Discord service that can interact with a local Discord client.")]
+		public bool EnableDiscordService = true;
 
-		public Hotkey MapPushTop = new Hotkey(Keycode.UP, Modifiers.Alt);
-		public Hotkey MapPushBottom = new Hotkey(Keycode.DOWN, Modifiers.Alt);
-		public Hotkey MapPushLeftEdge = new Hotkey(Keycode.LEFT, Modifiers.Alt);
-		public Hotkey MapPushRightEdge = new Hotkey(Keycode.RIGHT, Modifiers.Alt);
-
-		public Hotkey ViewPortBookmarkSaveSlot1 = new Hotkey(Keycode.Q, Modifiers.Ctrl);
-		public Hotkey ViewPortBookmarkSaveSlot2 = new Hotkey(Keycode.W, Modifiers.Ctrl);
-		public Hotkey ViewPortBookmarkSaveSlot3 = new Hotkey(Keycode.E, Modifiers.Ctrl);
-		public Hotkey ViewPortBookmarkSaveSlot4 = new Hotkey(Keycode.R, Modifiers.Ctrl);
-
-		public Hotkey ViewPortBookmarkUseSlot1 = new Hotkey(Keycode.Q, Modifiers.Alt);
-		public Hotkey ViewPortBookmarkUseSlot2 = new Hotkey(Keycode.W, Modifiers.Alt);
-		public Hotkey ViewPortBookmarkUseSlot3 = new Hotkey(Keycode.E, Modifiers.Alt);
-		public Hotkey ViewPortBookmarkUseSlot4 = new Hotkey(Keycode.R, Modifiers.Alt);
-
-		public Hotkey PauseKey = new Hotkey(Keycode.PAUSE, Modifiers.None);
-		public Hotkey PlaceBeaconKey = new Hotkey(Keycode.B, Modifiers.None);
-		public Hotkey SellKey = new Hotkey(Keycode.Z, Modifiers.None);
-		public Hotkey PowerDownKey = new Hotkey(Keycode.X, Modifiers.None);
-		public Hotkey RepairKey = new Hotkey(Keycode.C, Modifiers.None);
-
-		public Hotkey NextProductionTabKey = new Hotkey(Keycode.PAGEDOWN, Modifiers.None);
-		public Hotkey PreviousProductionTabKey = new Hotkey(Keycode.PAGEUP, Modifiers.None);
-		public Hotkey CycleProductionBuildingsKey = new Hotkey(Keycode.TAB, Modifiers.None);
-
-		public Hotkey AttackMoveKey = new Hotkey(Keycode.A, Modifiers.None);
-		public Hotkey StopKey = new Hotkey(Keycode.S, Modifiers.None);
-		public Hotkey ScatterKey = new Hotkey(Keycode.X, Modifiers.Ctrl);
-		public Hotkey DeployKey = new Hotkey(Keycode.F, Modifiers.None);
-		public Hotkey StanceCycleKey = new Hotkey(Keycode.Z, Modifiers.Ctrl);
-		public Hotkey GuardKey = new Hotkey(Keycode.D, Modifiers.None);
-
-		public Hotkey ObserverCombinedView = new Hotkey(Keycode.MINUS, Modifiers.None);
-		public Hotkey ObserverWorldView = new Hotkey(Keycode.EQUALS, Modifiers.None);
-
-		public Hotkey CycleStatusBarsKey = new Hotkey(Keycode.COMMA, Modifiers.None);
-		public Hotkey TogglePixelDoubleKey = new Hotkey(Keycode.PERIOD, Modifiers.None);
-		public Hotkey TogglePlayerStanceColorsKey = new Hotkey(Keycode.COMMA, Modifiers.Ctrl);
-
-		public Hotkey DevReloadChromeKey = new Hotkey(Keycode.C, Modifiers.Ctrl | Modifiers.Shift);
-		public Hotkey HideUserInterfaceKey = new Hotkey(Keycode.H, Modifiers.Ctrl | Modifiers.Shift);
-		public Hotkey TakeScreenshotKey = new Hotkey(Keycode.P, Modifiers.Ctrl);
-		public Hotkey ToggleMuteKey = new Hotkey(Keycode.M, Modifiers.None);
-
-		public Hotkey Production01Key = new Hotkey(Keycode.F1, Modifiers.None);
-		public Hotkey Production02Key = new Hotkey(Keycode.F2, Modifiers.None);
-		public Hotkey Production03Key = new Hotkey(Keycode.F3, Modifiers.None);
-		public Hotkey Production04Key = new Hotkey(Keycode.F4, Modifiers.None);
-		public Hotkey Production05Key = new Hotkey(Keycode.F5, Modifiers.None);
-		public Hotkey Production06Key = new Hotkey(Keycode.F6, Modifiers.None);
-		public Hotkey Production07Key = new Hotkey(Keycode.F7, Modifiers.None);
-		public Hotkey Production08Key = new Hotkey(Keycode.F8, Modifiers.None);
-		public Hotkey Production09Key = new Hotkey(Keycode.F9, Modifiers.None);
-		public Hotkey Production10Key = new Hotkey(Keycode.F10, Modifiers.None);
-		public Hotkey Production11Key = new Hotkey(Keycode.F11, Modifiers.None);
-		public Hotkey Production12Key = new Hotkey(Keycode.F12, Modifiers.None);
-
-		public Hotkey Production13Key = new Hotkey(Keycode.F1, Modifiers.Ctrl);
-		public Hotkey Production14Key = new Hotkey(Keycode.F2, Modifiers.Ctrl);
-		public Hotkey Production15Key = new Hotkey(Keycode.F3, Modifiers.Ctrl);
-		public Hotkey Production16Key = new Hotkey(Keycode.F4, Modifiers.Ctrl);
-		public Hotkey Production17Key = new Hotkey(Keycode.F5, Modifiers.Ctrl);
-		public Hotkey Production18Key = new Hotkey(Keycode.F6, Modifiers.Ctrl);
-		public Hotkey Production19Key = new Hotkey(Keycode.F7, Modifiers.Ctrl);
-		public Hotkey Production20Key = new Hotkey(Keycode.F8, Modifiers.Ctrl);
-		public Hotkey Production21Key = new Hotkey(Keycode.F9, Modifiers.Ctrl);
-		public Hotkey Production22Key = new Hotkey(Keycode.F10, Modifiers.Ctrl);
-		public Hotkey Production23Key = new Hotkey(Keycode.F11, Modifiers.Ctrl);
-		public Hotkey Production24Key = new Hotkey(Keycode.F12, Modifiers.Ctrl);
-
-		public Hotkey ProductionTypeBuildingKey = new Hotkey(Keycode.E, Modifiers.None);
-		public Hotkey ProductionTypeDefenseKey = new Hotkey(Keycode.R, Modifiers.None);
-		public Hotkey ProductionTypeInfantryKey = new Hotkey(Keycode.T, Modifiers.None);
-		public Hotkey ProductionTypeVehicleKey = new Hotkey(Keycode.Y, Modifiers.None);
-		public Hotkey ProductionTypeAircraftKey = new Hotkey(Keycode.U, Modifiers.None);
-		public Hotkey ProductionTypeNavalKey = new Hotkey(Keycode.I, Modifiers.None);
-		public Hotkey ProductionTypeTankKey = new Hotkey(Keycode.I, Modifiers.None);
-		public Hotkey ProductionTypeMerchantKey = new Hotkey(Keycode.O, Modifiers.None);
-		public Hotkey ProductionTypeUpgradeKey = new Hotkey(Keycode.R, Modifiers.None);
-
-		public Hotkey SupportPower01Key = new Hotkey(Keycode.UNKNOWN, Modifiers.None);
-		public Hotkey SupportPower02Key = new Hotkey(Keycode.UNKNOWN, Modifiers.None);
-		public Hotkey SupportPower03Key = new Hotkey(Keycode.UNKNOWN, Modifiers.None);
-		public Hotkey SupportPower04Key = new Hotkey(Keycode.UNKNOWN, Modifiers.None);
-		public Hotkey SupportPower05Key = new Hotkey(Keycode.UNKNOWN, Modifiers.None);
-		public Hotkey SupportPower06Key = new Hotkey(Keycode.UNKNOWN, Modifiers.None);
-
-		public Hotkey ReplaySpeedSlowKey = new Hotkey(Keycode.F5, Modifiers.None);
-		public Hotkey ReplaySpeedRegularKey = new Hotkey(Keycode.F6, Modifiers.None);
-		public Hotkey ReplaySpeedFastKey = new Hotkey(Keycode.F7, Modifiers.None);
-		public Hotkey ReplaySpeedMaxKey = new Hotkey(Keycode.F8, Modifiers.None);
-
-		public Hotkey NextTrack = new Hotkey(Keycode.AUDIONEXT, Modifiers.None);
-		public Hotkey PreviousTrack = new Hotkey(Keycode.AUDIOPREV, Modifiers.None);
-		public Hotkey StopMusic = new Hotkey(Keycode.AUDIOSTOP, Modifiers.None);
-		public Hotkey PauseMusic = new Hotkey(Keycode.AUDIOPLAY, Modifiers.None);
-
-		static readonly Func<KeySettings, Hotkey>[] ProductionKeys = GetKeys(24, "Production");
-		static readonly Func<KeySettings, Hotkey>[] SupportPowerKeys = GetKeys(6, "SupportPower");
-
-		static Func<KeySettings, Hotkey>[] GetKeys(int count, string prefix)
-		{
-			var keySettings = Expression.Parameter(typeof(KeySettings), "keySettings");
-			return Exts.MakeArray(count, i => Expression.Lambda<Func<KeySettings, Hotkey>>(
-				Expression.Field(keySettings, "{0}{1:D2}Key".F(prefix, i + 1)), keySettings).Compile());
-		}
-
-		public Hotkey GetProductionHotkey(int index)
-		{
-			return GetKey(ProductionKeys, index);
-		}
-
-		public Hotkey GetSupportPowerHotkey(int index)
-		{
-			return GetKey(SupportPowerKeys, index);
-		}
-
-		Hotkey GetKey(Func<KeySettings, Hotkey>[] keys, int index)
-		{
-			if (index < 0 || index >= keys.Length)
-				return Hotkey.Invalid;
-
-			return keys[index](this);
-		}
-	}
-
-	public class ChatSettings
-	{
-		public string Hostname = "irc.openra.net";
-		public int Port = 6667;
-		public string Channel = "lobby";
-		public string Nickname = "Newbie";
-		public string QuitMessage = "Battle control terminated!";
-		public string TimestampFormat = "HH:mm";
-		public bool ConnectAutomatically = false;
+		public TextNotificationPoolFilters TextNotificationPoolFilters = TextNotificationPoolFilters.Feedback | TextNotificationPoolFilters.Transients;
 	}
 
 	public class Settings
 	{
-		string settingsFile;
+		readonly string settingsFile;
 
-		public PlayerSettings Player = new PlayerSettings();
-		public GameSettings Game = new GameSettings();
-		public SoundSettings Sound = new SoundSettings();
-		public GraphicSettings Graphics = new GraphicSettings();
-		public ServerSettings Server = new ServerSettings();
-		public DebugSettings Debug = new DebugSettings();
-		public KeySettings Keys = new KeySettings();
-		public ChatSettings Chat = new ChatSettings();
+		public readonly PlayerSettings Player = new();
+		public readonly GameSettings Game = new();
+		public readonly SoundSettings Sound = new();
+		public readonly GraphicSettings Graphics = new();
+		public readonly ServerSettings Server = new();
+		public readonly DebugSettings Debug = new();
+		internal Dictionary<string, Hotkey> Keys = new();
 
-		public Dictionary<string, object> Sections;
+		public readonly Dictionary<string, object> Sections;
+
+		// A direct clone of the file loaded from disk.
+		// Any changed settings will be merged over this on save,
+		// allowing us to persist any unknown configuration keys
+		readonly List<MiniYamlNode> yamlCache = new();
 
 		public Settings(string file, Arguments args)
 		{
@@ -366,8 +329,6 @@ namespace OpenRA
 				{ "Graphics", Graphics },
 				{ "Server", Server },
 				{ "Debug", Debug },
-				{ "Keys", Keys },
-				{ "Chat", Chat }
 			};
 
 			// Override fieldloader to ignore invalid entries
@@ -375,15 +336,22 @@ namespace OpenRA
 			var err2 = FieldLoader.InvalidValueAction;
 			try
 			{
-				FieldLoader.UnknownFieldAction = (s, f) => Console.WriteLine("Ignoring unknown field `{0}` on `{1}`".F(s, f.Name));
+				FieldLoader.UnknownFieldAction = (s, f) => Console.WriteLine($"Ignoring unknown field `{s}` on `{f.Name}`");
 
 				if (File.Exists(settingsFile))
 				{
-					var yaml = MiniYaml.DictFromFile(settingsFile);
+					yamlCache = MiniYaml.FromFile(settingsFile, false);
+					foreach (var yamlSection in yamlCache)
+					{
+						if (yamlSection.Key != null && Sections.TryGetValue(yamlSection.Key, out var settingsSection))
+							LoadSectionYaml(yamlSection.Value, settingsSection);
+					}
 
-					foreach (var kv in Sections)
-						if (yaml.ContainsKey(kv.Key))
-							LoadSectionYaml(yaml[kv.Key], kv.Value);
+					var keysNode = yamlCache.FirstOrDefault(n => n.Key == "Keys");
+					if (keysNode != null)
+						foreach (var node in keysNode.Value.Nodes)
+							if (node.Key != null)
+								Keys[node.Key] = FieldLoader.GetValue<Hotkey>(node.Key, node.Value.Value);
 				}
 
 				// Override with commandline args
@@ -401,11 +369,53 @@ namespace OpenRA
 
 		public void Save()
 		{
-			var root = new List<MiniYamlNode>();
+			var yamlCacheBuilder = yamlCache.ConvertAll(n => new MiniYamlNodeBuilder(n));
 			foreach (var kv in Sections)
-				root.Add(new MiniYamlNode(kv.Key, FieldSaver.SaveDifferences(kv.Value, Activator.CreateInstance(kv.Value.GetType()))));
+			{
+				var sectionYaml = yamlCacheBuilder.FirstOrDefault(x => x.Key == kv.Key);
+				if (sectionYaml == null)
+				{
+					sectionYaml = new MiniYamlNodeBuilder(kv.Key, new MiniYamlBuilder(""));
+					yamlCacheBuilder.Add(sectionYaml);
+				}
 
-			root.WriteToFile(settingsFile);
+				var defaultValues = Activator.CreateInstance(kv.Value.GetType());
+				var fields = FieldLoader.GetTypeLoadInfo(kv.Value.GetType());
+				foreach (var fli in fields)
+				{
+					var serialized = FieldSaver.FormatValue(kv.Value, fli.Field);
+					var defaultSerialized = FieldSaver.FormatValue(defaultValues, fli.Field);
+
+					// Fields with their default value are not saved in the settings yaml
+					// Make sure that we erase any previously defined custom values
+					if (serialized == defaultSerialized)
+						sectionYaml.Value.Nodes.RemoveAll(n => n.Key == fli.YamlName);
+					else
+					{
+						// Update or add the custom value
+						var fieldYaml = sectionYaml.Value.NodeWithKeyOrDefault(fli.YamlName);
+						if (fieldYaml != null)
+							fieldYaml.Value.Value = serialized;
+						else
+							sectionYaml.Value.Nodes.Add(new MiniYamlNodeBuilder(fli.YamlName, new MiniYamlBuilder(serialized)));
+					}
+				}
+			}
+
+			var keysYaml = yamlCacheBuilder.FirstOrDefault(x => x.Key == "Keys");
+			if (keysYaml == null)
+			{
+				keysYaml = new MiniYamlNodeBuilder("Keys", new MiniYamlBuilder(""));
+				yamlCacheBuilder.Add(keysYaml);
+			}
+
+			keysYaml.Value.Nodes.Clear();
+			foreach (var kv in Keys)
+				keysYaml.Value.Nodes.Add(new MiniYamlNodeBuilder(kv.Key, FieldSaver.FormatValue(kv.Value)));
+
+			yamlCacheBuilder.WriteToFile(settingsFile);
+			yamlCache.Clear();
+			yamlCache.AddRange(yamlCacheBuilder.Select(n => n.Build()));
 		}
 
 		static string SanitizedName(string dirty)
@@ -416,18 +426,18 @@ namespace OpenRA
 			var clean = dirty;
 
 			// reserved characters for MiniYAML and JSON
-			var disallowedChars = new char[] { '#', '@', ':', '\n', '\t', '[', ']', '{', '}', '"', '`' };
+			var disallowedChars = new char[] { '#', '@', ':', '\n', '\t', '[', ']', '{', '}', '<', '>', '"', '`' };
 			foreach (var disallowedChar in disallowedChars)
 				clean = clean.Replace(disallowedChar.ToString(), string.Empty);
 
 			return clean;
 		}
 
-		public static string SanitizedServerName(string dirty)
+		public string SanitizedServerName(string dirty)
 		{
 			var clean = SanitizedName(dirty);
 			if (string.IsNullOrWhiteSpace(clean))
-				return new ServerSettings().Name;
+				return $"{SanitizedPlayerName(Player.Name)}'s Game";
 			else
 				return clean;
 		}
@@ -435,16 +445,15 @@ namespace OpenRA
 		public static string SanitizedPlayerName(string dirty)
 		{
 			var forbiddenNames = new string[] { "Open", "Closed" };
-			var botNames = OpenRA.Game.ModData.DefaultRules.Actors["player"].TraitInfos<IBotInfo>().Select(t => t.Name);
 
 			var clean = SanitizedName(dirty);
 
-			if (string.IsNullOrWhiteSpace(clean) || forbiddenNames.Contains(clean) || botNames.Contains(clean))
+			if (string.IsNullOrWhiteSpace(clean) || forbiddenNames.Contains(clean))
 				clean = new PlayerSettings().Name;
 
 			// avoid UI glitches
 			if (clean.Length > 16)
-				clean = clean.Substring(0, 16);
+				clean = clean[..16];
 
 			return clean;
 		}
@@ -455,7 +464,7 @@ namespace OpenRA
 			FieldLoader.InvalidValueAction = (s, t, f) =>
 			{
 				var ret = defaults.GetType().GetField(f).GetValue(defaults);
-				Console.WriteLine("FieldLoader: Cannot parse `{0}` into `{2}:{1}`; substituting default `{3}`".F(s, t.Name, f, ret));
+				Console.WriteLine($"FieldLoader: Cannot parse `{s}` into `{f}:{t.Name}`; substituting default `{ret}`");
 				return ret;
 			};
 

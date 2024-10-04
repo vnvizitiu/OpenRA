@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: nod06b.lua
+		Scripts: campaign.lua, utils.lua, nod06b.lua
 	MusicPlaylist:
 		StartingMusic: rout
 		VictoryMusic: nod_win1
@@ -9,6 +9,16 @@ World:
 		BriefingVideo: nod6.vqa
 		StartVideo: sundial.vqa
 		LossVideo: banner.vqa
+	ScriptLobbyDropdown@difficulty:
+		ID: difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
+		Values:
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+			tough: options-difficulty.tough
+		Default: normal
 
 Player:
 	PlayerResources:
@@ -28,3 +38,4 @@ FLARE:
 
 TRAN:
 	-Selectable:
+	Interactable:

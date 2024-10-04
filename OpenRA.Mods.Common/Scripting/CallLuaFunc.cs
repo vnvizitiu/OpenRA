@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -27,26 +27,25 @@ namespace OpenRA.Mods.Common.Activities
 			this.context = context;
 		}
 
-		public override Activity Tick(Actor self)
+		public override bool Tick(Actor self)
 		{
 			try
 			{
-				if (function != null)
-					function.Call().Dispose();
+				function?.Call().Dispose();
 			}
 			catch (Exception ex)
 			{
-				context.FatalError(ex.Message);
+				context.FatalError(ex);
 			}
 
 			Dispose();
-			return NextActivity;
+			return true;
 		}
 
-		public override void Cancel(Actor self)
+		public override void Cancel(Actor self, bool keepQueue = false)
 		{
+			base.Cancel(self, keepQueue);
 			Dispose();
-			base.Cancel(self);
 		}
 
 		public void Dispose()

@@ -1,31 +1,34 @@
 Player:
 	-ConquestVictoryConditions:
 	-HarvesterInsurance:
+	PlayerResources:
+		ResourceValues:
+			Spice: 0
 
 World:
 	-CrateSpawner:
-	-SpawnMPUnits:
-	-MPStartLocations:
-	ResourceType@Spice:
-		ValuePerUnit: 0
-	WormManager:
+	-SpawnStartingUnits:
+	-MapStartingLocations:
+	ActorSpawnManager:
 		Minimum: 1
 		Maximum: 3
 	MusicPlaylist:
 		BackgroundMusic: options
+		AllowMuteBackgroundMusic: true
+		DisableWorldSounds: true
 	LuaScript:
-		Scripts: d2k-shellmap.lua
+		Scripts: utils.lua, d2k-shellmap.lua
 
 ^ExistsInWorld:
 	-GivesExperience:
-        
+
 ^Building:
 	DamageMultiplier@UNKILLABLE:
-		Modifier: 0, 0
+		Modifier: 0
 
 wall:
 	DamageMultiplier@UNKILLABLE:
-		Modifier: 0, 0
+		Modifier: 0
 
 upgrade.conyard:
 	Valued:
@@ -60,6 +63,12 @@ grenadier:
 		Cost: 0
 
 sardaukar:
+	Buildable:
+		Prerequisites: ~player.corrino
+	Valued:
+		Cost: 0
+
+mpsardaukar:
 	Valued:
 		Cost: 0
 
@@ -107,7 +116,7 @@ light_factory:
 	ProvidesPrerequisite@trikes:
 		Prerequisite: light.regulartrikes
 		Factions: atreides, harkonnen, corrino
-        
+
 heavy_factory:
 	ProvidesPrerequisite@harkonnen:
 		Prerequisite: heavy.harkonnen

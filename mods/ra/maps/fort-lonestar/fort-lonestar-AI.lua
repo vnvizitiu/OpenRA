@@ -1,3 +1,11 @@
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
 
 AIPlayers = { }
 AIBarracks = { }
@@ -39,7 +47,7 @@ end
 
 InitialInfantryProduction = function(id, units)
 	local productionComplete = AIPlayers[id].Build(units, function(actors)
-		InfantryProduction(id)
+		ProduceInfantry(id)
 	end)
 
 	Trigger.OnProduction(AIBarracks[id], function(producer, produced)
@@ -47,13 +55,13 @@ InitialInfantryProduction = function(id, units)
 	end)
 end
 
-InfantryProduction = function(id)
+ProduceInfantry = function(id)
 	local productionComplete = AIPlayers[id].Build({ Utils.Random(UnitsToBuild) }, function(actors)
-		Trigger.AfterDelay(0, function() InfantryProduction(id) end)
+		Trigger.AfterDelay(0, function() ProduceInfantry(id) end)
 	end)
 
 	if not productionComplete then
-		Trigger.AfterDelay(0, function() InfantryProduction(id) end)
+		Trigger.AfterDelay(0, function() ProduceInfantry(id) end)
 	end
 end
 
@@ -146,7 +154,7 @@ RepairBarracks = function(id)
 end
 
 SellWalls = function(id)
-	Media.DisplayMessage("Lonestar AI " .. id .. " sold its walls for better combat experience.")
+	Media.DisplayMessage(UserInterface.Translate("lonestar-ai-sold-its-walls", { ["id"] = id }))
 
 	local walls = AIPlayers[id].GetActorsByType("brik")
 	Utils.Do(walls, function(wall)

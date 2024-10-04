@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using OpenRA.Mods.Common.Orders;
+using OpenRA.Orders;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
@@ -19,12 +20,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		[ObjectCreator.UseCtor]
 		public SellOrderButtonLogic(Widget widget, World world)
 		{
-			var sell = widget as ButtonWidget;
-			if (sell != null)
-			{
-				sell.GetKey = _ => Game.Settings.Keys.SellKey;
+			if (widget is ButtonWidget sell)
 				OrderButtonsChromeUtils.BindOrderButton<SellOrderGenerator>(world, sell, "sell");
-			}
 		}
 	}
 
@@ -33,12 +30,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		[ObjectCreator.UseCtor]
 		public RepairOrderButtonLogic(Widget widget, World world)
 		{
-			var repair = widget as ButtonWidget;
-			if (repair != null)
-			{
-				repair.GetKey = _ => Game.Settings.Keys.RepairKey;
+			if (widget is ButtonWidget repair)
 				OrderButtonsChromeUtils.BindOrderButton<RepairOrderGenerator>(world, repair, "repair");
-			}
 		}
 	}
 
@@ -47,12 +40,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		[ObjectCreator.UseCtor]
 		public PowerdownOrderButtonLogic(Widget widget, World world)
 		{
-			var power = widget as ButtonWidget;
-			if (power != null)
-			{
-				power.GetKey = _ => Game.Settings.Keys.PowerDownKey;
+			if (widget is ButtonWidget power)
 				OrderButtonsChromeUtils.BindOrderButton<PowerDownOrderGenerator>(world, power, "power");
-			}
 		}
 	}
 
@@ -61,16 +50,12 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		[ObjectCreator.UseCtor]
 		public BeaconOrderButtonLogic(Widget widget, World world)
 		{
-			var beacon = widget as ButtonWidget;
-			if (beacon != null)
-			{
-				beacon.GetKey = _ => Game.Settings.Keys.PlaceBeaconKey;
+			if (widget is ButtonWidget beacon)
 				OrderButtonsChromeUtils.BindOrderButton<BeaconOrderGenerator>(world, beacon, "beacon");
-			}
 		}
 	}
 
-	public class OrderButtonsChromeUtils
+	public static class OrderButtonsChromeUtils
 	{
 		public static void BindOrderButton<T>(World world, ButtonWidget w, string icon)
 			where T : IOrderGenerator, new()

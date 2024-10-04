@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -16,22 +16,22 @@ using OpenRA.FileFormats;
 
 namespace OpenRA.Network
 {
-	sealed class ReplayRecorder
+	public sealed class ReplayRecorder
 	{
+		// Arbitrary value.
+		const int CreateReplayFileMaxRetryCount = 128;
+
 		public ReplayMetadata Metadata;
 		BinaryWriter writer;
-		Func<string> chooseFilename;
-		MemoryStream preStartBuffer = new MemoryStream();
+		readonly Func<string> chooseFilename;
+		MemoryStream preStartBuffer = new();
 
 		static bool IsGameStart(byte[] data)
 		{
-			if (data.Length == 5 && data[4] == 0xbf)
-				return false;
-			if (data.Length >= 5 && data[4] == 0x65)
+			if (!OrderIO.TryParseOrderPacket(data, out var orders))
 				return false;
 
-			var frame = BitConverter.ToInt32(data, 0);
-			return frame == 0 && data.ToOrderList(null).Any(o => o.OrderString == "StartGame");
+			return orders.Frame == 0 && orders.Orders.GetOrders(null).Any(o => o.OrderString == "StartGame");
 		}
 
 		public ReplayRecorder(Func<string> chooseFilename)
@@ -45,7 +45,7 @@ namespace OpenRA.Network
 		{
 			var filename = chooseFilename();
 			var mod = Game.ModData.Manifest;
-			var dir = Platform.ResolvePath("^", "Replays", mod.Id, mod.Metadata.Version);
+			var dir = Path.Combine(Platform.SupportDir, "Replays", mod.Id, mod.Metadata.Version);
 
 			if (!Directory.Exists(dir))
 				Directory.CreateDirectory(dir);
@@ -54,13 +54,17 @@ namespace OpenRA.Network
 			var id = -1;
 			while (file == null)
 			{
-				var fullFilename = Path.Combine(dir, id < 0 ? "{0}.orarep".F(filename) : "{0}-{1}.orarep".F(filename, id));
+				var fullFilename = Path.Combine(dir, id < 0 ? $"{filename}.orarep" : $"{filename}-{id}.orarep");
 				id++;
 				try
 				{
 					file = File.Create(fullFilename);
 				}
-				catch (IOException) { }
+				catch (IOException ex)
+				{
+					if (id > CreateReplayFileMaxRetryCount)
+						throw new ArgumentException($"Error creating replay file \"{filename}.orarep\"", ex);
+				}
 			}
 
 			file.Write(initialContent);
@@ -85,6 +89,14 @@ namespace OpenRA.Network
 			writer.Write(data);
 		}
 
+		public void ReceiveFrame(int clientID, int frame, byte[] data)
+		{
+			var ms = new MemoryStream(4 + data.Length);
+			ms.Write(frame);
+			ms.Write(data);
+			Receive(clientID, ms.GetBuffer());
+		}
+
 		bool disposed;
 
 		public void Dispose()
@@ -100,8 +112,7 @@ namespace OpenRA.Network
 				Metadata.Write(writer);
 			}
 
-			if (preStartBuffer != null)
-				preStartBuffer.Dispose();
+			preStartBuffer?.Dispose();
 			writer.Close();
 		}
 	}

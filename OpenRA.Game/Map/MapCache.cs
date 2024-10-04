@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,9 +14,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using OpenRA.FileSystem;
 using OpenRA.Graphics;
 using OpenRA.Primitives;
@@ -26,16 +25,46 @@ namespace OpenRA
 {
 	public sealed class MapCache : IEnumerable<MapPreview>, IDisposable
 	{
-		public static readonly MapPreview UnknownMap = new MapPreview(null, null, MapGridType.Rectangular, null);
-		public readonly IReadOnlyDictionary<IReadOnlyPackage, MapClassification> MapLocations;
+		public static readonly MapPreview UnknownMap = new(null, null, MapGridType.Rectangular, null);
+		public IReadOnlyDictionary<IReadOnlyPackage, MapClassification> MapLocations => mapLocations;
+		readonly Dictionary<IReadOnlyPackage, MapClassification> mapLocations = new();
+		public bool LoadPreviewImages = true;
 
 		readonly Cache<string, MapPreview> previews;
 		readonly ModData modData;
 		readonly SheetBuilder sheetBuilder;
 		Thread previewLoaderThread;
 		bool previewLoaderThreadShutDown = true;
-		object syncRoot = new object();
-		Queue<MapPreview> generateMinimap = new Queue<MapPreview>();
+		readonly object syncRoot = new();
+		readonly Queue<MapPreview> generateMinimap = new();
+
+		public HashSet<string> StringPool { get; } = new();
+
+		readonly List<MapDirectoryTracker> mapDirectoryTrackers = new();
+
+		/// <summary>
+		/// The most recently modified or loaded map at runtime.
+		/// </summary>
+		public string LastModifiedMap { get; private set; } = null;
+		readonly Dictionary<string, string> mapUpdates = new();
+
+		string lastLoadedLastModifiedMap;
+
+		/// <summary>
+		/// If LastModifiedMap was picked already, returns a null.
+		/// </summary>
+		public string PickLastModifiedMap(MapVisibility visibility)
+		{
+			UpdateMaps();
+			var map = string.IsNullOrEmpty(LastModifiedMap) ? null : this[LastModifiedMap];
+			if (map != null && map.Status == MapStatus.Available && map.Visibility.HasFlag(visibility) && lastLoadedLastModifiedMap != LastModifiedMap)
+			{
+				lastLoadedLastModifiedMap = LastModifiedMap;
+				return lastLoadedLastModifiedMap;
+			}
+
+			return null;
+		}
 
 		public MapCache(ModData modData)
 		{
@@ -44,9 +73,23 @@ namespace OpenRA
 			var gridType = Exts.Lazy(() => modData.Manifest.Get<MapGrid>().Type);
 			previews = new Cache<string, MapPreview>(uid => new MapPreview(modData, uid, gridType.Value, this));
 			sheetBuilder = new SheetBuilder(SheetType.BGRA);
+		}
+
+		public void UpdateMaps()
+		{
+			foreach (var tracker in mapDirectoryTrackers)
+				tracker.UpdateMaps(this);
+		}
+
+		public void LoadMaps()
+		{
+			// Utility mod that does not support maps
+			if (!modData.Manifest.Contains<MapGrid>())
+				return;
+
+			var mapGrid = modData.Manifest.Get<MapGrid>();
 
 			// Enumerate map directories
-			var mapLocations = new Dictionary<IReadOnlyPackage, MapClassification>();
 			foreach (var kv in modData.Manifest.MapFolders)
 			{
 				var name = kv.Key;
@@ -54,12 +97,18 @@ namespace OpenRA
 					? MapClassification.Unknown : Enum<MapClassification>.Parse(kv.Value);
 
 				IReadOnlyPackage package;
-				var optional = name.StartsWith("~");
+				var optional = name.StartsWith('~');
 				if (optional)
-					name = name.Substring(1);
+					name = name[1..];
 
 				try
 				{
+					// HACK: If the path is inside the support directory then we may need to create it
+					// Assume that the path is a directory if there is not an existing file with the same name
+					var resolved = Platform.ResolvePath(name);
+					if (resolved.StartsWith(Platform.SupportDir, StringComparison.Ordinal) && !File.Exists(resolved))
+						Directory.CreateDirectory(resolved);
+
 					package = modData.ModFiles.OpenPackage(name);
 				}
 				catch
@@ -71,95 +120,167 @@ namespace OpenRA
 				}
 
 				mapLocations.Add(package, classification);
+				mapDirectoryTrackers.Add(new MapDirectoryTracker(mapGrid, package, classification));
 			}
 
-			MapLocations = new ReadOnlyDictionary<IReadOnlyPackage, MapClassification>(mapLocations);
-		}
-
-		public void LoadMaps()
-		{
-			// Utility mod that does not support maps
-			if (!modData.Manifest.Contains<MapGrid>())
-				return;
-
-			var mapGrid = modData.Manifest.Get<MapGrid>();
+			// PERF: Load the mod YAML once outside the loop, and reuse it when resolving each maps custom YAML.
+			var modDataRules = modData.GetRulesYaml();
 			foreach (var kv in MapLocations)
 			{
 				foreach (var map in kv.Key.Contents)
+					LoadMapInternal(map, kv.Key, kv.Value, mapGrid, null, modDataRules);
+			}
+
+			// We only want to track maps in runtime, not at loadtime
+			LastModifiedMap = null;
+		}
+
+		public void LoadMap(string map, IReadOnlyPackage package, MapClassification classification, MapGrid mapGrid, string oldMap)
+		{
+			LoadMapInternal(map, package, classification, mapGrid, oldMap, null);
+		}
+
+		void LoadMapInternal(string map, IReadOnlyPackage package, MapClassification classification, MapGrid mapGrid, string oldMap,
+			IEnumerable<List<MiniYamlNode>> modDataRules)
+		{
+			IReadOnlyPackage mapPackage = null;
+			try
+			{
+				using (new PerfTimer(map))
 				{
-					IReadOnlyPackage mapPackage = null;
+					mapPackage = package.OpenPackage(map, modData.ModFiles);
+					if (mapPackage != null)
+					{
+						var uid = Map.ComputeUID(mapPackage);
+						previews[uid].UpdateFromMap(mapPackage, package, classification, modData.Manifest.MapCompatibility, mapGrid.Type, modDataRules);
+
+						// Freeing the package to save memory if there is a lot of Maps
+						previews[uid].DisposePackage();
+
+						if (oldMap != uid)
+						{
+							LastModifiedMap = uid;
+							if (oldMap != null)
+								mapUpdates[oldMap] = uid;
+						}
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				mapPackage?.Dispose();
+				Console.WriteLine($"Failed to load map: {map}");
+				Console.WriteLine("Details:");
+				Console.WriteLine(e);
+				Log.Write("debug", $"Failed to load map: {map}");
+				Log.Write("debug", "Details:");
+				Log.Write("debug", e);
+			}
+		}
+
+		public IEnumerable<IReadWritePackage> EnumerateMapDirPackages(MapClassification classification = MapClassification.System)
+		{
+			// Utility mod that does not support maps
+			if (!modData.Manifest.Contains<MapGrid>())
+				yield break;
+
+			// Enumerate map directories
+			foreach (var kv in modData.Manifest.MapFolders)
+			{
+				if (!Enum.TryParse(kv.Value, out MapClassification packageClassification))
+					continue;
+
+				if (!classification.HasFlag(packageClassification))
+					continue;
+
+				var name = kv.Key;
+				var optional = name.StartsWith('~');
+				if (optional)
+					name = name[1..];
+
+				// Don't try to open the map directory in the support directory if it doesn't exist
+				var resolved = Platform.ResolvePath(name);
+				if (resolved.StartsWith(Platform.SupportDir, StringComparison.Ordinal) && (!Directory.Exists(resolved) || !File.Exists(resolved)))
+					continue;
+
+				using (var package = (IReadWritePackage)modData.ModFiles.OpenPackage(name))
+					yield return package;
+			}
+		}
+
+		public IEnumerable<(IReadWritePackage Package, string Map)> EnumerateMapDirPackagesAndNames(MapClassification classification = MapClassification.System)
+		{
+			var mapDirPackages = EnumerateMapDirPackages(classification);
+
+			foreach (var mapDirPackage in mapDirPackages)
+				foreach (var map in mapDirPackage.Contents)
+					yield return (mapDirPackage, map);
+		}
+
+		public IEnumerable<IReadWritePackage> EnumerateMapPackagesWithoutCaching(MapClassification classification = MapClassification.System)
+		{
+			var mapDirPackages = EnumerateMapDirPackages(classification);
+
+			foreach (var mapDirPackage in mapDirPackages)
+				foreach (var map in mapDirPackage.Contents)
+					if (mapDirPackage.OpenPackage(map, modData.ModFiles) is IReadWritePackage mapPackage)
+						yield return mapPackage;
+		}
+
+		public void QueryRemoteMapDetails(string repositoryUrl, IEnumerable<string> uids,
+			Action<MapPreview> mapDetailsReceived = null, Action<MapPreview> mapQueryFailed = null)
+		{
+			var queryUids = uids.Distinct()
+				.Where(uid => uid != null)
+				.Select(uid => previews[uid])
+				.Where(p => p.Status == MapStatus.Unavailable)
+				.Select(p => p.Uid)
+				.ToList();
+
+			foreach (var uid in queryUids)
+				previews[uid].UpdateRemoteSearch(MapStatus.Searching, null, null);
+
+			Task.Run(async () =>
+			{
+				var client = HttpClientFactory.Create();
+				var stringPool = new HashSet<string>(); // Reuse common strings in YAML
+
+				// Limit each query to 50 maps at a time to avoid request size limits
+				for (var i = 0; i < queryUids.Count; i += 50)
+				{
+					var batchUids = queryUids.Skip(i).Take(50).ToList();
+					var url = repositoryUrl + "hash/" + string.Join(",", batchUids) + "/yaml";
 					try
 					{
-						using (new Support.PerfTimer(map))
-						{
-							mapPackage = modData.ModFiles.OpenPackage(map, kv.Key);
-							if (mapPackage == null)
-								continue;
+						var httpResponseMessage = await client.GetAsync(url);
+						var result = await httpResponseMessage.Content.ReadAsStreamAsync();
 
-							var uid = Map.ComputeUID(mapPackage);
-							previews[uid].UpdateFromMap(mapPackage, kv.Key, kv.Value, modData.Manifest.MapCompatibility, mapGrid.Type);
+						var yaml = MiniYaml.FromStream(result, url, stringPool: stringPool);
+						foreach (var kv in yaml)
+							previews[kv.Key].UpdateRemoteSearch(MapStatus.DownloadAvailable, kv.Value, modData.Manifest.MapCompatibility, mapDetailsReceived);
+
+						foreach (var uid in batchUids)
+						{
+							var p = previews[uid];
+							if (p.Status != MapStatus.DownloadAvailable)
+								p.UpdateRemoteSearch(MapStatus.Unavailable, null, null);
 						}
 					}
 					catch (Exception e)
 					{
-						if (mapPackage != null)
-							mapPackage.Dispose();
-						Console.WriteLine("Failed to load map: {0}", map);
-						Console.WriteLine("Details: {0}", e);
-						Log.Write("debug", "Failed to load map: {0}", map);
-						Log.Write("debug", "Details: {0}", e);
+						Log.Write("debug", "Remote map query failed with error:");
+						Log.Write("debug", e);
+						Log.Write("debug", $"URL was: {url}");
+
+						foreach (var uid in batchUids)
+						{
+							var p = previews[uid];
+							p.UpdateRemoteSearch(MapStatus.Unavailable, null, null);
+							mapQueryFailed?.Invoke(p);
+						}
 					}
 				}
-			}
-		}
-
-		public void QueryRemoteMapDetails(IEnumerable<string> uids, Action<MapPreview> mapDetailsReceived = null, Action queryFailed = null)
-		{
-			var maps = uids.Distinct()
-				.Select(uid => previews[uid])
-				.Where(p => p.Status == MapStatus.Unavailable)
-				.ToDictionary(p => p.Uid, p => p);
-
-			if (!maps.Any())
-				return;
-
-			foreach (var p in maps.Values)
-				p.UpdateRemoteSearch(MapStatus.Searching, null);
-
-			var url = Game.Settings.Game.MapRepository + "hash/" + string.Join(",", maps.Keys) + "/yaml";
-
-			Action<DownloadDataCompletedEventArgs> onInfoComplete = i =>
-			{
-				if (i.Error != null)
-				{
-					Log.Write("debug", "Remote map query failed with error: {0}", Download.FormatErrorMessage(i.Error));
-					Log.Write("debug", "URL was: {0}", url);
-					foreach (var p in maps.Values)
-						p.UpdateRemoteSearch(MapStatus.Unavailable, null);
-
-					if (queryFailed != null)
-						queryFailed();
-
-					return;
-				}
-
-				var data = Encoding.UTF8.GetString(i.Result);
-				try
-				{
-					var yaml = MiniYaml.FromString(data);
-					foreach (var kv in yaml)
-						maps[kv.Key].UpdateRemoteSearch(MapStatus.DownloadAvailable, kv.Value, mapDetailsReceived);
-				}
-				catch (Exception e)
-				{
-					Log.Write("debug", "Can't parse remote map search data:\n{0}", data);
-					Log.Write("debug", "Exception: {0}", e);
-					if (queryFailed != null)
-						queryFailed();
-				}
-			};
-
-			new Download(url, _ => { }, onInfoComplete);
+			});
 		}
 
 		void LoadAsyncInternal()
@@ -167,13 +288,13 @@ namespace OpenRA
 			Log.Write("debug", "MapCache.LoadAsyncInternal started");
 
 			// Milliseconds to wait on one loop when nothing to do
-			var emptyDelay = 50;
+			const int EmptyDelay = 50;
 
 			// Keep the thread alive for at least 5 seconds after the last minimap generation
-			var maxKeepAlive = 5000 / emptyDelay;
-			var keepAlive = maxKeepAlive;
+			const int MaxKeepAlive = 5000 / EmptyDelay;
+			var keepAlive = MaxKeepAlive;
 
-			for (;;)
+			while (true)
 			{
 				List<MapPreview> todo;
 				lock (syncRoot)
@@ -191,31 +312,55 @@ namespace OpenRA
 
 				if (todo.Count == 0)
 				{
-					Thread.Sleep(emptyDelay);
+					Thread.Sleep(EmptyDelay);
 					continue;
 				}
 				else
-					keepAlive = maxKeepAlive;
+					keepAlive = MaxKeepAlive;
 
 				// Render the minimap into the shared sheet
 				foreach (var p in todo)
 				{
 					if (p.Preview != null)
-						Game.RunAfterTick(() => p.SetMinimap(sheetBuilder.Add(p.Preview)));
+					{
+						Game.RunAfterTick(() =>
+						{
+							try
+							{
+								p.SetMinimap(sheetBuilder.Add(p.Preview));
+							}
+							catch (Exception e)
+							{
+								Log.Write("debug", "Failed to load minimap with exception:");
+								Log.Write("debug", e);
+							}
+						});
+					}
 
 					// Yuck... But this helps the UI Jank when opening the map selector significantly.
 					Thread.Sleep(Environment.ProcessorCount == 1 ? 25 : 5);
 				}
 			}
 
-			// The buffer is not fully reclaimed until changes are written out to the texture.
-			// We will access the texture in order to force changes to be written out, allowing the buffer to be freed.
-			Game.RunAfterTick(() =>
-			{
-				sheetBuilder.Current.ReleaseBuffer();
-				sheetBuilder.Current.GetTexture();
-			});
+			// Release the buffer by forcing changes to be written out to the texture, allowing the buffer to be reclaimed by GC.
+			Game.RunAfterTick(sheetBuilder.Current.ReleaseBuffer);
 			Log.Write("debug", "MapCache.LoadAsyncInternal ended");
+		}
+
+		public string GetUpdatedMap(string uid)
+		{
+			if (uid == null)
+				return null;
+
+			while (this[uid].Status != MapStatus.Available)
+			{
+				if (mapUpdates.TryGetValue(uid, out var newUid))
+					uid = newUid;
+				else
+					return null;
+			}
+
+			return uid;
 		}
 
 		public void CacheMinimap(MapPreview preview)
@@ -232,8 +377,7 @@ namespace OpenRA
 				Game.RunAfterTick(() =>
 				{
 					// Wait for any existing thread to exit before starting a new one.
-					if (previewLoaderThread != null)
-						previewLoaderThread.Join();
+					previewLoaderThread?.Join();
 
 					previewLoaderThread = new Thread(LoadAsyncInternal)
 					{
@@ -266,11 +410,19 @@ namespace OpenRA
 
 		public string ChooseInitialMap(string initialUid, MersenneTwister random)
 		{
-			if (string.IsNullOrEmpty(initialUid) || previews[initialUid].Status != MapStatus.Available)
+			UpdateMaps();
+			var map = string.IsNullOrEmpty(initialUid) ? null : previews[initialUid];
+			if (map == null ||
+				map.Status != MapStatus.Available ||
+				!map.Visibility.HasFlag(MapVisibility.Lobby) ||
+				(map.Class != MapClassification.System && map.Class != MapClassification.User))
 			{
 				var selected = previews.Values.Where(IsSuitableInitialMap).RandomOrDefault(random) ??
-					previews.Values.First(m => m.Status == MapStatus.Available && m.Visibility.HasFlag(MapVisibility.Lobby));
-				return selected.Uid;
+					previews.Values.FirstOrDefault(m =>
+					m.Status == MapStatus.Available &&
+					m.Visibility.HasFlag(MapVisibility.Lobby) &&
+					(m.Class == MapClassification.System || m.Class == MapClassification.User));
+				return selected == null ? string.Empty : selected.Uid;
 			}
 
 			return initialUid;
@@ -278,11 +430,16 @@ namespace OpenRA
 
 		public MapPreview this[string key]
 		{
-			get { return previews[key]; }
+			get
+			{
+				UpdateMaps();
+				return previews[key];
+			}
 		}
 
 		public IEnumerator<MapPreview> GetEnumerator()
 		{
+			UpdateMaps();
 			return previews.Values.GetEnumerator();
 		}
 
@@ -301,6 +458,9 @@ namespace OpenRA
 
 			foreach (var p in previews.Values)
 				p.Dispose();
+
+			foreach (var t in mapDirectoryTrackers)
+				t.Dispose();
 
 			// We need to let the loader thread exit before we can dispose our sheet builder.
 			// Ideally we should dispose our resources before returning, but we don't to block waiting on the loader thread to exit.

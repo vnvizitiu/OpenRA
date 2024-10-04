@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,12 +14,11 @@ using System.Collections.Generic;
 
 namespace OpenRA
 {
-	public struct MapCoordsRegion : IEnumerable<MPos>
+	public readonly struct MapCoordsRegion : IEnumerable<MPos>
 	{
 		public struct MapCoordsEnumerator : IEnumerator<MPos>
 		{
 			readonly MapCoordsRegion r;
-			MPos current;
 
 			public MapCoordsEnumerator(MapCoordsRegion region)
 				: this()
@@ -30,41 +29,43 @@ namespace OpenRA
 
 			public bool MoveNext()
 			{
-				var u = current.U + 1;
-				var v = current.V;
+				var u = Current.U + 1;
+				var v = Current.V;
 
 				// Check for column overflow
-				if (u > r.bottomRight.U)
+				if (u > r.BottomRight.U)
 				{
-					v += 1;
-					u = r.topLeft.U;
+					v++;
+					u = r.TopLeft.U;
 
 					// Check for row overflow
-					if (v > r.bottomRight.V)
+					if (v > r.BottomRight.V)
 						return false;
 				}
 
-				current = new MPos(u, v);
+				Current = new MPos(u, v);
 				return true;
 			}
 
 			public void Reset()
 			{
-				current = new MPos(r.topLeft.U - 1, r.topLeft.V);
+				Current = new MPos(r.TopLeft.U - 1, r.TopLeft.V);
 			}
 
-			public MPos Current { get { return current; } }
-			object IEnumerator.Current { get { return Current; } }
-			public void Dispose() { }
+			public MPos Current { get; private set; }
+			readonly object IEnumerator.Current => Current;
+			public readonly void Dispose() { }
 		}
-
-		readonly MPos topLeft;
-		readonly MPos bottomRight;
 
 		public MapCoordsRegion(MPos mapTopLeft, MPos mapBottomRight)
 		{
-			topLeft = mapTopLeft;
-			bottomRight = mapBottomRight;
+			TopLeft = mapTopLeft;
+			BottomRight = mapBottomRight;
+		}
+
+		public override string ToString()
+		{
+			return $"{TopLeft}->{BottomRight}";
 		}
 
 		public MapCoordsEnumerator GetEnumerator()
@@ -82,7 +83,7 @@ namespace OpenRA
 			return GetEnumerator();
 		}
 
-		public MPos TopLeft { get { return topLeft; } }
-		public MPos BottomRight { get { return bottomRight; } }
+		public MPos TopLeft { get; }
+		public MPos BottomRight { get; }
 	}
 }

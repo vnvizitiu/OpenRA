@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,27 +9,28 @@
  */
 #endregion
 
-using OpenRA.Activities;
 using OpenRA.Graphics;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Render
 {
 	[Desc("Displays an overlay whenever resources are harvested by the actor.")]
-	class WithHarvestOverlayInfo : ITraitInfo, Requires<RenderSpritesInfo>, Requires<BodyOrientationInfo>
+	sealed class WithHarvestOverlayInfo : TraitInfo, Requires<RenderSpritesInfo>, Requires<BodyOrientationInfo>
 	{
+		[SequenceReference]
 		[Desc("Sequence name to use")]
-		[SequenceReference] public readonly string Sequence = "harvest";
+		public readonly string Sequence = "harvest";
 
 		[Desc("Position relative to body")]
-		public readonly WVec Offset = WVec.Zero;
+		public readonly WVec LocalOffset = WVec.Zero;
 
-		[PaletteReference] public readonly string Palette = "effect";
+		[PaletteReference]
+		public readonly string Palette = "effect";
 
-		public object Create(ActorInitializer init) { return new WithHarvestOverlay(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new WithHarvestOverlay(init.Self, this); }
 	}
 
-	class WithHarvestOverlay : INotifyHarvesterAction
+	sealed class WithHarvestOverlay : INotifyHarvestAction
 	{
 		readonly WithHarvestOverlayInfo info;
 		readonly Animation anim;
@@ -41,16 +42,19 @@ namespace OpenRA.Mods.Common.Traits.Render
 			var rs = self.Trait<RenderSprites>();
 			var body = self.Trait<BodyOrientation>();
 
-			anim = new Animation(self.World, rs.GetImage(self), RenderSprites.MakeFacingFunc(self));
-			anim.IsDecoration = true;
+			anim = new Animation(self.World, rs.GetImage(self), RenderSprites.MakeFacingFunc(self))
+			{
+				IsDecoration = true
+			};
+
 			anim.Play(info.Sequence);
 			rs.Add(new AnimationWithOffset(anim,
-				() => body.LocalToWorld(info.Offset.Rotate(body.QuantizeOrientation(self, self.Orientation))),
+				() => body.LocalToWorld(info.LocalOffset.Rotate(body.QuantizeOrientation(self.Orientation))),
 				() => !visible,
 				p => ZOffsetFromCenter(self, p, 0)), info.Palette);
 		}
 
-		public void Harvested(Actor self, ResourceType resource)
+		void INotifyHarvestAction.Harvested(Actor self, string resourceType)
 		{
 			if (visible)
 				return;
@@ -59,11 +63,8 @@ namespace OpenRA.Mods.Common.Traits.Render
 			anim.PlayThen(info.Sequence, () => visible = false);
 		}
 
-		public void MovingToResources(Actor self, CPos targetCell, Activity next) { }
-		public void MovingToRefinery(Actor self, CPos targetCell, Activity next) { }
-		public void MovementCancelled(Actor self) { }
-		public void Docked() { }
-		public void Undocked() { }
+		void INotifyHarvestAction.MovingToResources(Actor self, CPos targetCell) { }
+		void INotifyHarvestAction.MovementCancelled(Actor self) { }
 
 		public static int ZOffsetFromCenter(Actor self, WPos pos, int offset)
 		{

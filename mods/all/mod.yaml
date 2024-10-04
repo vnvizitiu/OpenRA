@@ -1,25 +1,17 @@
 Metadata:
 	Title: All mods
 	Version: {DEV_VERSION}
-	Author: The OpenRA Developers
 	Hidden: true
-	Description: Depending on all DLLs.
 
-RequiresMods:
-
-Packages:
-	.
+FileSystem: DefaultFileSystem
+    Packages:
+		^EngineDir
 
 Cursors:
 
 Chrome:
 
-Assemblies:
-	./mods/common/OpenRA.Mods.Common.dll
-	./mods/ra/OpenRA.Mods.RA.dll
-	./mods/d2k/OpenRA.Mods.D2k.dll
-	./mods/cnc/OpenRA.Mods.Cnc.dll
-	./mods/ts/OpenRA.Mods.TS.dll
+Assemblies: OpenRA.Mods.Common.dll, OpenRA.Mods.Cnc.dll, OpenRA.Mods.D2k.dll
 
 ChromeLayout:
 
@@ -35,4 +27,9 @@ SoundFormats:
 
 SpriteFormats:
 
+TerrainFormat: DefaultTerrain
+
 SpriteSequenceFormat: DefaultSpriteSequence
+
+DiscordService:
+	ApplicationId: 699222659766026240

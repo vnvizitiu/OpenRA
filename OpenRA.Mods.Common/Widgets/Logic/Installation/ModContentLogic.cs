@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,20 +12,25 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using OpenRA.FileSystem;
 using OpenRA.Widgets;
+using FS = OpenRA.FileSystem.FileSystem;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
 {
 	public class ModContentLogic : ChromeLogic
 	{
+		[FluentReference]
+		const string ManualInstall = "button-manual-install";
+
 		readonly ModContent content;
 		readonly ScrollPanelWidget scrollPanel;
 		readonly Widget template;
 
-		readonly Dictionary<string, ModContent.ModSource> sources = new Dictionary<string, ModContent.ModSource>();
-		readonly Dictionary<string, ModContent.ModDownload> downloads = new Dictionary<string, ModContent.ModDownload>();
+		readonly Dictionary<string, ModContent.ModSource> sources = new();
+		readonly Dictionary<string, ModContent.ModDownload> downloads = new();
 
-		bool discAvailable;
+		bool sourceAvailable;
 
 		[ObjectCreator.UseCtor]
 		public ModContentLogic(Widget widget, Manifest mod, ModContent content, Action onCancel)
@@ -34,16 +39,22 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 			var panel = widget.Get("CONTENT_PANEL");
 
-			var modFileSystem = new FileSystem.FileSystem(Game.Mods);
-			modFileSystem.LoadFromManifest(mod);
+			var modObjectCreator = new ObjectCreator(mod, Game.Mods);
+			var modPackageLoaders = modObjectCreator.GetLoaders<IPackageLoader>(mod.PackageFormats, "package");
+			var modFileSystem = new FS(mod.Id, Game.Mods, modPackageLoaders);
+
+			var modFileSystemLoader = modObjectCreator.GetLoader<IFileSystemLoader>(mod.FileSystem.Value, "filesystem");
+			FieldLoader.Load(modFileSystemLoader, mod.FileSystem);
+			modFileSystemLoader.Mount(modFileSystem, modObjectCreator);
+			modFileSystem.TrimExcess();
 
 			var sourceYaml = MiniYaml.Load(modFileSystem, content.Sources, null);
 			foreach (var s in sourceYaml)
-				sources.Add(s.Key, new ModContent.ModSource(s.Value));
+				sources.Add(s.Key, new ModContent.ModSource(s.Value, modObjectCreator));
 
 			var downloadYaml = MiniYaml.Load(modFileSystem, content.Downloads, null);
 			foreach (var d in downloadYaml)
-				downloads.Add(d.Key, new ModContent.ModDownload(d.Value));
+				downloads.Add(d.Key, new ModContent.ModDownload(d.Value, modObjectCreator));
 
 			modFileSystem.UnmountAll();
 
@@ -51,7 +62,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			template = scrollPanel.Get<ContainerWidget>("PACKAGE_TEMPLATE");
 
 			var headerTemplate = panel.Get<LabelWidget>("HEADER_TEMPLATE");
-			var headerLines = !string.IsNullOrEmpty(content.HeaderMessage) ? content.HeaderMessage.Replace("\\n", "\n").Split('\n') : new string[0];
+			var headerLines = !string.IsNullOrEmpty(content.HeaderMessage) ? content.HeaderMessage.Replace("\\n", "\n").Split('\n') : Array.Empty<string>();
 			var headerHeight = 0;
 			foreach (var l in headerLines)
 			{
@@ -67,13 +78,12 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			panel.Bounds.Y -= headerHeight / 2;
 			scrollPanel.Bounds.Y += headerHeight;
 
-			var discButton = panel.Get<ButtonWidget>("CHECK_DISC_BUTTON");
-			discButton.Bounds.Y += headerHeight;
-			discButton.IsVisible = () => discAvailable;
+			var sourceButton = panel.Get<ButtonWidget>("CHECK_SOURCE_BUTTON");
+			sourceButton.Bounds.Y += headerHeight;
+			sourceButton.IsVisible = () => sourceAvailable;
 
-			discButton.OnClick = () => Ui.OpenWindow("DISC_INSTALL_PANEL", new WidgetArgs
+			sourceButton.OnClick = () => Ui.OpenWindow("SOURCE_INSTALL_PANEL", new WidgetArgs
 			{
-				{ "afterInstall", () => { } },
 				{ "sources", sources },
 				{ "content", content }
 			});
@@ -105,10 +115,9 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				var requiredWidget = container.Get<LabelWidget>("REQUIRED");
 				requiredWidget.IsVisible = () => p.Value.Required;
 
-				var sourceWidget = container.Get<ImageWidget>("DISC");
-				var sourceTitles = p.Value.Sources.Select(s => sources[s].Title).Distinct();
-				var sourceList = sourceTitles.JoinWith("\n");
-				var isSourceAvailable = sourceTitles.Any();
+				var sourceWidget = container.Get<ImageWidget>("SOURCE");
+				var sourceList = p.Value.Sources.Select(s => sources[s].Title).Distinct().JoinWith("\n");
+				var isSourceAvailable = sourceList.Length != 0;
 				sourceWidget.GetTooltipText = () => sourceList;
 				sourceWidget.IsVisible = () => isSourceAvailable;
 
@@ -131,15 +140,18 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				var installedWidget = container.Get<LabelWidget>("INSTALLED");
 				installedWidget.IsVisible = () => installed;
 
-				var requiresDiscWidget = container.Get<LabelWidget>("REQUIRES_DISC");
-				requiresDiscWidget.IsVisible = () => !installed && !downloadEnabled;
+				var requiresSourceWidget = container.Get<LabelWidget>("REQUIRES_SOURCE");
+				requiresSourceWidget.IsVisible = () => !installed && !downloadEnabled;
 				if (!isSourceAvailable)
-					requiresDiscWidget.GetText = () => "Manual Install";
+				{
+					var manualInstall = FluentProvider.GetString(ManualInstall);
+					requiresSourceWidget.GetText = () => manualInstall;
+				}
 
 				scrollPanel.AddChild(container);
 			}
 
-			discAvailable = content.Packages.Values.Any(p => p.Sources.Any() && !p.IsInstalled());
+			sourceAvailable = content.Packages.Values.Any(p => p.Sources.Length > 0 && !p.IsInstalled());
 		}
 	}
 }

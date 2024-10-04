@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -17,9 +17,14 @@ namespace OpenRA
 {
 	public class MapPlayers
 	{
+		// Player masks are represented using a 64 bit integer
+		// The "Everyone" player for spectators is created at runtime,
+		// reducing the available player count for maps by 1.
+		public const int MaximumPlayerCount = 63;
 		public readonly Dictionary<string, PlayerReference> Players;
 
-		public MapPlayers() : this(new List<MiniYamlNode>()) { }
+		public MapPlayers()
+			: this(new List<MiniYamlNode>()) { }
 
 		public MapPlayers(IEnumerable<MiniYamlNode> playerDefinitions)
 		{
@@ -29,7 +34,7 @@ namespace OpenRA
 
 		public MapPlayers(Ruleset rules, int playerCount)
 		{
-			var firstFaction = rules.Actors["world"].TraitInfos<FactionInfo>()
+			var firstFaction = rules.Actors[SystemActors.World].TraitInfos<FactionInfo>()
 				.First(f => f.Selectable).InternalName;
 
 			Players = new Dictionary<string, PlayerReference>
@@ -49,7 +54,7 @@ namespace OpenRA
 						Name = "Creeps",
 						Faction = firstFaction,
 						NonCombatant = true,
-						Enemies = Exts.MakeArray(playerCount, i => "Multi{0}".F(i))
+						Enemies = Exts.MakeArray(playerCount, i => $"Multi{i}")
 					}
 				}
 			};
@@ -58,7 +63,7 @@ namespace OpenRA
 			{
 				var p = new PlayerReference
 				{
-					Name = "Multi{0}".F(index),
+					Name = $"Multi{index}",
 					Faction = "Random",
 					Playable = true,
 					Enemies = new[] { "Creeps" }
@@ -69,7 +74,7 @@ namespace OpenRA
 
 		public List<MiniYamlNode> ToMiniYaml()
 		{
-			return Players.Select(p => new MiniYamlNode("PlayerReference@{0}".F(p.Key),
+			return Players.Select(p => new MiniYamlNode($"PlayerReference@{p.Key}",
 				FieldSaver.SaveDifferences(p.Value, new PlayerReference()))).ToList();
 		}
 	}

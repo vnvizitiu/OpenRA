@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,20 +10,40 @@
 #endregion
 
 using System;
+using System.IO;
 using System.Linq;
+using OpenRA.FileSystem;
 using OpenRA.Widgets;
+using FS = OpenRA.FileSystem.FileSystem;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
 {
 	public class ModContentPromptLogic : ChromeLogic
 	{
-		[ObjectCreator.UseCtor]
-		public ModContentPromptLogic(Widget widget, Manifest mod, ModContent content, Action continueLoading)
-		{
-			var panel = widget.Get("CONTENT_PROMPT_PANEL");
+		[FluentReference]
+		const string Continue = "button-continue";
 
+		[FluentReference]
+		const string Quit = "button-quit";
+
+		readonly ModContent content;
+		bool requiredContentInstalled;
+
+		[ObjectCreator.UseCtor]
+		public ModContentPromptLogic(ModData modData, Widget widget, Manifest mod, ModContent content, Action continueLoading)
+		{
+			this.content = content;
+			CheckRequiredContentInstalled();
+
+			var continueMessage = FluentProvider.GetString(Continue);
+			var quitMessage = FluentProvider.GetString(Quit);
+
+			var panel = widget.Get("CONTENT_PROMPT_PANEL");
 			var headerTemplate = panel.Get<LabelWidget>("HEADER_TEMPLATE");
-			var headerLines = !string.IsNullOrEmpty(content.InstallPromptMessage) ? content.InstallPromptMessage.Replace("\\n", "\n").Split('\n') : new string[0];
+			var headerLines =
+				!string.IsNullOrEmpty(content.InstallPromptMessage)
+					? content.InstallPromptMessage.Replace("\\n", "\n").Split('\n')
+					: Array.Empty<string>();
 			var headerHeight = 0;
 			foreach (var l in headerLines)
 			{
@@ -46,7 +66,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				{
 					{ "mod", mod },
 					{ "content", content },
-					{ "onCancel", Ui.CloseWindow }
+					{ "onCancel", CheckRequiredContentInstalled }
 				});
 			};
 
@@ -55,26 +75,48 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			quickButton.Bounds.Y += headerHeight;
 			quickButton.OnClick = () =>
 			{
-				var modFileSystem = new FileSystem.FileSystem(Game.Mods);
-				modFileSystem.LoadFromManifest(mod);
+				var modObjectCreator = new ObjectCreator(mod, Game.Mods);
+				var modPackageLoaders = modObjectCreator.GetLoaders<IPackageLoader>(mod.PackageFormats, "package");
+				var modFileSystem = new FS(mod.Id, Game.Mods, modPackageLoaders);
+
+				var modFileSystemLoader = modObjectCreator.GetLoader<IFileSystemLoader>(mod.FileSystem.Value, "filesystem");
+				FieldLoader.Load(modFileSystemLoader, mod.FileSystem);
+				modFileSystemLoader.Mount(modFileSystem, modObjectCreator);
+				modFileSystem.TrimExcess();
+
 				var downloadYaml = MiniYaml.Load(modFileSystem, content.Downloads, null);
 				modFileSystem.UnmountAll();
 
 				var download = downloadYaml.FirstOrDefault(n => n.Key == content.QuickDownload);
 				if (download == null)
-					throw new InvalidOperationException("Mod QuickDownload `{0}` definition not found.".F(content.QuickDownload));
+					throw new InvalidOperationException($"Mod QuickDownload `{content.QuickDownload}` definition not found.");
 
 				Ui.OpenWindow("PACKAGE_DOWNLOAD_PANEL", new WidgetArgs
 				{
-					{ "download", new ModContent.ModDownload(download.Value) },
+					{ "download", new ModContent.ModDownload(download.Value, modObjectCreator) },
 					{ "onSuccess", continueLoading }
 				});
 			};
 
-			var backButton = panel.Get<ButtonWidget>("BACK_BUTTON");
-			backButton.Bounds.Y += headerHeight;
-			backButton.OnClick = Ui.CloseWindow;
+			var quitButton = panel.Get<ButtonWidget>("QUIT_BUTTON");
+			quitButton.GetText = () => requiredContentInstalled ? continueMessage : quitMessage;
+			quitButton.Bounds.Y += headerHeight;
+			quitButton.OnClick = () =>
+			{
+				if (requiredContentInstalled)
+					continueLoading();
+				else
+					Game.Exit();
+			};
+
 			Game.RunAfterTick(Ui.ResetTooltips);
+		}
+
+		void CheckRequiredContentInstalled()
+		{
+			requiredContentInstalled = content.Packages
+				.Where(p => p.Value.Required)
+				.All(p => p.Value.TestFiles.All(f => File.Exists(Platform.ResolvePath(f))));
 		}
 	}
 }

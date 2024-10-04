@@ -1,3 +1,11 @@
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
 AttackGroupSize = {8}
 AttackDelay = { DateTime.Seconds(2), DateTime.Seconds(4) }
 
@@ -6,7 +14,7 @@ IdlingUnits =
 	Atreides = { },
 	Harkonnen = { },
 	Ordos = { },
-	Emperor = { }
+	Corrino = { }
 }
 
 HoldProduction =
@@ -14,7 +22,7 @@ HoldProduction =
 	Atreides = false,
 	Harkonnen = false,
 	Ordos = false,
-	Emperor = false
+	Corrino = false
 }
 
 IsAttacking =
@@ -22,7 +30,7 @@ IsAttacking =
 	Atreides = false,
 	Harkonnen = false,
 	Ordos = false,
-	Emperor = false
+	Corrino = false
 }
 
 AtreidesInfantryTypes = { "light_inf", "light_inf", "light_inf", "trooper", "trooper", "grenadier", "grenadier" }
@@ -30,7 +38,7 @@ AtreidesVehicleTypes = { "trike", "trike", "quad" }
 AtreidesTankTypes = { "combat_tank_a", "combat_tank_a", "combat_tank_a", "siege_tank" }
 AtreidesStarportTypes = { "trike.starport", "quad.starport", "siege_tank.starport", "missile_tank.starport", "combat_tank_a.starport" }
 
-HarkonnenInfantryTypes = { "light_inf", "light_inf", "light_inf", "trooper", "trooper", "sardaukar" }
+HarkonnenInfantryTypes = { "light_inf", "light_inf", "light_inf", "trooper", "trooper", "mpsardaukar" }
 HarkonnenVehicleTypes = { "trike", "quad", "quad" }
 HarkonnenTankTypes = { "combat_tank_h", "combat_tank_h", "combat_tank_h", "siege_tank" }
 HarkonnenStarportTypes = { "trike.starport", "quad.starport", "siege_tank.starport", "missile_tank.starport", "combat_tank_h.starport" }
@@ -40,10 +48,10 @@ OrdosVehicleTypes = { "raider", "raider", "quad", "stealth_raider" }
 OrdosTankTypes = { "combat_tank_o", "combat_tank_o", "combat_tank_o", "siege_tank" }
 OrdosStarportTypes = { "trike.starport", "quad.starport", "siege_tank.starport", "missile_tank.starport", "combat_tank_o.starport" }
 
-EmperorInfantryTypes = { "light_inf", "trooper", "sardaukar", "sardaukar", "sardaukar", "sardaukar" }
-EmperorVehicleTypes = { "trike", "quad", "quad" }
-EmperorTankTypes = { "combat_tank_h", "combat_tank_h", "combat_tank_h", "siege_tank" }
-EmperorStarportTypes = { "trike.starport", "quad.starport", "siege_tank.starport", "missile_tank.starport", "combat_tank_h.starport" }
+CorrinoInfantryTypes = { "light_inf", "trooper", "sardaukar", "sardaukar", "sardaukar", "sardaukar" }
+CorrinoVehicleTypes = { "trike", "quad", "quad" }
+CorrinoTankTypes = { "combat_tank_h", "combat_tank_h", "combat_tank_h", "siege_tank" }
+CorrinoStarportTypes = { "trike.starport", "quad.starport", "siege_tank.starport", "missile_tank.starport", "combat_tank_h.starport" }
 
 Upgrades = { "upgrade.barracks", "upgrade.light", "upgrade.conyard", "upgrade.heavy", "upgrade.hightech" }
 
@@ -52,31 +60,29 @@ Harvester = { "harvester" }
 AtrCarryHarvWaypoints = { atr_harvcarry_2.Location, atr_harvcarry_1.Location }
 HarCarryHarvWaypoints = { har_harvcarry_2.Location, har_harvcarry_1.Location }
 OrdCarryHarvWaypoints = { ord_harvcarry_2.Location, ord_harvcarry_1.Location }
-EmpCarryHarvWaypoints = { emp_harvcarry_2.Location, emp_harvcarry_1.Location }
+CorCarryHarvWaypoints = { cor_harvcarry_2.Location, cor_harvcarry_1.Location }
 SmgCarryHarvWaypoints = { smg_harvcarry_2.Location, smg_harvcarry_1.Location }
 
-IdleHunt = function(unit) if not unit.IsDead then Trigger.OnIdle(unit, unit.Hunt) end end
-
 Produce = function(house, units)
-    if HoldProduction[house.Name] then
-        Trigger.AfterDelay(DateTime.Minutes(1), function() Produce(house, units) end)
-        return
-    end
+	if HoldProduction[house.Name] then
+		Trigger.AfterDelay(DateTime.Minutes(1), function() Produce(house, units) end)
+		return
+	end
 
-    local delay = Utils.RandomInteger(AttackDelay[1], AttackDelay[2])
-    local toBuild = { Utils.Random(units) }
-    house.Build(toBuild, function(unit)
+	local delay = Utils.RandomInteger(AttackDelay[1], AttackDelay[2])
+	local toBuild = { Utils.Random(units) }
+	house.Build(toBuild, function(unit)
 		local unitCount = 1
 		if IdlingUnits[house.Name] then
 			unitCount = 1 + #IdlingUnits[house.Name]
 		end
 		IdlingUnits[house.Name][unitCount] = unit[1]
-        Trigger.AfterDelay(delay, function() Produce(house, units) end)
+		Trigger.AfterDelay(delay, function() Produce(house, units) end)
 
-        if unitCount >= (AttackGroupSize[1] * 2) then
-            SendAttack(house)
-        end
-    end)
+		if unitCount >= (AttackGroupSize[1] * 2) then
+		    SendAttack(house)
+		end
+	end)
 end
 
 SetupAttackGroup = function(house)
@@ -133,60 +139,66 @@ InitializeHarvester = function(harvester)
 	harvester.FindResources()
 end
 
-ticks = 0
-speed = 5
+Ticks = 0
+Speed = 5
 
 Tick = function()
-	ticks = ticks + 1
+	Ticks = Ticks + 1
 
-	local t = (ticks + 45) % (360 * speed) * (math.pi / 180) / speed;
-	Camera.Position = viewportOrigin + WVec.New(19200 * math.sin(t), 28800 * math.cos(t), 0)
+	if Ticks > 1 or not Map.IsPausedShellmap then
+		local t = (Ticks + 45) % (360 * Speed) * (math.pi / 180) / Speed;
+		Camera.Position = ViewportOrigin + WVec.New(19200 * math.sin(t), 28800 * math.cos(t), 0)
+	end
 end
 
 WorldLoaded = function()
-	atreides = Player.GetPlayer("Atreides")
-	harkonnen = Player.GetPlayer("Harkonnen")
-	ordos = Player.GetPlayer("Ordos")
-	emperor = Player.GetPlayer("Emperor")
-	smugglers = Player.GetPlayer("Smugglers")
+	Atreides = Player.GetPlayer("Atreides")
+	Harkonnen = Player.GetPlayer("Harkonnen")
+	Ordos = Player.GetPlayer("Ordos")
+	Corrino = Player.GetPlayer("Corrino")
+	Smugglers = Player.GetPlayer("Smugglers")
 
-	viewportOrigin = Camera.Position
+	Reinforcements.Reinforce(Atreides, { "carryall" }, { atr_carry_1.Location })
+	Reinforcements.Reinforce(Atreides, { "carryall" }, { atr_carry_2.Location })
+	Reinforcements.Reinforce(Atreides, { "carryall" }, { atr_carry_3.Location })
+
+	ViewportOrigin = Camera.Position
 
 	Utils.Do(Utils.Take(4, Upgrades), function(upgrade)
 		atr_cyard.Produce(upgrade)
 		har_cyard.Produce(upgrade)
 		ord_cyard.Produce(upgrade)
-		emp_cyard.Produce(upgrade)
+		cor_cyard.Produce(upgrade)
 	end)
 	atr_cyard.Produce(Upgrades[5])
 
 	Trigger.AfterDelay(DateTime.Seconds(45), function()
-		SendNewHarv(atreides, AtrCarryHarvWaypoints, 3)
-		SendNewHarv(harkonnen, HarCarryHarvWaypoints, 3)
-		SendNewHarv(ordos, OrdCarryHarvWaypoints, 3)
-		SendNewHarv(emperor, EmpCarryHarvWaypoints, 3)
-		SendNewHarv(smugglers, SmgCarryHarvWaypoints, 1)
+		SendNewHarv(Atreides, AtrCarryHarvWaypoints, 3)
+		SendNewHarv(Harkonnen, HarCarryHarvWaypoints, 3)
+		SendNewHarv(Ordos, OrdCarryHarvWaypoints, 3)
+		SendNewHarv(Corrino, CorCarryHarvWaypoints, 3)
+		SendNewHarv(Smugglers, SmgCarryHarvWaypoints, 1)
 	end)
 
 	Trigger.AfterDelay(DateTime.Seconds(1), function()
-		Produce(atreides, AtreidesInfantryTypes)
-		Produce(atreides, AtreidesVehicleTypes)
-		Produce(atreides, AtreidesTankTypes)
-		Produce(atreides, AtreidesStarportTypes)
+		Produce(Atreides, AtreidesInfantryTypes)
+		Produce(Atreides, AtreidesVehicleTypes)
+		Produce(Atreides, AtreidesTankTypes)
+		Produce(Atreides, AtreidesStarportTypes)
 
-		Produce(harkonnen, HarkonnenInfantryTypes)
-		Produce(harkonnen, HarkonnenVehicleTypes)
-		Produce(harkonnen, HarkonnenTankTypes)
-		Produce(harkonnen, HarkonnenStarportTypes)
+		Produce(Harkonnen, HarkonnenInfantryTypes)
+		Produce(Harkonnen, HarkonnenVehicleTypes)
+		Produce(Harkonnen, HarkonnenTankTypes)
+		Produce(Harkonnen, HarkonnenStarportTypes)
 
-		Produce(ordos, OrdosInfantryTypes)
-		Produce(ordos, OrdosVehicleTypes)
-		Produce(ordos, OrdosTankTypes)
-		Produce(ordos, OrdosStarportTypes)
+		Produce(Ordos, OrdosInfantryTypes)
+		Produce(Ordos, OrdosVehicleTypes)
+		Produce(Ordos, OrdosTankTypes)
+		Produce(Ordos, OrdosStarportTypes)
 
-		Produce(emperor, EmperorInfantryTypes)
-		Produce(emperor, EmperorVehicleTypes)
-		Produce(emperor, EmperorTankTypes)
-		Produce(emperor, EmperorStarportTypes)
+		Produce(Corrino, CorrinoInfantryTypes)
+		Produce(Corrino, CorrinoVehicleTypes)
+		Produce(Corrino, CorrinoTankTypes)
+		Produce(Corrino, CorrinoStarportTypes)
 	end)
 end

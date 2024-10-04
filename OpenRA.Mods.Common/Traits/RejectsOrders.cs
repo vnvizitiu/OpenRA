@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,33 +10,62 @@
 #endregion
 
 using System.Collections.Generic;
-using OpenRA.Traits;
+using System.Linq;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Can be used to make a unit partly uncontrollable by the player.")]
-	public class RejectsOrdersInfo : UpgradableTraitInfo
+	public class RejectsOrdersInfo : ConditionalTraitInfo
 	{
-		[Desc("Possible values include Attack, AttackMove, Guard, Move.")]
-		public readonly HashSet<string> Except = new HashSet<string>();
+		[Desc("Explicit list of rejected orders. Leave empty to reject all minus those listed under Except.")]
+		public readonly HashSet<string> Reject = new();
+
+		[Desc("List of orders that should *not* be rejected.",
+			"Also overrides other instances of this trait's Reject fields.")]
+		public readonly HashSet<string> Except = new();
+
+		[Desc("Remove current and all queued orders from the actor when this trait is enabled.")]
+		public readonly bool RemoveOrders = false;
 
 		public override object Create(ActorInitializer init) { return new RejectsOrders(this); }
 	}
 
-	public class RejectsOrders : UpgradableTrait<RejectsOrdersInfo>
+	public class RejectsOrders : ConditionalTrait<RejectsOrdersInfo>
 	{
-		public HashSet<string> Except { get { return Info.Except; } }
+		public HashSet<string> Reject => Info.Reject;
+		public HashSet<string> Except => Info.Except;
 
 		public RejectsOrders(RejectsOrdersInfo info)
 			: base(info) { }
+
+		protected override void TraitEnabled(Actor self)
+		{
+			if (Info.RemoveOrders)
+				self.CancelActivity();
+		}
 	}
 
 	public static class RejectsOrdersExts
 	{
 		public static bool AcceptsOrder(this Actor self, string orderString)
 		{
-			var r = self.TraitOrDefault<RejectsOrders>();
-			return r == null || r.IsTraitDisabled || r.Except.Contains(orderString);
+			var rejectsOrdersTraits = self.TraitsImplementing<RejectsOrders>().Where(t => !t.IsTraitDisabled).ToArray();
+			if (rejectsOrdersTraits.Length == 0)
+				return true;
+
+			foreach (var rejectsOrdersTrait in rejectsOrdersTraits)
+				if (rejectsOrdersTrait.Except.Contains(orderString))
+					return true;
+
+			var anyRejects = false;
+			foreach (var rejectsOrdersTrait in rejectsOrdersTraits)
+			{
+				anyRejects = anyRejects || rejectsOrdersTrait.Reject.Count > 0;
+				if (rejectsOrdersTrait.Reject.Contains(orderString))
+					return false;
+			}
+
+			return anyRejects;
 		}
 	}
 }

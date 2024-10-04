@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,11 +11,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using OpenRA.FileSystem;
 using OpenRA.Graphics;
+using OpenRA.Video;
 using OpenRA.Widgets;
 using FS = OpenRA.FileSystem.FileSystem;
 
@@ -27,35 +28,41 @@ namespace OpenRA
 		public readonly ObjectCreator ObjectCreator;
 		public readonly WidgetLoader WidgetLoader;
 		public readonly MapCache MapCache;
+		public readonly IPackageLoader[] PackageLoaders;
 		public readonly ISoundLoader[] SoundLoaders;
 		public readonly ISpriteLoader[] SpriteLoaders;
+		public readonly ITerrainLoader TerrainLoader;
 		public readonly ISpriteSequenceLoader SpriteSequenceLoader;
-		public ILoadScreen LoadScreen { get; private set; }
-		public VoxelLoader VoxelLoader { get; private set; }
+		public readonly IVideoLoader[] VideoLoaders;
+		public readonly HotkeyManager Hotkeys;
+		public readonly IFileSystemLoader FileSystemLoader;
+
+		public ILoadScreen LoadScreen { get; }
 		public CursorProvider CursorProvider { get; private set; }
 		public FS ModFiles;
-		public IReadOnlyFileSystem DefaultFileSystem { get { return ModFiles; } }
+		public IReadOnlyFileSystem DefaultFileSystem => ModFiles;
 
 		readonly Lazy<Ruleset> defaultRules;
-		public Ruleset DefaultRules { get { return defaultRules.Value; } }
+		public Ruleset DefaultRules => defaultRules.Value;
 
-		readonly Lazy<IReadOnlyDictionary<string, TileSet>> defaultTileSets;
-		public IReadOnlyDictionary<string, TileSet> DefaultTileSets { get { return defaultTileSets.Value; } }
-
-		readonly Lazy<IReadOnlyDictionary<string, SequenceProvider>> defaultSequences;
-		public IReadOnlyDictionary<string, SequenceProvider> DefaultSequences { get { return defaultSequences.Value; } }
+		readonly Lazy<IReadOnlyDictionary<string, ITerrainInfo>> defaultTerrainInfo;
+		public IReadOnlyDictionary<string, ITerrainInfo> DefaultTerrainInfo => defaultTerrainInfo.Value;
 
 		public ModData(Manifest mod, InstalledMods mods, bool useLoadScreen = false)
 		{
-			Languages = new string[0];
-
-			ModFiles = new FS(mods);
+			Languages = Array.Empty<string>();
 
 			// Take a local copy of the manifest
 			Manifest = new Manifest(mod.Id, mod.Package);
-			ModFiles.LoadFromManifest(Manifest);
+			ObjectCreator = new ObjectCreator(Manifest, mods);
+			PackageLoaders = ObjectCreator.GetLoaders<IPackageLoader>(Manifest.PackageFormats, "package");
+			ModFiles = new FS(mod.Id, mods, PackageLoaders);
 
-			ObjectCreator = new ObjectCreator(Manifest, ModFiles);
+			FileSystemLoader = ObjectCreator.GetLoader<IFileSystemLoader>(Manifest.FileSystem.Value, "filesystem");
+			FieldLoader.Load(FileSystemLoader, Manifest.FileSystem);
+			FileSystemLoader.Mount(ModFiles, ObjectCreator);
+			ModFiles.TrimExcess();
+
 			Manifest.LoadCustomData(ObjectCreator);
 
 			if (useLoadScreen)
@@ -68,50 +75,54 @@ namespace OpenRA
 			WidgetLoader = new WidgetLoader(this);
 			MapCache = new MapCache(this);
 
-			SoundLoaders = GetLoaders<ISoundLoader>(Manifest.SoundFormats, "sound");
-			SpriteLoaders = GetLoaders<ISpriteLoader>(Manifest.SpriteFormats, "sprite");
+			SoundLoaders = ObjectCreator.GetLoaders<ISoundLoader>(Manifest.SoundFormats, "sound");
+			SpriteLoaders = ObjectCreator.GetLoaders<ISpriteLoader>(Manifest.SpriteFormats, "sprite");
+			VideoLoaders = ObjectCreator.GetLoaders<IVideoLoader>(Manifest.VideoFormats, "video");
+
+			var terrainFormat = Manifest.Get<TerrainFormat>();
+			var terrainLoader = ObjectCreator.FindType(terrainFormat.Type + "Loader");
+			var terrainCtor = terrainLoader?.GetConstructor(new[] { typeof(ModData) });
+			if (terrainLoader == null || !terrainLoader.GetInterfaces().Contains(typeof(ITerrainLoader)) || terrainCtor == null)
+				throw new InvalidOperationException($"Unable to find a terrain loader for type '{terrainFormat.Type}'.");
+
+			TerrainLoader = (ITerrainLoader)terrainCtor.Invoke(new[] { this });
 
 			var sequenceFormat = Manifest.Get<SpriteSequenceFormat>();
 			var sequenceLoader = ObjectCreator.FindType(sequenceFormat.Type + "Loader");
-			var ctor = sequenceLoader != null ? sequenceLoader.GetConstructor(new[] { typeof(ModData) }) : null;
-			if (sequenceLoader == null || !sequenceLoader.GetInterfaces().Contains(typeof(ISpriteSequenceLoader)) || ctor == null)
-				throw new InvalidOperationException("Unable to find a sequence loader for type '{0}'.".F(sequenceFormat.Type));
+			var sequenceCtor = sequenceLoader?.GetConstructor(new[] { typeof(ModData) });
+			if (sequenceLoader == null || !sequenceLoader.GetInterfaces().Contains(typeof(ISpriteSequenceLoader)) || sequenceCtor == null)
+				throw new InvalidOperationException($"Unable to find a sequence loader for type '{sequenceFormat.Type}'.");
 
-			SpriteSequenceLoader = (ISpriteSequenceLoader)ctor.Invoke(new[] { this });
-			SpriteSequenceLoader.OnMissingSpriteError = s => Log.Write("debug", s);
+			SpriteSequenceLoader = (ISpriteSequenceLoader)sequenceCtor.Invoke(new[] { this });
+
+			Hotkeys = new HotkeyManager(ModFiles, Game.Settings.Keys, Manifest);
 
 			defaultRules = Exts.Lazy(() => Ruleset.LoadDefaults(this));
-			defaultTileSets = Exts.Lazy(() =>
+			defaultTerrainInfo = Exts.Lazy(() =>
 			{
-				var items = new Dictionary<string, TileSet>();
+				var items = new Dictionary<string, ITerrainInfo>();
 
 				foreach (var file in Manifest.TileSets)
 				{
-					var t = new TileSet(DefaultFileSystem, file);
+					var t = TerrainLoader.ParseTerrain(DefaultFileSystem, file);
 					items.Add(t.Id, t);
 				}
 
-				return (IReadOnlyDictionary<string, TileSet>)(new ReadOnlyDictionary<string, TileSet>(items));
+				return (IReadOnlyDictionary<string, ITerrainInfo>)new ReadOnlyDictionary<string, ITerrainInfo>(items);
 			});
 
-			defaultSequences = Exts.Lazy(() =>
-			{
-				var items = DefaultTileSets.ToDictionary(t => t.Key, t => new SequenceProvider(DefaultFileSystem, this, t.Value, null));
-				return (IReadOnlyDictionary<string, SequenceProvider>)(new ReadOnlyDictionary<string, SequenceProvider>(items));
-			});
-
-			initialThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
+			initialThreadId = Environment.CurrentManagedThreadId;
 		}
 
 		// HACK: Only update the loading screen if we're in the main thread.
-		int initialThreadId;
+		readonly int initialThreadId;
 		internal void HandleLoadingProgress()
 		{
 			if (LoadScreen != null && IsOnMainThread)
 				LoadScreen.Display();
 		}
 
-		internal bool IsOnMainThread { get { return System.Threading.Thread.CurrentThread.ManagedThreadId == initialThreadId; } }
+		internal bool IsOnMainThread => Environment.CurrentManagedThreadId == initialThreadId;
 
 		public void InitializeLoaders(IReadOnlyFileSystem fileSystem)
 		{
@@ -119,112 +130,75 @@ namespace OpenRA
 			// horribly when you use ModData in unexpected ways.
 			ChromeMetrics.Initialize(this);
 			ChromeProvider.Initialize(this);
+			FluentProvider.Initialize(this, fileSystem);
 
 			Game.Sound.Initialize(SoundLoaders, fileSystem);
-
-			if (VoxelLoader != null)
-				VoxelLoader.Dispose();
-			VoxelLoader = new VoxelLoader(fileSystem);
 
 			CursorProvider = new CursorProvider(this);
 		}
 
-		TLoader[] GetLoaders<TLoader>(IEnumerable<string> formats, string name)
-		{
-			var loaders = new List<TLoader>();
-			foreach (var format in formats)
-			{
-				var loader = ObjectCreator.FindType(format + "Loader");
-				if (loader == null || !loader.GetInterfaces().Contains(typeof(TLoader)))
-					throw new InvalidOperationException("Unable to find a {0} loader for type '{1}'.".F(name, format));
-
-				loaders.Add((TLoader)ObjectCreator.CreateBasic(loader));
-			}
-
-			return loaders.ToArray();
-		}
-
-		public IEnumerable<string> Languages { get; private set; }
-
-		void LoadTranslations(Map map)
-		{
-			var selectedTranslations = new Dictionary<string, string>();
-			var defaultTranslations = new Dictionary<string, string>();
-
-			if (!Manifest.Translations.Any())
-			{
-				Languages = new string[0];
-				return;
-			}
-
-			var yaml = MiniYaml.Load(map, Manifest.Translations, map.TranslationDefinitions);
-			Languages = yaml.Select(t => t.Key).ToArray();
-
-			foreach (var y in yaml)
-			{
-				if (y.Key == Game.Settings.Graphics.Language)
-					selectedTranslations = y.Value.ToDictionary(my => my.Value ?? "");
-				else if (y.Key == Game.Settings.Graphics.DefaultLanguage)
-					defaultTranslations = y.Value.ToDictionary(my => my.Value ?? "");
-			}
-
-			var translations = new Dictionary<string, string>();
-			foreach (var tkv in defaultTranslations.Concat(selectedTranslations))
-			{
-				if (translations.ContainsKey(tkv.Key))
-					continue;
-				if (selectedTranslations.ContainsKey(tkv.Key))
-					translations.Add(tkv.Key, selectedTranslations[tkv.Key]);
-				else
-					translations.Add(tkv.Key, tkv.Value);
-			}
-
-			FieldLoader.SetTranslations(translations);
-		}
+		public IEnumerable<string> Languages { get; }
 
 		public Map PrepareMap(string uid)
 		{
-			if (LoadScreen != null)
-				LoadScreen.Display();
+			LoadScreen?.Display();
 
 			if (MapCache[uid].Status != MapStatus.Available)
-				throw new InvalidDataException("Invalid map uid: {0}".F(uid));
+				throw new InvalidDataException($"Invalid map uid: {uid}");
 
 			Map map;
 			using (new Support.PerfTimer("Map"))
 				map = new Map(this, MapCache[uid].Package);
 
-			LoadTranslations(map);
-
 			// Reinitialize all our assets
 			InitializeLoaders(map);
+			map.Sequences.LoadSprites();
 
 			// Load music with map assets mounted
 			using (new Support.PerfTimer("Map.Music"))
 				foreach (var entry in map.Rules.Music)
 					entry.Value.Load(map);
 
-			VoxelProvider.Initialize(VoxelLoader, map, MiniYaml.Load(map, Manifest.VoxelSequences, map.VoxelSequenceDefinitions));
-			VoxelLoader.Finish();
-
 			return map;
+		}
+
+		public List<MiniYamlNode>[] GetRulesYaml()
+		{
+			var stringPool = new HashSet<string>(); // Reuse common strings in YAML
+			return Manifest.Rules.Select(s => MiniYaml.FromStream(DefaultFileSystem.Open(s), s, stringPool: stringPool)).ToArray();
 		}
 
 		public void Dispose()
 		{
-			if (LoadScreen != null)
-				LoadScreen.Dispose();
+			LoadScreen?.Dispose();
 			MapCache.Dispose();
-			if (VoxelLoader != null)
-				VoxelLoader.Dispose();
+
+			ObjectCreator?.Dispose();
+
+			Manifest.Dispose();
 		}
 	}
 
 	public interface ILoadScreen : IDisposable
 	{
+		/// <summary>Initializes the loadscreen with yaml data from the LoadScreen block in mod.yaml.</summary>
 		void Init(ModData m, Dictionary<string, string> info);
+
+		/// <summary>Called at arbitrary times during mod load to rerender the loadscreen.</summary>
 		void Display();
-		bool RequiredContentIsInstalled();
+
+		/// <summary>
+		/// Called before loading the mod assets.
+		/// Returns false if mod loading should be aborted (e.g. switching to another mod instead).
+		/// </summary>
+		bool BeforeLoad();
+
+		/// <summary>Called when the engine expects to connect to a server/replay or load the shellmap.</summary>
 		void StartGame(Arguments args);
+	}
+
+	public interface IFileSystemLoader
+	{
+		void Mount(FS fileSystem, ObjectCreator objectCreator);
 	}
 }

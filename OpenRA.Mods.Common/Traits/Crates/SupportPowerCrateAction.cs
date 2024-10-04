@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -15,17 +15,19 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Gives a supportpower to the collector.")]
-	class SupportPowerCrateActionInfo : CrateActionInfo
+	sealed class SupportPowerCrateActionInfo : CrateActionInfo
 	{
+		[ActorReference]
+		[FieldLoader.Require]
 		[Desc("Which proxy actor, which grants the support power, to spawn.")]
-		[ActorReference, FieldLoader.Require] public readonly string Proxy = null;
+		public readonly string Proxy = null;
 
 		public override object Create(ActorInitializer init) { return new SupportPowerCrateAction(init.Self, this); }
 	}
 
-	class SupportPowerCrateAction : CrateAction
+	sealed class SupportPowerCrateAction : CrateAction
 	{
-		SupportPowerCrateActionInfo info;
+		readonly SupportPowerCrateActionInfo info;
 		public SupportPowerCrateAction(Actor self, SupportPowerCrateActionInfo info)
 			: base(self, info)
 		{

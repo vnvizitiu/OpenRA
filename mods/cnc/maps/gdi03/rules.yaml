@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: gdi03.lua
+		Scripts: campaign.lua, utils.lua, gdi03.lua
 	MusicPlaylist:
 		StartingMusic: crep226m
 	MissionData:
@@ -12,6 +12,13 @@ World:
 
 SBAG:
 	-Crushable:
+	Buildable:
+		Prerequisites: ~disabled
+
+CYCL:
+	-Crushable:
+	Buildable:
+		Prerequisites: ~disabled
 
 WEAP:
 	Buildable:
@@ -37,13 +44,21 @@ GUN:
 	Buildable:
 		Prerequisites: ~disabled
 
+GTWR:
+	Buildable:
+		Prerequisites: ~disabled
+
 ATWR:
+	Buildable:
+		Prerequisites: ~disabled
+
+BRIK:
 	Buildable:
 		Prerequisites: ~disabled
 
 E3:
 	Buildable:
-		Prerequisites: ~disabled
+		Queue: Infantry.Nod
 
 E4:
 	Buildable:
@@ -81,24 +96,4 @@ HQ:
 	Tooltip:
 	-AirstrikePower:
 	Buildable:
-		Description: Provides an overview of the battlefield.\n  Requires power to operate.
-
-airstrike.proxy:
-	AlwaysVisible:
-	AirstrikePower:
-		Icon: airstrike
-		StartFullyCharged: True
-		ChargeTime: 120
-		SquadSize: 3
-		QuantizedFacings: 8
-		Description: Air Strike
-		LongDesc: Deploy an aerial napalm strike.\nBurns buildings and infantry along a line.
-		EndChargeSound: airredy1.aud
-		SelectTargetSound: select1.aud
-		InsufficientPowerSound: nopower1.aud
-		IncomingSound: enemya.aud
-		UnitType: a10
-		DisplayBeacon: True
-		BeaconPoster: airstrike
-		DisplayRadarPing: True
-		CameraActor: camera
+		Description: actor-hq-description

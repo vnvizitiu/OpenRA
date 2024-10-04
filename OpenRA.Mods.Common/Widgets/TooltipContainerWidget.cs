@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,7 +10,6 @@
 #endregion
 
 using System;
-using System.Drawing;
 using OpenRA.Graphics;
 using OpenRA.Widgets;
 
@@ -19,41 +18,91 @@ namespace OpenRA.Mods.Common.Widgets
 	public class TooltipContainerWidget : Widget
 	{
 		static readonly Action Nothing = () => { };
-		public int2 CursorOffset = new int2(0, 20);
+		readonly GraphicSettings graphicSettings;
+
+		public int2 CursorOffset = new(0, 20);
+		public int BottomEdgeYOffset = -5;
+
 		public Action BeforeRender = Nothing;
-		public int TooltipDelay = 5;
+		public int TooltipDelayMilliseconds = 200;
 		Widget tooltip;
+		int nextToken = 1;
+		int currentToken;
+		string id;
+		WidgetArgs widgetArgs;
 
 		public TooltipContainerWidget()
 		{
-			IsVisible = () => Viewport.TicksSinceLastMove >= TooltipDelay;
+			graphicSettings = Game.Settings.Graphics;
+			IsVisible = () =>
+			{
+				// PERF: Only load widget once visible.
+				var visible = Game.RunTime > Viewport.LastMoveRunTime + TooltipDelayMilliseconds;
+				if (visible)
+					LoadWidget();
+
+				return visible;
+			};
 		}
 
-		public void SetTooltip(string id, WidgetArgs args)
+		void LoadWidget()
+		{
+			if (id == null || tooltip != null)
+				return;
+
+			tooltip = Ui.LoadWidget(id, this, new WidgetArgs(widgetArgs) { { "tooltipContainer", this } });
+		}
+
+		public int SetTooltip(string id, WidgetArgs args)
 		{
 			RemoveTooltip();
-			tooltip = Ui.LoadWidget(id, this, new WidgetArgs(args) { { "tooltipContainer", this } });
+			currentToken = nextToken++;
+			tooltip = null;
+			this.id = id;
+			widgetArgs = args;
+			return currentToken;
 		}
 
-		public void RemoveTooltip()
+		public void RemoveTooltip(int token)
 		{
+			if (currentToken != token)
+				return;
+
+			tooltip = null;
+			id = null;
+			widgetArgs = null;
+
 			RemoveChildren();
 			BeforeRender = Nothing;
 		}
 
-		public override void Draw() { BeforeRender(); }
+		public void RemoveTooltip()
+		{
+			RemoveTooltip(currentToken);
+		}
 
-		public override Rectangle GetEventBounds() { return Rectangle.Empty; }
+		public override void Draw()
+		{
+			BeforeRender();
+		}
+
+		public override bool EventBoundsContains(int2 location) { return false; }
 
 		public override int2 ChildOrigin
 		{
 			get
 			{
-				var pos = Viewport.LastMousePos + (CursorProvider.CursorViewportZoomed ? CursorOffset * 2 : CursorOffset);
+				var scale = graphicSettings.CursorDouble ? 2 : 1;
+				var pos = Viewport.LastMousePos + scale * CursorOffset;
 				if (tooltip != null)
 				{
+					// If the tooltip overlaps the right edge of the screen, move it left until it fits
 					if (pos.X + tooltip.Bounds.Right > Game.Renderer.Resolution.Width)
 						pos = pos.WithX(Game.Renderer.Resolution.Width - tooltip.Bounds.Right);
+
+					// If the tooltip overlaps the bottom edge of the screen, switch tooltip above cursor
+					if (pos.Y + tooltip.Bounds.Bottom > Game.Renderer.Resolution.Height)
+						pos = pos.WithY(Viewport.LastMousePos.Y + scale * BottomEdgeYOffset - tooltip.Bounds.Height);
 				}
 
 				return pos;

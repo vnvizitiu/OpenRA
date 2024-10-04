@@ -1,4 +1,11 @@
-Difficulty = Map.LobbyOption("difficulty")
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
 
 UnitsEvacuatedThreshold =
 {
@@ -65,16 +72,9 @@ SovietAirfields =
 	SovietAirfield5, SovietAirfield6, SovietAirfield7, SovietAirfield8
 }
 
-MountainEntry =
-{
-	MountainEntry1.Location, MountainEntry2.Location, MountainEntry3.Location, MountainEntry4.Location,
-	MountainEntry5.Location, MountainEntry6.Location, MountainEntry7.Location, MountainEntry8.Location
-}
+MountainEntry = { CPos.New(25, 45), CPos.New(25, 46), CPos.New(25, 47), CPos.New(25, 48), CPos.New(25, 49) }
 
-BridgeEntry =
-{
-	BridgeEntry1.Location, BridgeEntry2.Location, BridgeEntry3.Location, BridgeEntry4.Location
-}
+BridgeEntry = { CPos.New(25, 29), CPos.New(26, 29), CPos.New(27, 29), CPos.New(28, 29) }
 
 MobileConstructionVehicle = { "mcv" }
 Yak = { "yak" }
@@ -90,7 +90,7 @@ ReinforcementsTicks2 = DateTime.Minutes(10)
 Reinforcements2 =
 {
 	"mgg", "2tnk", "2tnk", "2tnk", "2tnk", "truk", "truk", "truk",
-	"truk",	"truk", "truk", "1tnk", "1tnk", "jeep", "jeep"
+	"truk", "truk", "truk", "1tnk", "1tnk", "jeep", "jeep"
 }
 
 SovietUnits1 =
@@ -108,13 +108,13 @@ SovietUnits2 =
 CurrentReinforcement1 = 0
 CurrentReinforcement2 = 0
 SpawnAlliedUnit = function(units)
-	Reinforcements.Reinforce(allies1, units, { Allies1EntryPoint.Location, Allies1MovePoint.Location })
+	Reinforcements.Reinforce(Allies1, units, { Allies1EntryPoint.Location, Allies1MovePoint.Location })
 
-	if allies2 then
-		Reinforcements.Reinforce(allies2, units, { Allies2EntryPoint.Location, Allies2MovePoint.Location })
+	if Allies2 then
+		Reinforcements.Reinforce(Allies2, units, { Allies2EntryPoint.Location, Allies2MovePoint.Location })
 	end
 
-	Utils.Do(humans, function(player)
+	Utils.Do(Humans, function(player)
 		Trigger.AfterDelay(DateTime.Seconds(2), function()
 			Media.PlaySpeechNotification(player, "AlliedReinforcementsNorth")
 		end)
@@ -148,11 +148,11 @@ SpawnSovietUnits = function()
 	local unitType = Utils.Random(units)
 	local spawnPoint = Utils.Random(SovietEntryPoints)
 	local rallyPoint = Utils.Random(SovietRallyPoints)
-	local actor = Actor.Create(unitType, true, { Owner = soviets, Location = spawnPoint.Location })
+	local actor = Actor.Create(unitType, true, { Owner = Soviets, Location = spawnPoint.Location })
 	actor.AttackMove(rallyPoint.Location)
 	IdleHunt(actor)
 
-	local delay = math.max(attackAtFrame - 5, minAttackAtFrame)
+	local delay = math.max(AttackAtFrame[Difficulty] - 5, MinAttackAtFrame[Difficulty])
 	Trigger.AfterDelay(delay, SpawnSovietUnits)
 end
 
@@ -166,7 +166,7 @@ SendSovietParadrop = function()
 
 	SovietParadrop = SovietParadrop + 1
 
-	Utils.Do(humans, function(player)
+	Utils.Do(Humans, function(player)
 		Media.PlaySpeechNotification(player, "SovietForcesApproaching")
 	end)
 
@@ -176,23 +176,16 @@ SendSovietParadrop = function()
 	local randomParadropCell = CPos.New(x, y)
 	local lz = Map.CenterOfCell(randomParadropCell)
 
-	local powerproxy = Actor.Create("powerproxy.paratroopers", false, { Owner = soviets })
-	powerproxy.SendParatroopers(lz)
+	local powerproxy = Actor.Create("powerproxy.paratroopers", false, { Owner = Soviets })
+	powerproxy.TargetParatroopers(lz)
 	powerproxy.Destroy()
 
-	Trigger.AfterDelay(sovietParadropTicks, SendSovietParadrop)
-end
-
-IdleHunt = function(unit)
-	Trigger.OnIdle(unit, unit.Hunt)
-	Trigger.OnCapture(unit, function()
-		Trigger.ClearAll(unit)
-	end)
+	Trigger.AfterDelay(SovietParadropTicks[Difficulty], SendSovietParadrop)
 end
 
 AircraftTargets = function(yak)
 	local targets = Utils.Where(Map.ActorsInWorld, function(a)
-		return (a.Owner == allies1 or a.Owner == allies2) and a.HasProperty("Health") and yak.CanTarget(a)
+		return (a.Owner == Allies1 or a.Owner == Allies2) and a.HasProperty("Health") and yak.CanTarget(a)
 	end)
 
 	-- Prefer mobile units
@@ -222,30 +215,36 @@ YakAttack = function(yak, target)
 end
 
 ManageSovietAircraft = function()
-	if allies1.IsObjectiveCompleted(destroyAirbases) then
+	if Allies1.IsObjectiveCompleted(DestroyAirbases) then
 		return
 	end
 
 	local maxSovietYaks = MaxSovietYaks[Difficulty]
-	local sovietYaks = soviets.GetActorsByType('yak')
+	local sovietYaks = Soviets.GetActorsByType('yak')
 	if #sovietYaks < maxSovietYaks then
-		soviets.Build(Yak, function(units)
+		Soviets.Build(Yak, function(units)
 			local yak = units[1]
 			YakAttack(yak)
 		end)
 	end
 end
 
+SetEvacuateMissionText = function()
+	local unitsEvacuated = UserInterface.Translate("units-evacuated",
+		{ ["evacuated"] = UnitsEvacuated, ["threshold"] = UnitsEvacuatedThreshold[Difficulty] })
+	UserInterface.SetMissionText(unitsEvacuated, TextColor)
+end
+
 UnitsEvacuated = 0
 EvacuateAlliedUnit = function(unit)
-	if (unit.Owner == allies1 or unit.Owner == allies2) and unit.HasProperty("Move") then
+	if (unit.Owner == Allies1 or unit.Owner == Allies2) and unit.HasProperty("Move") then
 		unit.Stop()
-		unit.Owner = allies
+		unit.Owner = Allies
 
 		if unit.Type == 'mgg' then
-			Utils.Do(humans, function(player)
+			Utils.Do(Humans, function(player)
 				if player then
-					player.MarkCompletedObjective(evacuateMgg)
+					player.MarkCompletedObjective(EvacuateMgg)
 				end
 			end)
 		end
@@ -265,12 +264,12 @@ EvacuateAlliedUnit = function(unit)
 			a.Destroy()
 		end)
 
-		UserInterface.SetMissionText(UnitsEvacuated .. "/" .. unitsEvacuatedThreshold .. " units evacuated.", TextColor)
+		SetEvacuateMissionText()
 
-		if UnitsEvacuated >= unitsEvacuatedThreshold then
-			Utils.Do(humans, function(player)
+		if UnitsEvacuated >= UnitsEvacuatedThreshold[Difficulty] then
+			Utils.Do(Humans, function(player)
 				if player then
-					player.MarkCompletedObjective(evacuateUnits)
+					player.MarkCompletedObjective(EvacuateUnits)
 				end
 			end)
 		end
@@ -281,9 +280,9 @@ Tick = function()
 	if DateTime.GameTime % 100 == 0 then
 		ManageSovietAircraft()
 
-		Utils.Do(humans, function(player)
+		Utils.Do(Humans, function(player)
 			if player and player.HasNoRequiredUnits() then
-				soviets.MarkCompletedObjective(sovietObjective)
+				Soviets.MarkCompletedObjective(SovietObjective)
 			end
 		end)
 	end
@@ -291,80 +290,56 @@ end
 
 WorldLoaded = function()
 	-- NPC
-	neutral = Player.GetPlayer("Neutral")
-	allies = Player.GetPlayer("Allies")
-	soviets = Player.GetPlayer("Soviets")
+	Neutral = Player.GetPlayer("Neutral")
+	Allies = Player.GetPlayer("Allies")
+	Soviets = Player.GetPlayer("Soviets")
 
 	-- Player controlled
-	allies1 = Player.GetPlayer("Allies1")
-	allies2 = Player.GetPlayer("Allies2")
+	Allies1 = Player.GetPlayer("Allies1")
+	Allies2 = Player.GetPlayer("Allies2")
 
-	humans = { allies1, allies2 }
-	Utils.Do(humans, function(player)
+	Humans = { Allies1, Allies2 }
+	Utils.Do(Humans, function(player)
 		if player and player.IsLocalPlayer then
-			Trigger.OnObjectiveAdded(player, function(p, id)
-				Media.DisplayMessage(p.GetObjectiveDescription(id), "New " .. string.lower(p.GetObjectiveType(id)) .. " objective")
-			end)
-
-			Trigger.OnObjectiveCompleted(player, function(p, id)
-				Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective completed")
-			end)
-
-			Trigger.OnObjectiveFailed(player, function(p, id)
-				Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective failed")
-			end)
-
-			Trigger.OnPlayerWon(player, function()
-				Media.PlaySpeechNotification(player, "MissionAccomplished")
-			end)
-
-			Trigger.OnPlayerLost(player, function()
-				Media.PlaySpeechNotification(player, "MissionFailed")
-			end)
-
+			InitObjectives(player)
 			TextColor = player.Color
 		end
 	end)
 
-	unitsEvacuatedThreshold = UnitsEvacuatedThreshold[Difficulty]
-	UserInterface.SetMissionText(UnitsEvacuated .. "/" .. unitsEvacuatedThreshold .. " units evacuated.", TextColor)
-	Utils.Do(humans, function(player)
+	SetEvacuateMissionText()
+	Utils.Do(Humans, function(player)
 		if player then
-			evacuateUnits = player.AddPrimaryObjective("Evacuate " .. unitsEvacuatedThreshold .. " units.")
-			destroyAirbases = player.AddSecondaryObjective("Destroy the nearby Soviet airbases.")
-			evacuateMgg = player.AddSecondaryObjective("Evacuate at least one mobile gap generator.")
+			EvacuateUnits = AddPrimaryObjective(player, UserInterface.Translate("evacuate-units", { ["threshold"] = UnitsEvacuatedThreshold[Difficulty] }))
+			DestroyAirbases = AddSecondaryObjective(player, "destroy-nearby-soviet-airbases")
+			EvacuateMgg = AddSecondaryObjective(player, "evacuate-at-least-one-gap-generator")
 		end
 	end)
 
 	Trigger.OnAllKilledOrCaptured(SovietAirfields, function()
-		Utils.Do(humans, function(player)
+		Utils.Do(Humans, function(player)
 			if player then
-				player.MarkCompletedObjective(destroyAirbases)
+				player.MarkCompletedObjective(DestroyAirbases)
 			end
 		end)
 	end)
 
-	sovietObjective = soviets.AddPrimaryObjective("Eradicate all allied troops.")
+	SovietObjective = AddPrimaryObjective(Soviets, "")
 
-	if not allies2 or allies1.IsLocalPlayer then
+	if not Allies2 or Allies1.IsLocalPlayer then
 		Camera.Position = Allies1EntryPoint.CenterPosition
 	else
 		Camera.Position = Allies2EntryPoint.CenterPosition
 	end
 
-	if not allies2 then
-		allies1.Cash = 10000
-		Media.DisplayMessage("Transferring funds.", "Co-Commander is missing")
+	if not Allies2 then
+		Allies1.Cash = 10000
+		Media.DisplayMessage(UserInterface.Translate("transferring-funds"), UserInterface.Translate("co-commander-missing"))
 	end
 
 	SpawnAlliedUnit(MobileConstructionVehicle)
 
-	minAttackAtFrame = MinAttackAtFrame[Difficulty]
-	attackAtFrame = AttackAtFrame[Difficulty]
-	Trigger.AfterDelay(attackAtFrame, SpawnSovietUnits)
-
-	sovietParadropTicks = SovietParadropTicks[Difficulty]
-	Trigger.AfterDelay(sovietParadropTicks, SendSovietParadrop)
+	Trigger.AfterDelay(AttackAtFrame[Difficulty], SpawnSovietUnits)
+	Trigger.AfterDelay(SovietParadropTicks[Difficulty], SendSovietParadrop)
 
 	Trigger.OnEnteredFootprint(MountainEntry, EvacuateAlliedUnit)
 	Trigger.OnEnteredFootprint(BridgeEntry, EvacuateAlliedUnit)

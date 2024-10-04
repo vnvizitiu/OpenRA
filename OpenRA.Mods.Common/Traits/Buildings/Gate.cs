@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -16,7 +16,7 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Will open and be passable for actors that appear friendly when there are no enemies in range.")]
-	public class GateInfo : BuildingInfo
+	public class GateInfo : PausableConditionalTraitInfo, ITemporaryBlockerInfo, IBlocksProjectilesInfo, Requires<BuildingInfo>
 	{
 		public readonly string OpeningSound = null;
 		public readonly string ClosingSound = null;
@@ -28,33 +28,43 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly int TransitionDelay = 33;
 
 		[Desc("Blocks bullets scaled to open value.")]
-		public readonly int BlocksProjectilesHeight = 640;
+		public readonly WDist BlocksProjectilesHeight = new(640);
+
+		[Desc("Determines what projectiles to block based on their allegiance to the gate owner.")]
+		public readonly PlayerRelationship BlocksProjectilesValidRelationships = PlayerRelationship.Ally | PlayerRelationship.Neutral | PlayerRelationship.Enemy;
 
 		public override object Create(ActorInitializer init) { return new Gate(init, this); }
 	}
 
-	public class Gate : Building, ITick, ITemporaryBlocker, IBlocksProjectiles, INotifyBlockingMove, ISync
+	public class Gate : PausableConditionalTrait<GateInfo>, ITick, ITemporaryBlocker, IBlocksProjectiles,
+		INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyBlockingMove
 	{
-		readonly GateInfo info;
 		readonly Actor self;
+		readonly Building building;
 		IEnumerable<CPos> blockedPositions;
+		public readonly IEnumerable<CPos> Footprint;
 
 		public readonly int OpenPosition;
-		[Sync] public int Position { get; private set; }
+
+		[Sync]
+		public int Position { get; private set; }
+
 		int desiredPosition;
 		int remainingOpenTime;
 
 		public Gate(ActorInitializer init, GateInfo info)
-			: base(init, info)
+			: base(info)
 		{
-			this.info = info;
 			self = init.Self;
-			OpenPosition = info.TransitionDelay;
+			Position = OpenPosition = Info.TransitionDelay;
+			building = self.Trait<Building>();
+			blockedPositions = building.Info.Tiles(self.Location);
+			Footprint = blockedPositions;
 		}
 
 		void ITick.Tick(Actor self)
 		{
-			if (self.IsDisabled() || Locked || !BuildComplete)
+			if (IsTraitDisabled || IsTraitPaused)
 				return;
 
 			if (desiredPosition < Position)
@@ -62,8 +72,8 @@ namespace OpenRA.Mods.Common.Traits
 				// Gate was fully open
 				if (Position == OpenPosition)
 				{
-					Game.Sound.Play(info.ClosingSound, self.CenterPosition);
-					self.World.ActorMap.AddInfluence(self, this);
+					Game.Sound.Play(SoundType.World, Info.ClosingSound, self.CenterPosition);
+					self.World.ActorMap.AddInfluence(self, building);
 				}
 
 				Position--;
@@ -72,22 +82,22 @@ namespace OpenRA.Mods.Common.Traits
 			{
 				// Gate was fully closed
 				if (Position == 0)
-					Game.Sound.Play(info.OpeningSound, self.CenterPosition);
+					Game.Sound.Play(SoundType.World, Info.OpeningSound, self.CenterPosition);
 
 				Position++;
 
 				// Gate is now fully open
 				if (Position == OpenPosition)
 				{
-					self.World.ActorMap.RemoveInfluence(self, this);
-					remainingOpenTime = info.CloseDelay;
+					self.World.ActorMap.RemoveInfluence(self, building);
+					remainingOpenTime = Info.CloseDelay;
 				}
 			}
 
 			if (Position == OpenPosition)
 			{
 				if (IsBlocked())
-					remainingOpenTime = info.CloseDelay;
+					remainingOpenTime = Info.CloseDelay;
 				else if (--remainingOpenTime <= 0)
 					desiredPosition = 0;
 			}
@@ -109,15 +119,19 @@ namespace OpenRA.Mods.Common.Traits
 				desiredPosition = OpenPosition;
 		}
 
-		bool CanRemoveBlockage(Actor self, Actor blocking)
+		void INotifyAddedToWorld.AddedToWorld(Actor self)
 		{
-			return !self.IsDisabled() && BuildComplete && blocking.AppearsFriendlyTo(self);
+			blockedPositions = Footprint;
 		}
 
-		public override void AddedToWorld(Actor self)
+		void INotifyRemovedFromWorld.RemovedFromWorld(Actor self)
 		{
-			base.AddedToWorld(self);
-			blockedPositions = FootprintUtils.Tiles(self);
+			blockedPositions = Enumerable.Empty<CPos>();
+		}
+
+		bool CanRemoveBlockage(Actor self, Actor blocking)
+		{
+			return !IsTraitDisabled && !IsTraitPaused && blocking.AppearsFriendlyTo(self);
 		}
 
 		bool IsBlocked()
@@ -125,12 +139,8 @@ namespace OpenRA.Mods.Common.Traits
 			return blockedPositions.Any(loc => self.World.ActorMap.GetActorsAt(loc).Any(a => a != self));
 		}
 
-		WDist IBlocksProjectiles.BlockingHeight
-		{
-			get
-			{
-				return new WDist(info.BlocksProjectilesHeight * (OpenPosition - Position) / OpenPosition);
-			}
-		}
+		WDist IBlocksProjectiles.BlockingHeight => new(Info.BlocksProjectilesHeight.Length * (OpenPosition - Position) / OpenPosition);
+
+		PlayerRelationship IBlocksProjectiles.ValidRelationships => Info.BlocksProjectilesValidRelationships;
 	}
 }

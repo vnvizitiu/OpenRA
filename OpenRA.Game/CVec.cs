@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,19 +10,21 @@
 #endregion
 
 using System;
-using System.Drawing;
 using Eluant;
 using Eluant.ObjectBinding;
+using OpenRA.Primitives;
 using OpenRA.Scripting;
 
 namespace OpenRA
 {
-	public struct CVec : IScriptBindable, ILuaAdditionBinding, ILuaSubtractionBinding, ILuaUnaryMinusBinding, ILuaEqualityBinding, ILuaTableBinding, IEquatable<CVec>
+	public readonly struct CVec : IEquatable<CVec>, IScriptBindable,
+		ILuaAdditionBinding, ILuaSubtractionBinding, ILuaEqualityBinding, ILuaUnaryMinusBinding,
+		ILuaMultiplicationBinding, ILuaDivisionBinding, ILuaTableBinding, ILuaToStringBinding
 	{
 		public readonly int X, Y;
 
 		public CVec(int x, int y) { X = x; Y = y; }
-		public static readonly CVec Zero = new CVec(0, 0);
+		public static readonly CVec Zero = new(0, 0);
 
 		public static CVec operator +(CVec a, CVec b) { return new CVec(a.X + b.X, a.Y + b.Y); }
 		public static CVec operator -(CVec a, CVec b) { return new CVec(a.X - b.X, a.Y - b.Y); }
@@ -42,8 +44,8 @@ namespace OpenRA
 
 		public CVec Sign() { return new CVec(Math.Sign(X), Math.Sign(Y)); }
 		public CVec Abs() { return new CVec(Math.Abs(X), Math.Abs(Y)); }
-		public int LengthSquared { get { return X * X + Y * Y; } }
-		public int Length { get { return Exts.ISqrt(LengthSquared); } }
+		public int LengthSquared => X * X + Y * Y;
+		public int Length => Exts.ISqrt(LengthSquared);
 
 		public CVec Clamp(Rectangle r)
 		{
@@ -55,40 +57,48 @@ namespace OpenRA
 		public override int GetHashCode() { return X.GetHashCode() ^ Y.GetHashCode(); }
 
 		public bool Equals(CVec other) { return other == this; }
-		public override bool Equals(object obj) { return obj is CVec && Equals((CVec)obj); }
+		public override bool Equals(object obj) { return obj is CVec vec && Equals(vec); }
 
 		public override string ToString() { return X + "," + Y; }
 
 		public static readonly CVec[] Directions =
 		{
-			new CVec(-1, -1),
-			new CVec(-1,  0),
-			new CVec(-1,  1),
-			new CVec(0, -1),
-			new CVec(0,  1),
-			new CVec(1, -1),
-			new CVec(1,  0),
-			new CVec(1,  1),
+			new(-1, -1),
+			new(-1,  0),
+			new(-1,  1),
+			new(0, -1),
+			new(0,  1),
+			new(1, -1),
+			new(1,  0),
+			new(1,  1),
 		};
 
 		#region Scripting interface
 
 		public LuaValue Add(LuaRuntime runtime, LuaValue left, LuaValue right)
 		{
-			CVec a, b;
-			if (!left.TryGetClrValue(out a) || !right.TryGetClrValue(out b))
-				throw new LuaException("Attempted to call CVec.Add(CVec, CVec) with invalid arguments ({0}, {1})".F(left.WrappedClrType().Name, right.WrappedClrType().Name));
+			if (!left.TryGetClrValue(out CVec a) || !right.TryGetClrValue(out CVec b))
+				throw new LuaException("Attempted to call CVec.Add(CVec, CVec) with invalid arguments " +
+					$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
 
 			return new LuaCustomClrObject(a + b);
 		}
 
 		public LuaValue Subtract(LuaRuntime runtime, LuaValue left, LuaValue right)
 		{
-			CVec a, b;
-			if (!left.TryGetClrValue(out a) || !right.TryGetClrValue(out b))
-				throw new LuaException("Attempted to call CVec.Subtract(CVec, CVec) with invalid arguments ({0}, {1})".F(left.WrappedClrType().Name, right.WrappedClrType().Name));
+			if (!left.TryGetClrValue(out CVec a) || !right.TryGetClrValue(out CVec b))
+				throw new LuaException("Attempted to call CVec.Subtract(CVec, CVec) with invalid arguments " +
+					$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
 
 			return new LuaCustomClrObject(a - b);
+		}
+
+		public LuaValue Equals(LuaRuntime runtime, LuaValue left, LuaValue right)
+		{
+			if (!left.TryGetClrValue(out CVec a) || !right.TryGetClrValue(out CVec b))
+				return false;
+
+			return a == b;
 		}
 
 		public LuaValue Minus(LuaRuntime runtime)
@@ -96,13 +106,22 @@ namespace OpenRA
 			return new LuaCustomClrObject(-this);
 		}
 
-		public LuaValue Equals(LuaRuntime runtime, LuaValue left, LuaValue right)
+		public LuaValue Multiply(LuaRuntime runtime, LuaValue left, LuaValue right)
 		{
-			CVec a, b;
-			if (!left.TryGetClrValue(out a) || !right.TryGetClrValue(out b))
-				return false;
+			if (!left.TryGetClrValue(out CVec a) || !right.TryGetClrValue(out int b))
+				throw new LuaException("Attempted to call CVec.Multiply(CVec, integer) with invalid arguments " +
+					$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
 
-			return a == b;
+			return new LuaCustomClrObject(a * b);
+		}
+
+		public LuaValue Divide(LuaRuntime runtime, LuaValue left, LuaValue right)
+		{
+			if (!left.TryGetClrValue(out CVec a) || !right.TryGetClrValue(out int b))
+				throw new LuaException("Attempted to call CVec.Multiply(CVec, integer) with invalid arguments " +
+					$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
+
+			return new LuaCustomClrObject(a / b);
 		}
 
 		public LuaValue this[LuaRuntime runtime, LuaValue key]
@@ -113,15 +132,15 @@ namespace OpenRA
 				{
 					case "X": return X;
 					case "Y": return Y;
-					default: throw new LuaException("CVec does not define a member '{0}'".F(key));
+					case "Length": return Length;
+					default: throw new LuaException($"CVec does not define a member '{key}'");
 				}
 			}
 
-			set
-			{
-				throw new LuaException("CVec is read-only. Use CVec.New to create a new value");
-			}
+			set => throw new LuaException("CVec is read-only. Use CVec.New to create a new value");
 		}
+
+		public LuaValue ToString(LuaRuntime runtime) => ToString();
 
 		#endregion
 	}

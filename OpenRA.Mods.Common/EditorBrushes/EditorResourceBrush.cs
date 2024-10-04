@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,41 +9,44 @@
  */
 #endregion
 
+using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Graphics;
-using OpenRA.Traits;
+using OpenRA.Mods.Common.Traits;
 
 namespace OpenRA.Mods.Common.Widgets
 {
 	public sealed class EditorResourceBrush : IEditorBrush
 	{
-		public readonly ResourceTypeInfo ResourceType;
+		public readonly string ResourceType;
 
 		readonly WorldRenderer worldRenderer;
 		readonly World world;
 		readonly EditorViewportControllerWidget editorWidget;
-		readonly SpriteWidget preview;
+		readonly EditorActionManager editorActionManager;
+		readonly IResourceLayer resourceLayer;
 
-		public EditorResourceBrush(EditorViewportControllerWidget editorWidget, ResourceTypeInfo resource, WorldRenderer wr)
+		AddResourcesEditorAction action;
+		bool resourceAdded;
+
+		CPos cell;
+		readonly List<IRenderable> preview = new();
+		readonly IResourceRenderer[] resourceRenderers;
+
+		public EditorResourceBrush(EditorViewportControllerWidget editorWidget, string resourceType, WorldRenderer wr)
 		{
 			this.editorWidget = editorWidget;
-			ResourceType = resource;
+			ResourceType = resourceType;
 			worldRenderer = wr;
 			world = wr.World;
+			editorActionManager = world.WorldActor.Trait<EditorActionManager>();
+			resourceLayer = world.WorldActor.Trait<IResourceLayer>();
 
-			preview = editorWidget.Get<SpriteWidget>("DRAG_LAYER_PREVIEW");
-			preview.Palette = resource.Palette;
-			preview.GetScale = () => worldRenderer.Viewport.Zoom;
-			preview.IsVisible = () => editorWidget.CurrentBrush == this;
+			resourceRenderers = world.WorldActor.TraitsImplementing<IResourceRenderer>().ToArray();
+			cell = wr.Viewport.ViewToWorld(wr.Viewport.WorldToViewPx(Viewport.LastMousePos));
+			UpdatePreview();
 
-			var variant = resource.Sequences.FirstOrDefault();
-			var sequence = wr.World.Map.Rules.Sequences.GetSequence("resources", variant);
-			var sprite = sequence.GetSprite(resource.MaxDensity - 1);
-			preview.GetSprite = () => sprite;
-
-			// The preview widget may be rendered by the higher-level code before it is ticked.
-			// Force a manual tick to ensure the bounds are set correctly for this first draw.
-			Tick();
+			action = new AddResourcesEditorAction(resourceType, resourceLayer);
 		}
 
 		public bool HandleMouseInput(MouseInput mi)
@@ -65,51 +68,107 @@ namespace OpenRA.Mods.Common.Widgets
 
 			var cell = worldRenderer.Viewport.ViewToWorld(mi.Location);
 
-			if (mi.Button == MouseButton.Left && AllowResourceAt(cell))
+			if (mi.Button == MouseButton.Left && mi.Event != MouseInputEvent.Up && resourceLayer.CanAddResource(ResourceType, cell))
 			{
-				var type = (byte)ResourceType.ResourceType;
-				var index = (byte)ResourceType.MaxDensity;
-				world.Map.Resources[cell] = new ResourceTile(type, index);
+				action.Add(new CellResource(cell, resourceLayer.GetResource(cell), ResourceType));
+				resourceAdded = true;
+			}
+			else if (resourceAdded && mi.Button == MouseButton.Left && mi.Event == MouseInputEvent.Up)
+			{
+				editorActionManager.Add(action);
+				action = new AddResourcesEditorAction(ResourceType, resourceLayer);
+				resourceAdded = false;
 			}
 
 			return true;
 		}
 
-		public bool AllowResourceAt(CPos cell)
+		void UpdatePreview()
 		{
-			var mapResources = world.Map.Resources;
-			if (!mapResources.Contains(cell))
-				return false;
+			var pos = world.Map.CenterOfCell(cell);
 
-			var tile = world.Map.Tiles[cell];
-			var tileInfo = world.Map.Rules.TileSet.GetTileInfo(tile);
-			if (tileInfo == null)
-				return false;
-
-			var terrainType = world.Map.Rules.TileSet.TerrainInfo[tileInfo.TerrainType];
-
-			if (mapResources[cell].Type == ResourceType.ResourceType)
-				return false;
-
-			if (!ResourceType.AllowedTerrainTypes.Contains(terrainType.Type))
-				return false;
-
-			return ResourceType.AllowOnRamps || tileInfo.RampType == 0;
+			preview.Clear();
+			preview.AddRange(resourceRenderers.SelectMany(r => r.RenderPreview(worldRenderer, ResourceType, pos)));
 		}
 
-		public void Tick()
+		void IEditorBrush.TickRender(WorldRenderer wr, Actor self)
 		{
-			var cell = worldRenderer.Viewport.ViewToWorld(Viewport.LastMousePos);
-			var offset = WVec.Zero;
-			var location = world.Map.CenterOfCell(cell) + offset;
-
-			var cellScreenPosition = worldRenderer.ScreenPxPosition(location);
-			var cellScreenPixel = worldRenderer.Viewport.WorldToViewPx(cellScreenPosition);
-
-			preview.Bounds.X = cellScreenPixel.X;
-			preview.Bounds.Y = cellScreenPixel.Y;
+			var currentCell = wr.Viewport.ViewToWorld(Viewport.LastMousePos);
+			if (cell != currentCell)
+			{
+				cell = currentCell;
+				UpdatePreview();
+			}
 		}
+
+		IEnumerable<IRenderable> IEditorBrush.RenderAboveShroud(Actor self, WorldRenderer wr) { return preview; }
+		IEnumerable<IRenderable> IEditorBrush.RenderAnnotations(Actor self, WorldRenderer wr) { yield break; }
+
+		public void Tick() { }
 
 		public void Dispose() { }
+	}
+
+	readonly struct CellResource
+	{
+		public readonly CPos Cell;
+		public readonly ResourceLayerContents OldResourceTile;
+		public readonly string NewResourceType;
+
+		public CellResource(CPos cell, ResourceLayerContents oldResourceTile, string newResourceType)
+		{
+			Cell = cell;
+			OldResourceTile = oldResourceTile;
+			NewResourceType = newResourceType;
+		}
+	}
+
+	sealed class AddResourcesEditorAction : IEditorAction
+	{
+		[FluentReference("amount", "type")]
+		const string AddedResource = "notification-added-resource";
+
+		public string Text { get; private set; }
+
+		readonly IResourceLayer resourceLayer;
+		readonly string resourceType;
+		readonly List<CellResource> cellResources = new();
+
+		public AddResourcesEditorAction(string resourceType, IResourceLayer resourceLayer)
+		{
+			this.resourceType = resourceType;
+			this.resourceLayer = resourceLayer;
+		}
+
+		public void Execute()
+		{
+		}
+
+		public void Do()
+		{
+			foreach (var resourceCell in cellResources)
+			{
+				resourceLayer.ClearResources(resourceCell.Cell);
+				resourceLayer.AddResource(resourceCell.NewResourceType, resourceCell.Cell, resourceLayer.GetMaxDensity(resourceCell.NewResourceType));
+			}
+		}
+
+		public void Undo()
+		{
+			foreach (var resourceCell in cellResources)
+			{
+				resourceLayer.ClearResources(resourceCell.Cell);
+				if (resourceCell.OldResourceTile.Type != null)
+					resourceLayer.AddResource(resourceCell.OldResourceTile.Type, resourceCell.Cell, resourceCell.OldResourceTile.Density);
+			}
+		}
+
+		public void Add(CellResource resourceCell)
+		{
+			resourceLayer.ClearResources(resourceCell.Cell);
+			resourceLayer.AddResource(resourceCell.NewResourceType, resourceCell.Cell, resourceLayer.GetMaxDensity(resourceCell.NewResourceType));
+			cellResources.Add(resourceCell);
+			Text = FluentProvider.GetString(AddedResource, "amount", cellResources.Count, "type", resourceType);
+		}
 	}
 }

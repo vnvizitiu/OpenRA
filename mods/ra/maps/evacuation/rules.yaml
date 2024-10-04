@@ -8,20 +8,29 @@ World:
 	MissionData:
 		Briefing: One of our outposts is under heavy attack by a nearby Soviet base. Einstein, Tanya and many of our forces have been evacuated via helicopters, but those were shot down on the other side of the river. Fortunately they survived the crash, but are now in enemy territory. Tanya and the rest of the surviving forces need to fight their way out of there. The air defenses must be eliminated before another Search & Rescue helicopter can arrive.\n\nMeanwhile, the forces remaining at the base need to fend off the Soviet attacks.\n
 	LuaScript:
-		Scripts: evacuation.lua
+		Scripts: campaign.lua, utils.lua, evacuation.lua
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
 		Default: normal
+	TimeLimitManager:
+		TimeLimitLocked: True
 
-^Tanks:
-	Demolishable:
-
-^Vehicles:
-	Demolishable:
+^Palettes:
+	IndexedPlayerPalette:
+		PlayerIndex:
+			Allies: 224, 224, 225, 225, 226, 184, 185, 186, 187, 188, 188, 189, 190, 190, 191, 191
+			Allies1: 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175
+			Allies2: 208, 208, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 154, 155, 143
+	IndexedPlayerPalette@NOSHADOW:
+		PlayerIndex:
+			Allies: 224, 224, 225, 225, 226, 184, 185, 186, 187, 188, 188, 189, 190, 190, 191, 191
+			Allies1: 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175
+			Allies2: 208, 208, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 154, 155, 143
 
 E1:
 	ScriptTags:
@@ -36,12 +45,16 @@ DOG:
 	ScriptTags:
 
 TRAN.Husk1:
-	Burns:
-		Damage: 0
+	WithIdleOverlay@Burns:
+		Image: fire
+		Sequence: 1
+		IsDecoration: True
 
 TRAN.Husk2:
-	Burns:
-		Damage: 0
+	WithIdleOverlay@Burns:
+		Image: fire
+		Sequence: 1
+		IsDecoration: True
 
 E7:
 	Passenger:
@@ -63,6 +76,7 @@ TRAN:
 		Prerequisites: ~disabled
 	RevealsShroud:
 		Range: 0c0
+	Interactable:
 
 2TNK:
 	Buildable:
@@ -72,7 +86,7 @@ MECH:
 	Buildable:
 		Prerequisites: ~disabled
 
-HIJACKER:
+THF:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -152,15 +166,7 @@ APC:
 	Buildable:
 		Prerequisites: ~disabled
 
-MNLY.AP:
-	Buildable:
-		Prerequisites: ~disabled
-
-MNLY.AT:
-	Buildable:
-		Prerequisites: ~disabled
-
-TRUK:
+MNLY:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -206,11 +212,11 @@ Camera.SAM:
 		Range: 2c0
 
 powerproxy.paras1:
-	AlwaysVisible:
+	Inherits: powerproxy.paratroopers
 	ParatroopersPower:
 		DropItems: E1,E1,E1,E2,3TNK
 
 powerproxy.paras2:
-	AlwaysVisible:
+	Inherits: powerproxy.paratroopers
 	ParatroopersPower:
 		DropItems: E1,E1,E1,E2,E2

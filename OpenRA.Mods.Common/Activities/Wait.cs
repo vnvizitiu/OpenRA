@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -17,54 +17,40 @@ namespace OpenRA.Mods.Common.Activities
 	public class Wait : Activity
 	{
 		int remainingTicks;
-		bool interruptable = true;
 
 		public Wait(int period) { remainingTicks = period; }
-		public Wait(int period, bool interruptable)
+		public Wait(int period, bool interruptible)
 		{
 			remainingTicks = period;
-			this.interruptable = interruptable;
+			IsInterruptible = interruptible;
 		}
 
-		public override Activity Tick(Actor self)
+		public override bool Tick(Actor self)
 		{
-			return (remainingTicks-- == 0) ? NextActivity : this;
-		}
+			if (IsCanceling)
+				return true;
 
-		public override void Cancel(Actor self)
-		{
-			if (!interruptable)
-				return;
-
-			remainingTicks = 0;
-			base.Cancel(self);
+			return remainingTicks-- == 0;
 		}
 	}
 
 	public class WaitFor : Activity
 	{
-		Func<bool> f;
-		bool interruptable = true;
+		readonly Func<bool> f;
 
 		public WaitFor(Func<bool> f) { this.f = f; }
-		public WaitFor(Func<bool> f, bool interruptable)
+		public WaitFor(Func<bool> f, bool interruptible)
 		{
 			this.f = f;
-			this.interruptable = interruptable;
+			IsInterruptible = interruptible;
 		}
 
-		public override Activity Tick(Actor self)
+		public override bool Tick(Actor self)
 		{
-			return (f == null || f()) ? NextActivity : this;
-		}
+			if (IsCanceling)
+				return true;
 
-		public override void Cancel(Actor self)
-		{
-			if (!interruptable)
-				return;
-
-			f = null;
-			base.Cancel(self);
+			return f == null || f();
 		}
 	}
 }

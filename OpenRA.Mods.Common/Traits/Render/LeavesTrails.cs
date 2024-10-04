@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,17 +18,19 @@ namespace OpenRA.Mods.Common.Traits.Render
 	public enum TrailType { Cell, CenterPosition }
 
 	[Desc("Renders a sprite effect when leaving a cell.")]
-	public class LeavesTrailsInfo : UpgradableTraitInfo
+	public class LeavesTrailsInfo : ConditionalTraitInfo
 	{
+		[FieldLoader.Require]
 		public readonly string Image = null;
 
-		[SequenceReference("Image")]
+		[SequenceReference(nameof(Image))]
 		public readonly string[] Sequences = { "idle" };
 
-		[PaletteReference] public readonly string Palette = "effect";
+		[PaletteReference]
+		public readonly string Palette = "effect";
 
-		[Desc("Only do so when the terrain types match with the previous cell.")]
-		public readonly HashSet<string> TerrainTypes = new HashSet<string>();
+		[Desc("Only leave trail on listed terrain types. Leave empty to leave trail on all terrain types.")]
+		public readonly HashSet<string> TerrainTypes = new();
 
 		[Desc("Accepts values: Cell to draw the trail sprite in the center of the current cell,",
 			"CenterPosition to draw the trail sprite at the current position.")]
@@ -49,7 +51,8 @@ namespace OpenRA.Mods.Common.Traits.Render
 		[Desc("Delay between trail updates when moving.")]
 		public readonly int MovingInterval = 0;
 
-		[Desc("Delay before first trail.")]
+		[Desc("Delay before first trail.",
+			"Use negative values for falling back to the *Interval values.")]
 		public readonly int StartDelay = 0;
 
 		[Desc("Trail spawn positions relative to actor position. (forward, right, up) triples")]
@@ -58,29 +61,31 @@ namespace OpenRA.Mods.Common.Traits.Render
 		[Desc("Should the trail spawn relative to last position or current position?")]
 		public readonly bool SpawnAtLastPosition = true;
 
-		public override object Create(ActorInitializer init) { return new LeavesTrails(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new LeavesTrails(this); }
 	}
 
-	public class LeavesTrails : UpgradableTrait<LeavesTrailsInfo>, ITick, INotifyCreated
+	public class LeavesTrails : ConditionalTrait<LeavesTrailsInfo>, ITick, INotifyAddedToWorld
 	{
 		BodyOrientation body;
 		IFacing facing;
-		int cachedFacing;
+		WAngle cachedFacing;
 		int cachedInterval;
 
-		public LeavesTrails(Actor self, LeavesTrailsInfo info)
+		public LeavesTrails(LeavesTrailsInfo info)
 			: base(info)
 		{
 			cachedInterval = Info.StartDelay;
 		}
 
 		WPos cachedPosition;
-		public void Created(Actor self)
+		protected override void Created(Actor self)
 		{
 			body = self.Trait<BodyOrientation>();
 			facing = self.TraitOrDefault<IFacing>();
-			cachedFacing = facing != null ? facing.Facing : 0;
+			cachedFacing = facing?.Facing ?? WAngle.Zero;
 			cachedPosition = self.CenterPosition;
+
+			base.Created(self);
 		}
 
 		int ticks;
@@ -88,9 +93,13 @@ namespace OpenRA.Mods.Common.Traits.Render
 		bool wasStationary;
 		bool isMoving;
 
-		public void Tick(Actor self)
+		bool previouslySpawned;
+		CPos previousSpawnCell;
+		WAngle previousSpawnFacing;
+
+		void ITick.Tick(Actor self)
 		{
-			if (IsTraitDisabled)
+			if (!self.IsInWorld || IsTraitDisabled)
 				return;
 
 			wasStationary = !isMoving;
@@ -98,7 +107,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 			if ((isMoving && !Info.TrailWhileMoving) || (!isMoving && !Info.TrailWhileStationary))
 				return;
 
-			if (isMoving == wasStationary)
+			if (isMoving == wasStationary && (Info.StartDelay > -1))
 			{
 				cachedInterval = Info.StartDelay;
 				ticks = 0;
@@ -107,32 +116,48 @@ namespace OpenRA.Mods.Common.Traits.Render
 			if (++ticks >= cachedInterval)
 			{
 				var spawnCell = Info.SpawnAtLastPosition ? self.World.Map.CellContaining(cachedPosition) : self.World.Map.CellContaining(self.CenterPosition);
+				if (!self.World.Map.Contains(spawnCell))
+					return;
+
 				var type = self.World.Map.GetTerrainInfo(spawnCell).Type;
 
 				if (++offset >= Info.Offsets.Length)
 					offset = 0;
 
-				var offsetRotation = Info.Offsets[offset].Rotate(body.QuantizeOrientation(self, self.Orientation));
-				var spawnPosition = Info.SpawnAtLastPosition ? cachedPosition : self.CenterPosition;
+				if (Info.TerrainTypes.Count == 0 || Info.TerrainTypes.Contains(type))
+				{
+					var spawnFacing = Info.SpawnAtLastPosition ? cachedFacing : facing?.Facing ?? WAngle.Zero;
 
-				var pos = Info.Type == TrailType.CenterPosition ? spawnPosition + body.LocalToWorld(offsetRotation) :
-					self.World.Map.CenterOfCell(spawnCell);
+					if (previouslySpawned && previousSpawnCell == spawnCell)
+						spawnFacing = previousSpawnFacing;
 
-				var spawnFacing = Info.SpawnAtLastPosition ? cachedFacing : (facing != null ? facing.Facing : 0);
+					var offsetRotation = Info.Offsets[offset].Rotate(body.QuantizeOrientation(self.Orientation));
+					var spawnPosition = Info.SpawnAtLastPosition ? cachedPosition : self.CenterPosition;
+					var pos = Info.Type == TrailType.CenterPosition ? spawnPosition + body.LocalToWorld(offsetRotation) :
+						self.World.Map.CenterOfCell(spawnCell);
 
-				if (Info.TerrainTypes.Contains(type) && !string.IsNullOrEmpty(Info.Image))
-					self.World.AddFrameEndTask(w => w.Add(new SpriteEffect(pos, self.World, Info.Image,
-						Info.Sequences.Random(Game.CosmeticRandom), Info.Palette, Info.VisibleThroughFog, false, spawnFacing)));
+					self.World.AddFrameEndTask(w => w.Add(new SpriteEffect(pos, spawnFacing, self.World, Info.Image,
+						Info.Sequences.Random(Game.CosmeticRandom), Info.Palette, Info.VisibleThroughFog)));
+
+					previouslySpawned = true;
+					previousSpawnCell = spawnCell;
+					previousSpawnFacing = spawnFacing;
+				}
 
 				cachedPosition = self.CenterPosition;
-				cachedFacing = facing != null ? facing.Facing : 0;
+				cachedFacing = facing?.Facing ?? WAngle.Zero;
 				ticks = 0;
 
 				cachedInterval = isMoving ? Info.MovingInterval : Info.StationaryInterval;
 			}
 		}
 
-		protected override void UpgradeEnabled(Actor self)
+		protected override void TraitEnabled(Actor self)
+		{
+			cachedPosition = self.CenterPosition;
+		}
+
+		void INotifyAddedToWorld.AddedToWorld(Actor self)
 		{
 			cachedPosition = self.CenterPosition;
 		}

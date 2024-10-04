@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -31,7 +31,11 @@ namespace OpenRA.Mods.Common.Traits
 			if (Info.Type == VisibilityType.Footprint)
 				return byPlayer.Shroud.AnyVisible(self.OccupiesSpace.OccupiedCells());
 
-			return byPlayer.Shroud.IsVisible(self.CenterPosition);
+			var pos = self.CenterPosition;
+			if (Info.Type == VisibilityType.GroundPosition)
+				pos -= new WVec(WDist.Zero, WDist.Zero, self.World.Map.DistanceAboveTerrain(pos));
+
+			return byPlayer.Shroud.IsVisible(pos);
 		}
 	}
 }

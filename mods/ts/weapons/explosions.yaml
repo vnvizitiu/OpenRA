@@ -1,8 +1,8 @@
-UnitExplode:
+^DamagingExplosion:
 	Warhead@1Dam: SpreadDamage
-		Spread: 426
-		Damage: 50
-		Falloff: 1000, 368, 135, 50, 18, 7, 0
+		Spread: 256
+		Falloff: 100, 50, 25, 12, 6, 3, 0
+		Damage: 50000
 		Versus:
 			None: 90
 			Wood: 75
@@ -10,23 +10,20 @@ UnitExplode:
 			Heavy: 25
 		DamageTypes: Prone50Percent, TriggerProne, SmallExplosionDeath
 	Warhead@2Eff: CreateEffect
-		Explosions: large_twlt
-		ExplosionPalette: effectalpha75
-		ImpactSounds: expnew09.aud
+		Explosions: large_brnl, large_bang, medium_twlt
+		ImpactSounds: expnew09.aud, expnew10.aud, expnew12.aud
 	Warhead@4Smu: LeaveSmudge
 		SmudgeType: MediumCrater
 		InvalidTargets: Building, Wall
 
+UnitExplode:
+	Inherits: ^DamagingExplosion
+
 UnitExplodeSmall:
+	Inherits: ^DamagingExplosion
 	Warhead@1Dam: SpreadDamage
-		Spread: 426
-		Damage: 40
-		Versus:
-			None: 90
-			Wood: 75
-			Light: 60
-			Heavy: 25
-		DamageTypes: Prone50Percent, TriggerProne, SmallExplosionDeath
+		Spread: 192
+		Damage: 4000
 	Warhead@2Eff: CreateEffect
 		Explosions: medium_brnl
 		ImpactSounds: expnew13.aud
@@ -34,47 +31,37 @@ UnitExplodeSmall:
 		SmudgeType: SmallCrater
 		InvalidTargets: Building, Wall
 
+BuildingExplosions:
+	Warhead@1Eff: CreateEffect
+		Explosions: building, large_bang, large_brnl, verylarge_clsn, large_tumu
+	Warhead@2Smu: LeaveSmudge
+		SmudgeType: MediumCrater
+
 CyborgExplode:
 	Warhead@1Eff: CreateEffect
 		Explosions: medium_bang
 		ImpactSounds: expnew10.aud
 
 TiberiumExplosion:
+	Inherits: ^DamagingExplosion
 	Warhead@1Dam: SpreadDamage
 		Spread: 9
-		Damage: 10
-		Versus:
-			None: 90
-			Wood: 75
-			Light: 60
-			Heavy: 25
+		Damage: 1000
 		DamageTypes: Prone50Percent, TriggerProne, ExplosionDeath
-	Warhead@2Res: CreateResource
+	Warhead@Res: CreateResource
 		AddsResourceType: Tiberium
 		Size: 1,1
-	Warhead@3Eff: CreateEffect
+	Warhead@2Eff: CreateEffect
 		Explosions: large_explosion
-		ExplosionPalette: effectalpha75
+	-Warhead@4Smu:
+
+Demolish:
+	Warhead@1Dam: SpreadDamage
+		DamageTypes: DefaultDeath
+	Warhead@2Eff: CreateEffect
+		Explosions: large_twlt
 		ImpactSounds: expnew09.aud
 
-SmallDebris:
-	ReloadDelay: 60
-	Range: 4c0
-	Report:
-	Projectile: Bullet
-		Speed: 50, 125
-		LaunchAngle: 45, 135
-		Image: dbrissm
-		Sequences: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
-		Shadow: true
-
-LargeDebris:
-	ReloadDelay: 60
-	Range: 4c0
-	Report:
-	Projectile: Bullet
-		Speed: 50, 125
-		LaunchAngle: 45, 135
-		Image: dbrislg
-		Sequences: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
-		Shadow: true
+DropPodExplode:
+	Warhead@1Eff: CreateEffect
+		Explosions: droppod_explosion, droppod2_explosion, droppody_explosion, droppody2_explosion

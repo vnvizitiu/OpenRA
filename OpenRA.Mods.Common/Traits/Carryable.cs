@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,52 +9,76 @@
  */
 #endregion
 
-using OpenRA.Mods.Common.Activities;
+using System.Linq;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	[Desc("Can be carried by actors with the `Carryall` trait.")]
-	public class CarryableInfo : ITraitInfo, Requires<UpgradeManagerInfo>
+	[Desc("Can be carried by actors with the `" + nameof(Carryall) + "` trait.")]
+	public class CarryableInfo : ConditionalTraitInfo
 	{
-		[UpgradeGrantedReference]
-		[Desc("The upgrades to grant to self while waiting or being carried.")]
-		public readonly string[] CarryableUpgrades = { };
+		[GrantedConditionReference]
+		[Desc("The condition to grant to self while a carryall has been reserved.")]
+		public readonly string ReservedCondition = null;
+
+		[GrantedConditionReference]
+		[Desc("The condition to grant to self while being carried.")]
+		public readonly string CarriedCondition = null;
+
+		[GrantedConditionReference]
+		[Desc("The condition to grant to self while being locked for carry.")]
+		public readonly string LockedCondition = null;
 
 		[Desc("Carryall attachment point relative to body.")]
 		public readonly WVec LocalOffset = WVec.Zero;
 
-		public virtual object Create(ActorInitializer init) { return new Carryable(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new Carryable(this); }
 	}
 
-	public class Carryable
+	public enum LockResponse { Success, Pending, Failed }
+
+	public interface IDelayCarryallPickup
 	{
-		readonly CarryableInfo info;
-		readonly UpgradeManager upgradeManager;
+		bool TryLockForPickup(Actor self, Actor carrier);
+	}
+
+	public class Carryable : ConditionalTrait<CarryableInfo>
+	{
+		int reservedToken = Actor.InvalidConditionToken;
+		int carriedToken = Actor.InvalidConditionToken;
+		int lockedToken = Actor.InvalidConditionToken;
+
+		IDelayCarryallPickup[] delayPickups;
 
 		public Actor Carrier { get; private set; }
-		public bool Reserved { get { return state != State.Free; } }
-		public CPos? Destination { get; protected set; }
-		public bool WantsTransport { get { return Destination != null; } }
+		public bool Reserved => state != State.Free;
 
+		protected Mobile Mobile { get; private set; }
 		protected enum State { Free, Reserved, Locked }
 		protected State state = State.Free;
 		protected bool attached;
 
-		public Carryable(Actor self, CarryableInfo info)
+		public Carryable(CarryableInfo info)
+			: base(info) { }
+
+		protected override void Created(Actor self)
 		{
-			this.info = info;
-			upgradeManager = self.Trait<UpgradeManager>();
+			Mobile = self.TraitOrDefault<Mobile>();
+			delayPickups = self.TraitsImplementing<IDelayCarryallPickup>().ToArray();
+
+			base.Created(self);
 		}
 
-		public virtual void Attached(Actor self)
+		public virtual void Attached(Actor self, Actor carrier)
 		{
 			if (attached)
 				return;
 
 			attached = true;
-			foreach (var u in info.CarryableUpgrades)
-				upgradeManager.GrantUpgrade(self, u, this);
+			Carrier = carrier;
+
+			if (carriedToken == Actor.InvalidConditionToken)
+				carriedToken = self.GrantCondition(Info.CarriedCondition);
 		}
 
 		// This gets called by carrier after we touched down
@@ -64,17 +88,22 @@ namespace OpenRA.Mods.Common.Traits
 				return;
 
 			attached = false;
-			foreach (var u in info.CarryableUpgrades)
-				upgradeManager.RevokeUpgrade(self, u, this);
+
+			if (carriedToken != Actor.InvalidConditionToken)
+				carriedToken = self.RevokeCondition(carriedToken);
 		}
 
 		public virtual bool Reserve(Actor self, Actor carrier)
 		{
-			if (Reserved)
+			if (Reserved || IsTraitDisabled)
 				return false;
 
 			state = State.Reserved;
 			Carrier = carrier;
+
+			if (reservedToken == Actor.InvalidConditionToken)
+				reservedToken = self.GrantCondition(Info.ReservedCondition);
+
 			return true;
 		}
 
@@ -82,18 +111,40 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			state = State.Free;
 			Carrier = null;
+
+			if (reservedToken != Actor.InvalidConditionToken)
+				reservedToken = self.RevokeCondition(reservedToken);
+
+			if (lockedToken != Actor.InvalidConditionToken)
+				lockedToken = self.RevokeCondition(lockedToken);
 		}
 
 		// Prepare for transport pickup
-		public virtual bool LockForPickup(Actor self, Actor carrier)
+		public virtual LockResponse LockForPickup(Actor self, Actor carrier)
 		{
-			if (state == State.Locked)
-				return false;
+			if (state == State.Locked && Carrier != carrier)
+				return LockResponse.Failed;
 
-			state = State.Locked;
-			Carrier = carrier;
-			self.QueueActivity(false, new WaitFor(() => state != State.Locked, false));
-			return true;
+			if (delayPickups.Any(d => d.IsTraitEnabled() && !d.TryLockForPickup(self, carrier)))
+				return LockResponse.Pending;
+
+			if (Mobile != null && !Mobile.CanStayInCell(self.Location))
+				return LockResponse.Pending;
+
+			if (state != State.Locked)
+			{
+				state = State.Locked;
+				Carrier = carrier;
+
+				if (lockedToken == Actor.InvalidConditionToken)
+					lockedToken = self.GrantCondition(Info.LockedCondition);
+			}
+
+			// Make sure we are not moving and at our normal position with respect to the cell grid
+			if (Mobile != null && Mobile.IsMovingBetweenCells)
+				return LockResponse.Pending;
+
+			return LockResponse.Success;
 		}
 	}
 }

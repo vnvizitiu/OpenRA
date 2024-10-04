@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,6 +12,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using OpenRA.Traits;
 
 namespace OpenRA.Graphics
 {
@@ -23,35 +24,31 @@ namespace OpenRA.Graphics
 		public CursorProvider(ModData modData)
 		{
 			var fileSystem = modData.DefaultFileSystem;
+			var stringPool = new HashSet<string>(); // Reuse common strings in YAML
 			var sequenceYaml = MiniYaml.Merge(modData.Manifest.Cursors.Select(
-				s => MiniYaml.FromStream(fileSystem.Open(s), s)));
+				s => MiniYaml.FromStream(fileSystem.Open(s), s, stringPool: stringPool)));
 
-			var shadowIndex = new int[] { };
+			var cursorsYaml = new MiniYaml(null, sequenceYaml).NodeWithKey("Cursors").Value;
 
-			var nodesDict = new MiniYaml(null, sequenceYaml).ToDictionary();
-			if (nodesDict.ContainsKey("ShadowIndex"))
-			{
-				Array.Resize(ref shadowIndex, shadowIndex.Length + 1);
-				Exts.TryParseIntegerInvariant(nodesDict["ShadowIndex"].Value,
-					out shadowIndex[shadowIndex.Length - 1]);
-			}
+			// Overwrite previous definitions if there are duplicates
+			var pals = new Dictionary<string, IProvidesCursorPaletteInfo>();
+			foreach (var p in modData.DefaultRules.Actors[SystemActors.World].TraitInfos<IProvidesCursorPaletteInfo>())
+				if (p.Palette != null)
+					pals[p.Palette] = p;
 
-			var palettes = new Dictionary<string, ImmutablePalette>();
-			foreach (var p in nodesDict["Palettes"].Nodes)
-				palettes.Add(p.Key, new ImmutablePalette(fileSystem.Open(p.Value.Value), shadowIndex));
-
-			Palettes = palettes.AsReadOnly();
+			Palettes = cursorsYaml.Nodes.Select(n => n.Value.Value)
+				.Where(p => p != null)
+				.Distinct()
+				.ToDictionary(p => p, p => pals[p].ReadPalette(modData.DefaultFileSystem));
 
 			var frameCache = new FrameCache(fileSystem, modData.SpriteLoaders);
 			var cursors = new Dictionary<string, CursorSequence>();
-			foreach (var s in nodesDict["Cursors"].Nodes)
+			foreach (var s in cursorsYaml.Nodes)
 				foreach (var sequence in s.Value.Nodes)
 					cursors.Add(sequence.Key, new CursorSequence(frameCache, sequence.Key, s.Key, s.Value.Value, sequence.Value));
 
-			Cursors = cursors.AsReadOnly();
+			Cursors = cursors;
 		}
-
-		public static bool CursorViewportZoomed { get { return Game.Settings.Graphics.CursorDouble && Game.Settings.Graphics.PixelDouble; } }
 
 		public bool HasCursorSequence(string cursor)
 		{
@@ -63,7 +60,7 @@ namespace OpenRA.Graphics
 			try { return Cursors[cursor]; }
 			catch (KeyNotFoundException)
 			{
-				throw new InvalidOperationException("Cursor does not have a sequence `{0}`".F(cursor));
+				throw new InvalidOperationException($"Cursor does not have a sequence `{cursor}`");
 			}
 		}
 	}

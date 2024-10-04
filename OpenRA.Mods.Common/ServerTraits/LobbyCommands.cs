@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,71 +11,230 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
-using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
+using OpenRA.Mods.Common.Widgets.Logic;
 using OpenRA.Network;
+using OpenRA.Primitives;
 using OpenRA.Server;
+using OpenRA.Support;
 using OpenRA.Traits;
 using S = OpenRA.Server.Server;
 
 namespace OpenRA.Mods.Common.Server
 {
-	public class LobbyCommands : ServerTrait, IInterpretCommand, INotifyServerStart, IClientJoined
+	public class LobbyCommands : ServerTrait, IInterpretCommand, INotifyServerStart, INotifyServerEmpty, IClientJoined, OpenRA.Server.ITick
 	{
+		[FluentReference]
+		const string CustomRules = "notification-custom-rules";
+
+		[FluentReference]
+		const string OnlyHostStartGame = "notification-admin-start-game";
+
+		[FluentReference]
+		const string NoStartUntilRequiredSlotsFull = "notification-no-start-until-required-slots-full";
+
+		[FluentReference]
+		const string NoStartWithoutPlayers = "notification-no-start-without-players";
+
+		[FluentReference]
+		const string TwoHumansRequired = "notification-two-humans-required";
+
+		[FluentReference]
+		const string InsufficientEnabledSpawnPoints = "notification-insufficient-enabled-spawn-points";
+
+		[FluentReference("command")]
+		const string MalformedCommand = "notification-malformed-command";
+
+		[FluentReference]
+		const string KickNone = "notification-kick-none";
+
+		[FluentReference]
+		const string NoKickSelf = "notification-kick-self";
+
+		[FluentReference]
+		const string NoKickGameStarted = "notification-no-kick-game-started";
+
+		[FluentReference("admin", "player")]
+		const string AdminKicked = "notification-admin-kicked";
+
+		[FluentReference("player")]
+		const string Kicked = "notification-kicked";
+
+		[FluentReference("admin", "player")]
+		const string TempBan = "notification-temp-ban";
+
+		[FluentReference]
+		const string NoTransferAdmin = "notification-admin-transfer-admin";
+
+		[FluentReference]
+		const string EmptySlot = "notification-empty-slot";
+
+		[FluentReference("admin", "player")]
+		const string MoveSpectators = "notification-move-spectators";
+
+		[FluentReference("player", "name")]
+		const string Nick = "notification-nick-changed";
+
+		[FluentReference]
+		const string StateUnchangedReady = "notification-state-unchanged-ready";
+
+		[FluentReference("command")]
+		const string StateUnchangedGameStarted = "notification-state-unchanged-game-started";
+
+		[FluentReference("faction")]
+		const string InvalidFactionSelected = "notification-invalid-faction-selected";
+
+		[FluentReference("factions")]
+		const string SupportedFactions = "notification-supported-factions";
+
+		[FluentReference]
+		const string RequiresHost = "notification-requires-host";
+
+		[FluentReference]
+		const string InvalidBotSlot = "notification-invalid-bot-slot";
+
+		[FluentReference]
+		const string InvalidBotType = "notification-invalid-bot-type";
+
+		[FluentReference]
+		const string HostChangeMap = "notification-admin-change-map";
+
+		[FluentReference]
+		const string UnknownMap = "notification-unknown-map";
+
+		[FluentReference]
+		const string SearchingMap = "notification-searching-map";
+
+		[FluentReference]
+		const string NotAdmin = "notification-admin-change-configuration";
+
+		[FluentReference]
+		const string InvalidConfigurationCommand = "notification-invalid-configuration-command";
+
+		[FluentReference("option")]
+		const string OptionLocked = "notification-option-locked";
+
+		[FluentReference("player", "map")]
+		const string ChangedMap = "notification-changed-map";
+
+		[FluentReference]
+		const string MapBotsDisabled = "notification-map-bots-disabled";
+
+		[FluentReference("player", "name", "value")]
+		const string ValueChanged = "notification-option-changed";
+
+		[FluentReference]
+		const string NoMoveSpectators = "notification-admin-move-spectators";
+
+		[FluentReference]
+		const string AdminOption = "notification-admin-option";
+
+		[FluentReference("raw")]
+		const string NumberTeams = "notification-error-number-teams";
+
+		[FluentReference]
+		const string AdminClearSpawn = "notification-admin-clear-spawn";
+
+		[FluentReference]
+		const string SpawnOccupied = "notification-spawn-occupied";
+
+		[FluentReference]
+		const string SpawnLocked = "notification-spawn-locked";
+
+		[FluentReference]
+		const string AdminLobbyInfo = "notification-admin-lobby-info";
+
+		[FluentReference]
+		const string InvalidLobbyInfo = "notification-invalid-lobby-info";
+
+		[FluentReference]
+		const string AdminKick = "notification-admin-kick";
+
+		[FluentReference]
+		const string SlotClosed = "notification-slot-closed";
+
+		[FluentReference("player")]
+		const string NewAdmin = "notification-new-admin";
+
+		[FluentReference]
+		const string YouWereKicked = "notification-you-were-kicked";
+
+		[FluentReference]
+		const string VoteKickDisabled = "notification-vote-kick-disabled";
+
+		readonly IDictionary<string, Func<S, Connection, Session.Client, string, bool>> commandHandlers =
+			new Dictionary<string, Func<S, Connection, Session.Client, string, bool>>
+			{
+				{ "state", State },
+				{ "startgame", StartGame },
+				{ "slot", Slot },
+				{ "allow_spectators", AllowSpectators },
+				{ "spectate", Specate },
+				{ "slot_close", SlotClose },
+				{ "slot_open", SlotOpen },
+				{ "slot_bot", SlotBot },
+				{ "map", Map },
+				{ "option", Option },
+				{ "reset_options", ResetOptions },
+				{ "assignteams", AssignTeams },
+				{ "kick", Kick },
+				{ "vote_kick", VoteKick },
+				{ "make_admin", MakeAdmin },
+				{ "make_spectator", MakeSpectator },
+				{ "name", Name },
+				{ "faction", Faction },
+				{ "team", Team },
+				{ "handicap", Handicap },
+				{ "spawn", Spawn },
+				{ "clear_spawn", ClearPlayerSpawn },
+				{ "color", PlayerColor },
+				{ "sync_lobby", SyncLobby }
+			};
+
 		static bool ValidateSlotCommand(S server, Connection conn, Session.Client client, string arg, bool requiresHost)
 		{
-			if (!server.LobbyInfo.Slots.ContainsKey(arg))
+			lock (server.LobbyInfo)
 			{
-				Log.Write("server", "Invalid slot: {0}", arg);
-				return false;
-			}
+				if (!server.LobbyInfo.Slots.ContainsKey(arg))
+				{
+					Log.Write("server", $"Invalid slot: {arg}");
+					return false;
+				}
 
-			if (requiresHost && !client.IsAdmin)
-			{
-				server.SendOrderTo(conn, "Message", "Only the host can do that.");
-				return false;
-			}
+				if (requiresHost && !client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, RequiresHost);
+					return false;
+				}
 
-			return true;
+				return true;
+			}
 		}
 
-		public static bool ValidateCommand(S server, Connection conn, Session.Client client, string cmd)
+		public static bool ValidateCommand(S server, Connection conn, Session.Client client, string command)
 		{
-			if (server.State == ServerState.GameStarted)
+			lock (server.LobbyInfo)
 			{
-				server.SendOrderTo(conn, "Message", "Cannot change state when game started. ({0})".F(cmd));
-				return false;
+				// Kick command is always valid for the host
+				if (command.StartsWith("kick ", StringComparison.Ordinal) || command.StartsWith("vote_kick ", StringComparison.Ordinal))
+					return true;
+
+				if (server.State == ServerState.GameStarted)
+				{
+					server.SendFluentMessageTo(conn, StateUnchangedGameStarted, new object[] { "command", command });
+					return false;
+				}
+				else if (client.State == Session.ClientState.Ready && !(command.StartsWith("state", StringComparison.Ordinal) || command == "startgame"))
+				{
+					server.SendFluentMessageTo(conn, StateUnchangedReady);
+					return false;
+				}
+
+				return true;
 			}
-			else if (client.State == Session.ClientState.Ready && !(cmd.StartsWith("state") || cmd == "startgame"))
-			{
-				server.SendOrderTo(conn, "Message", "Cannot change state when marked as ready.");
-				return false;
-			}
-
-			return true;
-		}
-
-		static void CheckAutoStart(S server)
-		{
-			// A spectating admin is included for checking these rules
-			var playerClients = server.LobbyInfo.Clients.Where(c => (c.Bot == null && c.Slot != null) || c.IsAdmin);
-
-			// Are all players ready?
-			if (!playerClients.Any() || playerClients.Any(c => c.State != Session.ClientState.Ready))
-				return;
-
-			// Are the map conditions satisfied?
-			if (server.LobbyInfo.Slots.Any(sl => sl.Value.Required && server.LobbyInfo.ClientInSlot(sl.Key) == null))
-				return;
-
-			// Does server have only one player?
-			if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer && playerClients.Count() == 1)
-				return;
-
-			server.StartGame();
 		}
 
 		public bool InterpretCommand(S server, Connection conn, Session.Client client, string cmd)
@@ -83,696 +242,1131 @@ namespace OpenRA.Mods.Common.Server
 			if (server == null || conn == null || client == null || !ValidateCommand(server, conn, client, cmd))
 				return false;
 
-			var dict = new Dictionary<string, Func<string, bool>>
-			{
-				{ "state",
-					s =>
-					{
-						var state = Session.ClientState.Invalid;
-						if (!Enum<Session.ClientState>.TryParse(s, false, out state))
-						{
-							server.SendOrderTo(conn, "Message", "Malformed state command");
-							return true;
-						}
-
-						client.State = state;
-
-						Log.Write("server", "Player @{0} is {1}",
-							conn.Socket.RemoteEndPoint, client.State);
-
-						server.SyncLobbyClients();
-
-						CheckAutoStart(server);
-
-						return true;
-					}
-				},
-				{ "startgame",
-					s =>
-					{
-						if (!client.IsAdmin)
-						{
-							server.SendOrderTo(conn, "Message", "Only the host can start the game.");
-							return true;
-						}
-
-						if (server.LobbyInfo.Slots.Any(sl => sl.Value.Required &&
-							server.LobbyInfo.ClientInSlot(sl.Key) == null))
-						{
-							server.SendOrderTo(conn, "Message", "Unable to start the game until required slots are full.");
-							return true;
-						}
-
-						if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer &&
-							server.LobbyInfo.Clients.Where(c => c.Bot == null && c.Slot != null).Count() == 1)
-						{
-							server.SendOrderTo(conn, "Message", server.TwoHumansRequiredText);
-							return true;
-						}
-
-						server.StartGame();
-						return true;
-					}
-				},
-				{ "slot",
-					s =>
-					{
-						if (!server.LobbyInfo.Slots.ContainsKey(s))
-						{
-							Log.Write("server", "Invalid slot: {0}", s);
-							return false;
-						}
-
-						var slot = server.LobbyInfo.Slots[s];
-
-						if (slot.Closed || server.LobbyInfo.ClientInSlot(s) != null)
-							return false;
-
-						// If the previous slot had a locked spawn then we must not carry that to the new slot
-						var oldSlot = client.Slot != null ? server.LobbyInfo.Slots[client.Slot] : null;
-						if (oldSlot != null && oldSlot.LockSpawn)
-							client.SpawnPoint = 0;
-
-						client.Slot = s;
-						S.SyncClientToPlayerReference(client, server.Map.Players.Players[s]);
-
-						if (!slot.LockColor)
-							client.PreferredColor = client.Color = SanitizePlayerColor(server, client.Color, client.Index, conn);
-
-						server.SyncLobbyClients();
-						CheckAutoStart(server);
-
-						return true;
-					}
-				},
-				{ "allow_spectators",
-					s =>
-					{
-						if (bool.TryParse(s, out server.LobbyInfo.GlobalSettings.AllowSpectators))
-						{
-							server.SyncLobbyGlobalSettings();
-							return true;
-						}
-						else
-						{
-							server.SendOrderTo(conn, "Message", "Malformed allow_spectate command");
-							return true;
-						}
-					}
-				},
-				{ "spectate",
-					s =>
-					{
-						if (server.LobbyInfo.GlobalSettings.AllowSpectators || client.IsAdmin)
-						{
-							client.Slot = null;
-							client.SpawnPoint = 0;
-							client.Color = HSLColor.FromRGB(255, 255, 255);
-							server.SyncLobbyClients();
-							CheckAutoStart(server);
-							return true;
-						}
-						else
-							return false;
-					}
-				},
-				{ "slot_close",
-					s =>
-					{
-						if (!ValidateSlotCommand(server, conn, client, s, true))
-							return false;
-
-						// kick any player that's in the slot
-						var occupant = server.LobbyInfo.ClientInSlot(s);
-						if (occupant != null)
-						{
-							if (occupant.Bot != null)
-							{
-								server.LobbyInfo.Clients.Remove(occupant);
-								server.SyncLobbyClients();
-								var ping = server.LobbyInfo.PingFromClient(occupant);
-								if (ping != null)
-								{
-									server.LobbyInfo.ClientPings.Remove(ping);
-									server.SyncClientPing();
-								}
-							}
-							else
-							{
-								var occupantConn = server.Conns.FirstOrDefault(c => c.PlayerIndex == occupant.Index);
-								if (occupantConn != null)
-								{
-									server.SendOrderTo(occupantConn, "ServerError", "Your slot was closed by the host.");
-									server.DropClient(occupantConn);
-								}
-							}
-						}
-
-						server.LobbyInfo.Slots[s].Closed = true;
-						server.SyncLobbySlots();
-						return true;
-					}
-				},
-				{ "slot_open",
-					s =>
-					{
-						if (!ValidateSlotCommand(server, conn, client, s, true))
-							return false;
-
-						var slot = server.LobbyInfo.Slots[s];
-						slot.Closed = false;
-						server.SyncLobbySlots();
-
-						// Slot may have a bot in it
-						var occupant = server.LobbyInfo.ClientInSlot(s);
-						if (occupant != null && occupant.Bot != null)
-						{
-							server.LobbyInfo.Clients.Remove(occupant);
-							var ping = server.LobbyInfo.PingFromClient(occupant);
-							if (ping != null)
-							{
-								server.LobbyInfo.ClientPings.Remove(ping);
-								server.SyncClientPing();
-							}
-						}
-
-						server.SyncLobbyClients();
-						return true;
-					}
-				},
-				{ "slot_bot",
-					s =>
-					{
-						var parts = s.Split(' ');
-
-						if (parts.Length < 3)
-						{
-							server.SendOrderTo(conn, "Message", "Malformed slot_bot command");
-							return true;
-						}
-
-						if (!ValidateSlotCommand(server, conn, client, parts[0], true))
-							return false;
-
-						var slot = server.LobbyInfo.Slots[parts[0]];
-						var bot = server.LobbyInfo.ClientInSlot(parts[0]);
-						int controllerClientIndex;
-						if (!Exts.TryParseIntegerInvariant(parts[1], out controllerClientIndex))
-						{
-							Log.Write("server", "Invalid bot controller client index: {0}", parts[1]);
-							return false;
-						}
-
-						var botType = parts.Skip(2).JoinWith(" ");
-
-						// Invalid slot
-						if (bot != null && bot.Bot == null)
-						{
-							server.SendOrderTo(conn, "Message", "Can't add bots to a slot with another client.");
-							return true;
-						}
-
-						slot.Closed = false;
-						if (bot == null)
-						{
-							// Create a new bot
-							bot = new Session.Client()
-							{
-								Index = server.ChooseFreePlayerIndex(),
-								Name = botType,
-								Bot = botType,
-								Slot = parts[0],
-								Faction = "Random",
-								SpawnPoint = 0,
-								Team = 0,
-								State = Session.ClientState.NotReady,
-								BotControllerClientIndex = controllerClientIndex
-							};
-
-							// Pick a random color for the bot
-							var validator = server.ModData.Manifest.Get<ColorValidator>();
-							var tileset = server.Map.Rules.TileSet;
-							var terrainColors = tileset.TerrainInfo.Where(ti => ti.RestrictPlayerColor).Select(ti => ti.Color);
-							var playerColors = server.LobbyInfo.Clients.Select(c => c.Color.RGB)
-								.Concat(server.Map.Players.Players.Values.Select(p => p.Color.RGB));
-							bot.Color = bot.PreferredColor = validator.RandomValidColor(server.Random, terrainColors, playerColors);
-
-							server.LobbyInfo.Clients.Add(bot);
-						}
-						else
-						{
-							// Change the type of the existing bot
-							bot.Name = botType;
-							bot.Bot = botType;
-						}
-
-						S.SyncClientToPlayerReference(bot, server.Map.Players.Players[parts[0]]);
-						server.SyncLobbyClients();
-						server.SyncLobbySlots();
-						return true;
-					}
-				},
-				{ "map",
-					s =>
-					{
-						if (!client.IsAdmin)
-						{
-							server.SendOrderTo(conn, "Message", "Only the host can change the map.");
-							return true;
-						}
-
-						var lastMap = server.LobbyInfo.GlobalSettings.Map;
-						Action<MapPreview> selectMap = map =>
-						{
-							// Make sure the map hasn't changed in the meantime
-							if (server.LobbyInfo.GlobalSettings.Map != lastMap)
-								return;
-
-							server.LobbyInfo.GlobalSettings.Map = map.Uid;
-
-							var oldSlots = server.LobbyInfo.Slots.Keys.ToArray();
-							server.Map = server.ModData.MapCache[server.LobbyInfo.GlobalSettings.Map];
-
-							server.LobbyInfo.Slots = server.Map.Players.Players
-								.Select(p => MakeSlotFromPlayerReference(p.Value))
-								.Where(ss => ss != null)
-								.ToDictionary(ss => ss.PlayerReference, ss => ss);
-
-							LoadMapSettings(server, server.LobbyInfo.GlobalSettings, server.Map.Rules);
-
-							// Reset client states
-							foreach (var c in server.LobbyInfo.Clients)
-								c.State = Session.ClientState.Invalid;
-
-							// Reassign players into new slots based on their old slots:
-							//  - Observers remain as observers
-							//  - Players who now lack a slot are made observers
-							//  - Bots who now lack a slot are dropped
-							//  - Bots who are not defined in the map rules are dropped
-							var botNames = server.Map.Rules.Actors["player"].TraitInfos<IBotInfo>().Select(t => t.Name);
-							var slots = server.LobbyInfo.Slots.Keys.ToArray();
-							var i = 0;
-							foreach (var os in oldSlots)
-							{
-								var c = server.LobbyInfo.ClientInSlot(os);
-								if (c == null)
-									continue;
-
-								c.SpawnPoint = 0;
-								c.Slot = i < slots.Length ? slots[i++] : null;
-								if (c.Slot != null)
-								{
-									// Remove Bot from slot if slot forbids bots
-									if (c.Bot != null && (!server.Map.Players.Players[c.Slot].AllowBots || !botNames.Contains(c.Bot)))
-										server.LobbyInfo.Clients.Remove(c);
-									S.SyncClientToPlayerReference(c, server.Map.Players.Players[c.Slot]);
-								}
-								else if (c.Bot != null)
-									server.LobbyInfo.Clients.Remove(c);
-							}
-
-							// Validate if color is allowed and get an alternative if it isn't
-							foreach (var c in server.LobbyInfo.Clients)
-								if (c.Slot == null || (c.Slot != null && !server.LobbyInfo.Slots[c.Slot].LockColor))
-									c.Color = c.PreferredColor = SanitizePlayerColor(server, c.Color, c.Index, conn);
-
-							server.SyncLobbyInfo();
-
-							server.SendMessage("{0} changed the map to {1}.".F(client.Name, server.Map.Title));
-
-							if (server.Map.DefinesUnsafeCustomRules)
-								server.SendMessage("This map contains custom rules. Game experience may change.");
-
-							if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer)
-								server.SendMessage(server.TwoHumansRequiredText);
-							else if (server.Map.Players.Players.Where(p => p.Value.Playable).All(p => !p.Value.AllowBots))
-								server.SendMessage("Bots have been disabled on this map.");
-
-							var briefing = MissionBriefingOrDefault(server);
-							if (briefing != null)
-								server.SendMessage(briefing);
-						};
-
-						Action queryFailed = () =>
-							server.SendOrderTo(conn, "Message", "Map was not found on server.");
-
-						var m = server.ModData.MapCache[s];
-						if (m.Status == MapStatus.Available || m.Status == MapStatus.DownloadAvailable)
-							selectMap(m);
-						else if (server.Settings.QueryMapRepository)
-						{
-							server.SendOrderTo(conn, "Message", "Searching for map on the Resource Center...");
-							server.ModData.MapCache.QueryRemoteMapDetails(new[] { s }, selectMap, queryFailed);
-						}
-						else
-							queryFailed();
-
-						return true;
-					}
-				},
-				{ "option",
-					s =>
-					{
-						if (!client.IsAdmin)
-						{
-							server.SendOrderTo(conn, "Message", "Only the host can change the configuration.");
-							return true;
-						}
-
-						var allOptions = server.Map.Rules.Actors["player"].TraitInfos<ILobbyOptions>()
-							.Concat(server.Map.Rules.Actors["world"].TraitInfos<ILobbyOptions>())
-							.SelectMany(t => t.LobbyOptions(server.Map.Rules));
-
-						// Overwrite keys with duplicate ids
-						var options = new Dictionary<string, LobbyOption>();
-						foreach (var o in allOptions)
-							options[o.Id] = o;
-
-						var split = s.Split(' ');
-						LobbyOption option;
-						if (split.Length < 2 || !options.TryGetValue(split[0], out option) ||
-							!option.Values.ContainsKey(split[1]))
-						{
-							server.SendOrderTo(conn, "Message", "Invalid configuration command.");
-							return true;
-						}
-
-						if (option.Locked)
-						{
-							server.SendOrderTo(conn, "Message", "{0} cannot be changed.".F(option.Name));
-							return true;
-						}
-
-						var oo = server.LobbyInfo.GlobalSettings.LobbyOptions[option.Id];
-						if (oo.Value == split[1])
-							return true;
-
-						oo.Value = oo.PreferredValue = split[1];
-
-						if (option.Id == "gamespeed")
-						{
-							var speed = server.ModData.Manifest.Get<GameSpeeds>().Speeds[oo.Value];
-							server.LobbyInfo.GlobalSettings.Timestep = speed.Timestep;
-							server.LobbyInfo.GlobalSettings.OrderLatency = speed.OrderLatency;
-						}
-
-						server.SyncLobbyGlobalSettings();
-						server.SendMessage(option.ValueChangedMessage(client.Name, split[1]));
-
-						return true;
-					}
-				},
-				{ "assignteams",
-					s =>
-					{
-						if (!client.IsAdmin)
-						{
-							server.SendOrderTo(conn, "Message", "Only the host can set that option.");
-							return true;
-						}
-
-						int teamCount;
-						if (!Exts.TryParseIntegerInvariant(s, out teamCount))
-						{
-							server.SendOrderTo(conn, "Message", "Number of teams could not be parsed: {0}".F(s));
-							return true;
-						}
-
-						var maxTeams = (server.LobbyInfo.Clients.Count(c => c.Slot != null) + 1) / 2;
-						teamCount = teamCount.Clamp(0, maxTeams);
-						var clients = server.LobbyInfo.Slots
-							.Select(slot => server.LobbyInfo.ClientInSlot(slot.Key))
-							.Where(c => c != null && !server.LobbyInfo.Slots[c.Slot].LockTeam);
-
-						var assigned = 0;
-						var clientCount = clients.Count();
-						foreach (var player in clients)
-						{
-							// Free for all
-							if (teamCount == 0)
-								player.Team = 0;
-
-							// Humans vs Bots
-							else if (teamCount == 1)
-								player.Team = player.Bot == null ? 1 : 2;
-							else
-								player.Team = assigned++ * teamCount / clientCount + 1;
-						}
-
-						server.SyncLobbyClients();
-						return true;
-					}
-				},
-				{ "kick",
-					s =>
-					{
-						if (!client.IsAdmin)
-						{
-							server.SendOrderTo(conn, "Message", "Only the host can kick players.");
-							return true;
-						}
-
-						var split = s.Split(' ');
-						if (split.Length < 2)
-						{
-							server.SendOrderTo(conn, "Message", "Malformed kick command");
-							return true;
-						}
-
-						int kickClientID;
-						Exts.TryParseIntegerInvariant(split[0], out kickClientID);
-
-						var kickConn = server.Conns.SingleOrDefault(c => server.GetClient(c) != null && server.GetClient(c).Index == kickClientID);
-						if (kickConn == null)
-						{
-							server.SendOrderTo(conn, "Message", "No-one in that slot.");
-							return true;
-						}
-
-						var kickClient = server.GetClient(kickConn);
-
-						Log.Write("server", "Kicking client {0}.", kickClientID);
-						server.SendMessage("{0} kicked {1} from the server.".F(client.Name, kickClient.Name));
-						server.SendOrderTo(kickConn, "ServerError", "You have been kicked from the server.");
-						server.DropClient(kickConn);
-
-						bool tempBan;
-						bool.TryParse(split[1], out tempBan);
-
-						if (tempBan)
-						{
-							Log.Write("server", "Temporarily banning client {0} ({1}).", kickClientID, kickClient.IpAddress);
-							server.SendMessage("{0} temporarily banned {1} from the server.".F(client.Name, kickClient.Name));
-							server.TempBans.Add(kickClient.IpAddress);
-						}
-
-						server.SyncLobbyClients();
-						server.SyncLobbySlots();
-
-						return true;
-					}
-				},
-				{ "name",
-					s =>
-					{
-						var sanitizedName = Settings.SanitizedPlayerName(s);
-						if (sanitizedName == client.Name)
-							return true;
-
-						Log.Write("server", "Player@{0} is now known as {1}.", conn.Socket.RemoteEndPoint, sanitizedName);
-						server.SendMessage("{0} is now known as {1}.".F(client.Name, sanitizedName));
-						client.Name = sanitizedName;
-						server.SyncLobbyClients();
-						return true;
-					}
-				},
-				{ "faction",
-					s =>
-					{
-						var parts = s.Split(' ');
-						var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseIntegerInvariant(parts[0]));
-
-						// Only the host can change other client's info
-						if (targetClient.Index != client.Index && !client.IsAdmin)
-							return true;
-
-						// Map has disabled faction changes
-						if (server.LobbyInfo.Slots[targetClient.Slot].LockFaction)
-							return true;
-
-						var factions = server.Map.Rules.Actors["world"].TraitInfos<FactionInfo>()
-							.Where(f => f.Selectable).Select(f => f.InternalName);
-
-						if (!factions.Contains(parts[1]))
-						{
-							server.SendOrderTo(conn, "Message", "Invalid faction selected: {0}".F(parts[1]));
-							server.SendOrderTo(conn, "Message", "Supported values: {0}".F(factions.JoinWith(", ")));
-							return true;
-						}
-
-						targetClient.Faction = parts[1];
-						server.SyncLobbyClients();
-						return true;
-					}
-				},
-				{ "team",
-					s =>
-					{
-						var parts = s.Split(' ');
-						var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseIntegerInvariant(parts[0]));
-
-						// Only the host can change other client's info
-						if (targetClient.Index != client.Index && !client.IsAdmin)
-							return true;
-
-						// Map has disabled team changes
-						if (server.LobbyInfo.Slots[targetClient.Slot].LockTeam)
-							return true;
-
-						int team;
-						if (!Exts.TryParseIntegerInvariant(parts[1], out team))
-						{
-							Log.Write("server", "Invalid team: {0}", s);
-							return false;
-						}
-
-						targetClient.Team = team;
-						server.SyncLobbyClients();
-						return true;
-					}
-				},
-				{ "spawn",
-					s =>
-					{
-						var parts = s.Split(' ');
-						var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseIntegerInvariant(parts[0]));
-
-						// Only the host can change other client's info
-						if (targetClient.Index != client.Index && !client.IsAdmin)
-							return true;
-
-						// Spectators don't need a spawnpoint
-						if (targetClient.Slot == null)
-							return true;
-
-						// Map has disabled spawn changes
-						if (server.LobbyInfo.Slots[targetClient.Slot].LockSpawn)
-							return true;
-
-						int spawnPoint;
-						if (!Exts.TryParseIntegerInvariant(parts[1], out spawnPoint)
-							|| spawnPoint < 0 || spawnPoint > server.Map.SpawnPoints.Length)
-						{
-							Log.Write("server", "Invalid spawn point: {0}", parts[1]);
-							return true;
-						}
-
-						if (server.LobbyInfo.Clients.Where(cc => cc != client).Any(cc => (cc.SpawnPoint == spawnPoint) && (cc.SpawnPoint != 0)))
-						{
-							server.SendOrderTo(conn, "Message", "You cannot occupy the same spawn point as another player.");
-							return true;
-						}
-
-						// Check if any other slot has locked the requested spawn
-						if (spawnPoint > 0)
-						{
-							var spawnLockedByAnotherSlot = server.LobbyInfo.Slots.Where(ss => ss.Value.LockSpawn).Any(ss =>
-							{
-								var pr = PlayerReferenceForSlot(server, ss.Value);
-								return pr != null && pr.Spawn == spawnPoint;
-							});
-
-							if (spawnLockedByAnotherSlot)
-							{
-								server.SendOrderTo(conn, "Message", "The spawn point is locked to another player slot.");
-								return true;
-							}
-						}
-
-						targetClient.SpawnPoint = spawnPoint;
-						server.SyncLobbyClients();
-						return true;
-					}
-				},
-				{ "color",
-					s =>
-					{
-						var parts = s.Split(' ');
-						var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseIntegerInvariant(parts[0]));
-
-						// Only the host can change other client's info
-						if (targetClient.Index != client.Index && !client.IsAdmin)
-							return true;
-
-						// Spectator or map has disabled color changes
-						if (targetClient.Slot == null || server.LobbyInfo.Slots[targetClient.Slot].LockColor)
-							return true;
-
-						// Validate if color is allowed and get an alternative it isn't
-						var newColor = FieldLoader.GetValue<HSLColor>("(value)", parts[1]);
-						targetClient.Color = SanitizePlayerColor(server, newColor, targetClient.Index, conn);
-
-						// Only update player's preferred color if new color is valid
-						if (newColor == targetClient.Color)
-							targetClient.PreferredColor = targetClient.Color;
-
-						server.SyncLobbyClients();
-						return true;
-					}
-				},
-				{ "sync_lobby",
-					s =>
-					{
-						if (!client.IsAdmin)
-						{
-							server.SendOrderTo(conn, "Message", "Only the host can set lobby info");
-							return true;
-						}
-
-						var lobbyInfo = Session.Deserialize(s);
-						if (lobbyInfo == null)
-						{
-							server.SendOrderTo(conn, "Message", "Invalid Lobby Info Sent");
-							return true;
-						}
-
-						server.LobbyInfo = lobbyInfo;
-
-						server.SyncLobbyInfo();
-						return true;
-					}
-				}
-			};
-
 			var cmdName = cmd.Split(' ').First();
 			var cmdValue = cmd.Split(' ').Skip(1).JoinWith(" ");
 
-			Func<string, bool> a;
-			if (!dict.TryGetValue(cmdName, out a))
+			if (!commandHandlers.TryGetValue(cmdName, out var a))
 				return false;
 
-			return a(cmdValue);
+			return a(server, conn, client, cmdValue);
+		}
+
+		static void CheckAutoStart(S server)
+		{
+			lock (server.LobbyInfo)
+			{
+				var nonBotPlayers = server.LobbyInfo.NonBotPlayers;
+
+				// Are all players and admin (could be spectating) ready?
+				if (nonBotPlayers.Any(c => c.State != Session.ClientState.Ready) ||
+					server.LobbyInfo.Clients.First(c => c.IsAdmin).State != Session.ClientState.Ready)
+					return;
+
+				// Does server have at least 2 human players?
+				if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer && nonBotPlayers.Count() < 2)
+					return;
+
+				// Are the map conditions satisfied?
+				if (server.LobbyInfo.Slots.Any(sl => sl.Value.Required && server.LobbyInfo.ClientInSlot(sl.Key) == null))
+					return;
+
+				// Don't start without any players
+				if (server.LobbyInfo.Slots.All(sl => server.LobbyInfo.ClientInSlot(sl.Key) == null))
+					return;
+
+				// Does the host have the map installed?
+				if (server.Type != ServerType.Dedicated && server.ModData.MapCache[server.Map.Uid].Status != MapStatus.Available)
+				{
+					// Client 0 will always be the Host
+					// In some cases client 0 doesn't exist, so we untick all players
+					var host = server.LobbyInfo.Clients.FirstOrDefault(c => c.Index == 0);
+					if (host != null)
+						host.State = Session.ClientState.NotReady;
+					else
+						foreach (var client in server.LobbyInfo.Clients)
+							client.State = Session.ClientState.NotReady;
+
+					server.SyncLobbyClients();
+					return;
+				}
+
+				if (LobbyUtils.InsufficientEnabledSpawnPoints(server.Map, server.LobbyInfo))
+					return;
+
+				server.StartGame();
+			}
+		}
+
+		static bool State(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!Enum<Session.ClientState>.TryParse(s, false, out var state))
+				{
+					server.SendFluentMessageTo(conn, MalformedCommand, new object[] { "command", "state" });
+
+					return true;
+				}
+
+				client.State = state;
+				Log.Write("server", $"Player @{conn.EndPoint} is {client.State}");
+
+				server.SyncLobbyClients();
+				CheckAutoStart(server);
+
+				return true;
+			}
+		}
+
+		static bool StartGame(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, OnlyHostStartGame);
+					return true;
+				}
+
+				if (server.LobbyInfo.Slots.Any(sl => sl.Value.Required && server.LobbyInfo.ClientInSlot(sl.Key) == null))
+				{
+					server.SendFluentMessageTo(conn, NoStartUntilRequiredSlotsFull);
+					return true;
+				}
+
+				if (server.LobbyInfo.Slots.All(sl => server.LobbyInfo.ClientInSlot(sl.Key) == null))
+				{
+					server.SendOrderTo(conn, "Message", NoStartWithoutPlayers);
+					return true;
+				}
+
+				if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer && server.LobbyInfo.NonBotPlayers.Count() < 2)
+				{
+					server.SendFluentMessageTo(conn, TwoHumansRequired);
+					return true;
+				}
+
+				if (LobbyUtils.InsufficientEnabledSpawnPoints(server.Map, server.LobbyInfo))
+				{
+					server.SendFluentMessageTo(conn, InsufficientEnabledSpawnPoints);
+					return true;
+				}
+
+				server.StartGame();
+
+				return true;
+			}
+		}
+
+		static bool Slot(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!server.LobbyInfo.Slots.TryGetValue(s, out var slot))
+				{
+					Log.Write("server", $"Invalid slot: {s}");
+					return false;
+				}
+
+				if (slot.Closed || server.LobbyInfo.ClientInSlot(s) != null)
+					return false;
+
+				// If the previous slot had a locked spawn then we must not carry that to the new slot
+				var oldSlot = client.Slot != null ? server.LobbyInfo.Slots[client.Slot] : null;
+				if (oldSlot != null && oldSlot.LockSpawn)
+					client.SpawnPoint = 0;
+
+				client.Slot = s;
+				S.SyncClientToPlayerReference(client, server.Map.Players.Players[s]);
+
+				if (!slot.LockColor)
+					client.PreferredColor = client.Color = SanitizePlayerColor(server, client.Color, client.Index, conn);
+
+				server.SyncLobbyClients();
+				CheckAutoStart(server);
+
+				return true;
+			}
+		}
+
+		static bool AllowSpectators(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (bool.TryParse(s, out server.LobbyInfo.GlobalSettings.AllowSpectators))
+				{
+					server.SyncLobbyGlobalSettings();
+					return true;
+				}
+
+				server.SendFluentMessageTo(conn, MalformedCommand, new object[] { "command", "allow_spectate" });
+
+				return true;
+			}
+		}
+
+		static bool Specate(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (server.LobbyInfo.GlobalSettings.AllowSpectators || client.IsAdmin)
+				{
+					client.Slot = null;
+					client.SpawnPoint = 0;
+					client.Team = 0;
+					client.Handicap = 0;
+					client.Color = Color.White;
+					server.SyncLobbyClients();
+					CheckAutoStart(server);
+					return true;
+				}
+
+				return false;
+			}
+		}
+
+		static bool SlotClose(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!ValidateSlotCommand(server, conn, client, s, true))
+					return false;
+
+				// kick any player that's in the slot
+				var occupant = server.LobbyInfo.ClientInSlot(s);
+				if (occupant != null)
+				{
+					if (occupant.Bot != null)
+					{
+						server.LobbyInfo.Clients.Remove(occupant);
+						server.SyncLobbyClients();
+					}
+					else
+					{
+						var occupantConn = server.Conns.FirstOrDefault(c => c.PlayerIndex == occupant.Index);
+						if (occupantConn != null)
+						{
+							server.SendOrderTo(conn, "ServerError", SlotClosed);
+							server.DropClient(occupantConn);
+						}
+					}
+				}
+
+				server.LobbyInfo.Slots[s].Closed = true;
+				server.SyncLobbySlots();
+
+				return true;
+			}
+		}
+
+		static bool SlotOpen(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!ValidateSlotCommand(server, conn, client, s, true))
+					return false;
+
+				var slot = server.LobbyInfo.Slots[s];
+				slot.Closed = false;
+				server.SyncLobbySlots();
+
+				// Slot may have a bot in it
+				var occupant = server.LobbyInfo.ClientInSlot(s);
+				if (occupant != null && occupant.Bot != null)
+					server.LobbyInfo.Clients.Remove(occupant);
+
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool SlotBot(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var parts = s.Split(' ');
+				if (parts.Length < 3)
+				{
+					server.SendFluentMessageTo(conn, MalformedCommand, new object[] { "command", "slot_bot" });
+					return true;
+				}
+
+				if (!ValidateSlotCommand(server, conn, client, parts[0], true))
+					return false;
+
+				var slot = server.LobbyInfo.Slots[parts[0]];
+				var bot = server.LobbyInfo.ClientInSlot(parts[0]);
+				if (!Exts.TryParseInt32Invariant(parts[1], out var controllerClientIndex))
+				{
+					Log.Write("server", $"Invalid bot controller client index: {parts[1]}");
+					return false;
+				}
+
+				// Invalid slot
+				if (bot != null && bot.Bot == null)
+				{
+					server.SendFluentMessageTo(conn, InvalidBotSlot);
+					return true;
+				}
+
+				var botType = parts[2];
+				var botInfo = server.Map.PlayerActorInfo.TraitInfos<IBotInfo>()
+					.FirstOrDefault(b => b.Type == botType);
+
+				if (botInfo == null)
+				{
+					server.SendFluentMessageTo(conn, InvalidBotType);
+					return true;
+				}
+
+				slot.Closed = false;
+				if (bot == null)
+				{
+					// Create a new bot
+					bot = new Session.Client()
+					{
+						Index = server.ChooseFreePlayerIndex(),
+						Name = botInfo.Name,
+						Bot = botType,
+						Slot = parts[0],
+						Faction = "Random",
+						SpawnPoint = 0,
+						Team = 0,
+						Handicap = 0,
+						State = Session.ClientState.NotReady,
+						BotControllerClientIndex = controllerClientIndex
+					};
+
+					// Pick a random color for the bot
+					var colorManager = server.ModData.DefaultRules.Actors[SystemActors.World].TraitInfo<IColorPickerManagerInfo>();
+					var terrainColors = server.ModData.DefaultTerrainInfo[server.Map.TileSet].RestrictedPlayerColors.ToList();
+					var playerColors = server.LobbyInfo.Clients.Select(c => c.Color)
+						.Concat(server.Map.Players.Players.Values.Select(p => p.Color)).ToList();
+
+					bot.Color = bot.PreferredColor = colorManager.RandomPresetColor(server.Random, terrainColors, playerColors);
+
+					server.LobbyInfo.Clients.Add(bot);
+				}
+				else
+				{
+					// Change the type of the existing bot
+					bot.Name = botInfo.Name;
+					bot.Bot = botType;
+				}
+
+				S.SyncClientToPlayerReference(bot, server.Map.Players.Players[parts[0]]);
+				server.SyncLobbyClients();
+				server.SyncLobbySlots();
+
+				return true;
+			}
+		}
+
+		static bool Map(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, HostChangeMap);
+					return true;
+				}
+
+				if (server.MapPool != null && !server.MapPool.Contains(s))
+				{
+					QueryFailed();
+					return true;
+				}
+
+				var lastMap = server.LobbyInfo.GlobalSettings.Map;
+				void SelectMap(MapPreview map)
+				{
+					lock (server.LobbyInfo)
+					{
+						// Make sure the map hasn't changed in the meantime
+						if (server.LobbyInfo.GlobalSettings.Map != lastMap)
+							return;
+
+						server.LobbyInfo.GlobalSettings.Map = map.Uid;
+
+						var oldSlots = server.LobbyInfo.Slots.Keys.ToArray();
+						server.Map = server.ModData.MapCache[server.LobbyInfo.GlobalSettings.Map];
+						server.LobbyInfo.GlobalSettings.MapStatus = server.MapStatusCache[server.Map];
+
+						server.LobbyInfo.Slots = server.Map.Players.Players
+							.Select(p => MakeSlotFromPlayerReference(p.Value))
+							.Where(ss => ss != null)
+							.ToDictionary(ss => ss.PlayerReference, ss => ss);
+
+						LoadMapSettings(server, server.LobbyInfo.GlobalSettings, server.Map);
+
+						// Reset client states
+						var selectableFactions = server.Map.WorldActorInfo.TraitInfos<FactionInfo>()
+							.Where(f => f.Selectable)
+							.Select(f => f.InternalName)
+							.ToList();
+
+						foreach (var c in server.LobbyInfo.Clients)
+						{
+							c.State = Session.ClientState.Invalid;
+							if (!selectableFactions.Contains(c.Faction))
+								c.Faction = "Random";
+						}
+
+						// Reassign players into new slots based on their old slots:
+						//  - Observers remain as observers
+						//  - Players who now lack a slot are made observers
+						//  - Bots who now lack a slot are dropped
+						//  - Bots who are not defined in the map rules are dropped
+						var botTypes = server.Map.PlayerActorInfo.TraitInfos<IBotInfo>().Select(t => t.Type);
+						var slots = server.LobbyInfo.Slots.Keys.ToArray();
+						var i = 0;
+						foreach (var os in oldSlots)
+						{
+							var c = server.LobbyInfo.ClientInSlot(os);
+							if (c == null)
+								continue;
+
+							c.SpawnPoint = 0;
+							c.Slot = i < slots.Length ? slots[i++] : null;
+							if (c.Slot != null)
+							{
+								// Remove Bot from slot if slot forbids bots
+								if (c.Bot != null && (!server.Map.Players.Players[c.Slot].AllowBots || !botTypes.Contains(c.Bot)))
+									server.LobbyInfo.Clients.Remove(c);
+								S.SyncClientToPlayerReference(c, server.Map.Players.Players[c.Slot]);
+							}
+							else if (c.Bot != null)
+								server.LobbyInfo.Clients.Remove(c);
+							else
+								c.Color = Color.White;
+						}
+
+						// Validate if color is allowed and get an alternative if it isn't
+						foreach (var c in server.LobbyInfo.Clients)
+							if (c.Slot != null && !server.LobbyInfo.Slots[c.Slot].LockColor)
+								c.Color = c.PreferredColor = SanitizePlayerColor(server, c.Color, c.Index, conn);
+
+						server.LobbyInfo.DisabledSpawnPoints.Clear();
+
+						server.SyncLobbyInfo();
+
+						server.SendFluentMessage(ChangedMap, "player", client.Name, "map", server.Map.Title);
+
+						if ((server.LobbyInfo.GlobalSettings.MapStatus & Session.MapStatus.UnsafeCustomRules) != 0)
+							server.SendFluentMessage(CustomRules);
+
+						if (!server.LobbyInfo.GlobalSettings.EnableSingleplayer)
+							server.SendFluentMessage(TwoHumansRequired);
+						else if (server.Map.Players.Players.Where(p => p.Value.Playable).All(p => !p.Value.AllowBots))
+							server.SendFluentMessage(MapBotsDisabled);
+
+						var briefing = MissionBriefingOrDefault(server);
+						if (briefing != null)
+							server.SendMessage(briefing);
+					}
+				}
+
+				var m = server.ModData.MapCache[s];
+				if (m.Status == MapStatus.Available || m.Status == MapStatus.DownloadAvailable)
+					SelectMap(m);
+				else if (server.Settings.QueryMapRepository)
+				{
+					server.SendFluentMessageTo(conn, SearchingMap);
+					var mapRepository = server.ModData.Manifest.Get<WebServices>().MapRepository;
+					var reported = false;
+					server.ModData.MapCache.QueryRemoteMapDetails(mapRepository, new[] { s }, SelectMap, _ =>
+					{
+						if (!reported)
+							QueryFailed();
+
+						reported = true;
+					});
+				}
+				else
+					QueryFailed();
+
+				return true;
+			}
+
+			void QueryFailed() => server.SendFluentMessageTo(conn, UnknownMap);
+		}
+
+		static bool Option(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, NotAdmin);
+					return true;
+				}
+
+				var allOptions = server.Map.PlayerActorInfo.TraitInfos<ILobbyOptions>()
+					.Concat(server.Map.WorldActorInfo.TraitInfos<ILobbyOptions>())
+					.SelectMany(t => t.LobbyOptions(server.Map));
+
+				// Overwrite keys with duplicate ids
+				var options = new Dictionary<string, LobbyOption>();
+				foreach (var o in allOptions)
+					options[o.Id] = o;
+
+				var split = s.Split(' ');
+				if (split.Length < 2 || !options.TryGetValue(split[0], out var option) ||
+					!option.Values.ContainsKey(split[1]))
+				{
+					server.SendFluentMessageTo(conn, InvalidConfigurationCommand);
+					return true;
+				}
+
+				if (option.IsLocked)
+				{
+					server.SendFluentMessageTo(conn, OptionLocked, new object[] { "option", option.Name });
+					return true;
+				}
+
+				var oo = server.LobbyInfo.GlobalSettings.LobbyOptions[option.Id];
+				if (oo.Value == split[1])
+					return true;
+
+				if (!option.Values.ContainsKey(split[1]))
+				{
+					server.SendFluentMessageTo(conn, InvalidConfigurationCommand);
+					return true;
+				}
+
+				oo.Value = oo.PreferredValue = split[1];
+
+				server.SyncLobbyGlobalSettings();
+				server.SendFluentMessage(ValueChanged, "player", client.Name, "name", option.Name, "value", option.Label(split[1]));
+
+				foreach (var c in server.LobbyInfo.Clients)
+					c.State = Session.ClientState.NotReady;
+
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool ResetOptions(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, NotAdmin);
+					return true;
+				}
+
+				var allOptions = server.Map.PlayerActorInfo.TraitInfos<ILobbyOptions>()
+					.Concat(server.Map.WorldActorInfo.TraitInfos<ILobbyOptions>())
+					.SelectMany(t => t.LobbyOptions(server.Map));
+
+				var options = new Dictionary<string, Session.LobbyOptionState>();
+				foreach (var o in allOptions)
+				{
+					if (o.DefaultValue != server.LobbyInfo.GlobalSettings.LobbyOptions[o.Id].Value)
+						server.SendFluentMessage(ValueChanged,
+							"player", client.Name,
+							"name", o.Name,
+							"value", o.Label(o.DefaultValue));
+
+					options[o.Id] = new Session.LobbyOptionState
+					{
+						IsLocked = o.IsLocked,
+						Value = o.DefaultValue,
+						PreferredValue = o.DefaultValue
+					};
+				}
+
+				server.LobbyInfo.GlobalSettings.LobbyOptions = options;
+				server.SyncLobbyGlobalSettings();
+
+				foreach (var c in server.LobbyInfo.Clients)
+					c.State = Session.ClientState.NotReady;
+
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool AssignTeams(S server, Connection conn, Session.Client client, string raw)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, AdminOption);
+					return true;
+				}
+
+				if (!Exts.TryParseInt32Invariant(raw, out var teamCount))
+				{
+					server.SendFluentMessageTo(conn, NumberTeams, new object[] { "raw", raw });
+					return true;
+				}
+
+				var maxTeams = (server.LobbyInfo.Clients.Count(c => c.Slot != null) + 1) / 2;
+				teamCount = teamCount.Clamp(0, maxTeams);
+				var clients = server.LobbyInfo.Slots
+					.Select(slot => server.LobbyInfo.ClientInSlot(slot.Key))
+					.Where(c => c != null && !server.LobbyInfo.Slots[c.Slot].LockTeam)
+					.ToList();
+
+				var assigned = 0;
+				var clientCount = clients.Count;
+				foreach (var player in clients)
+				{
+					// Free for all
+					if (teamCount == 0)
+						player.Team = 0;
+
+					// Humans vs Bots
+					else if (teamCount == 1)
+						player.Team = player.Bot == null ? 1 : 2;
+					else
+						player.Team = assigned++ * teamCount / clientCount + 1;
+				}
+
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool Kick(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, AdminKick);
+					return true;
+				}
+
+				var split = s.Split(' ');
+				if (split.Length < 2)
+				{
+					server.SendFluentMessageTo(conn, MalformedCommand, new object[] { "command", "kick" });
+					return true;
+				}
+
+				var kickConn = Exts.TryParseInt32Invariant(split[0], out var kickClientID)
+					? server.Conns.SingleOrDefault(c => server.GetClient(c)?.Index == kickClientID) : null;
+
+				if (kickConn == null)
+				{
+					server.SendFluentMessageTo(conn, KickNone);
+					return true;
+				}
+
+				var kickClient = server.GetClient(kickConn);
+				if (client == kickClient)
+				{
+					server.SendFluentMessageTo(conn, NoKickSelf);
+					return true;
+				}
+
+				if (server.State == ServerState.GameStarted && !kickClient.IsObserver && !server.HasClientWonOrLost(kickClient))
+				{
+					server.SendFluentMessageTo(conn, NoKickGameStarted);
+					return true;
+				}
+
+				Log.Write("server", $"Kicking client {kickClientID}.");
+				server.SendFluentMessage(AdminKicked, "admin", client.Name, "player", kickClient.Name);
+				server.SendOrderTo(kickConn, "ServerError", YouWereKicked);
+				server.DropClient(kickConn);
+
+				if (bool.TryParse(split[1], out var tempBan) && tempBan)
+				{
+					Log.Write("server", $"Temporarily banning client {kickClientID} ({kickClient.IPAddress}).");
+					server.SendFluentMessage(TempBan, "admin", client.Name, "player", kickClient.Name);
+					server.TempBans.Add(kickClient.IPAddress);
+				}
+
+				server.SyncLobbyClients();
+				server.SyncLobbySlots();
+
+				return true;
+			}
+		}
+
+		static bool VoteKick(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var split = s.Split(' ');
+				if (split.Length != 2)
+				{
+					server.SendFluentMessageTo(conn, MalformedCommand, new object[] { "command", "vote_kick" });
+					return true;
+				}
+
+				if (!server.Settings.EnableVoteKick)
+				{
+					server.SendFluentMessageTo(conn, VoteKickDisabled);
+					return true;
+				}
+
+				var kickConn = Exts.TryParseInt32Invariant(split[0], out var kickClientID)
+					? server.Conns.SingleOrDefault(c => server.GetClient(c)?.Index == kickClientID) : null;
+
+				if (kickConn == null)
+				{
+					server.SendFluentMessageTo(conn, KickNone);
+					return true;
+				}
+
+				var kickClient = server.GetClient(kickConn);
+				if (client == kickClient)
+				{
+					server.SendFluentMessageTo(conn, NoKickSelf);
+					return true;
+				}
+
+				if (!bool.TryParse(split[1], out var vote))
+				{
+					server.SendFluentMessageTo(conn, MalformedCommand, new object[] { "command", "vote_kick" });
+					return true;
+				}
+
+				if (server.VoteKickTracker.VoteKick(conn, client, kickConn, kickClient, kickClientID, vote))
+				{
+					Log.Write("server", $"Kicking client {kickClientID}.");
+					server.SendFluentMessage(Kicked, "player", kickClient.Name);
+					server.SendOrderTo(kickConn, "ServerError", YouWereKicked);
+					server.DropClient(kickConn);
+
+					server.SyncLobbyClients();
+					server.SyncLobbySlots();
+				}
+
+				return true;
+			}
+		}
+
+		void OpenRA.Server.ITick.Tick(S server) => server.VoteKickTracker.Tick();
+
+		static bool MakeAdmin(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, NoTransferAdmin);
+					return true;
+				}
+
+				var newAdminConn = Exts.TryParseInt32Invariant(s, out var newAdminId)
+					? server.Conns.SingleOrDefault(c => server.GetClient(c)?.Index == newAdminId) : null;
+
+				if (newAdminConn == null)
+				{
+					server.SendFluentMessageTo(conn, EmptySlot);
+					return true;
+				}
+
+				var newAdminClient = server.GetClient(newAdminConn);
+				client.IsAdmin = false;
+				newAdminClient.IsAdmin = true;
+
+				var bots = server.LobbyInfo.Slots
+					.Select(slot => server.LobbyInfo.ClientInSlot(slot.Key))
+					.Where(c => c != null && c.Bot != null);
+				foreach (var b in bots)
+					b.BotControllerClientIndex = newAdminId;
+
+				server.SendFluentMessage(NewAdmin, "player", newAdminClient.Name);
+				Log.Write("server", $"{newAdminClient.Name} is now the admin.");
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool MakeSpectator(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, NoMoveSpectators);
+					return true;
+				}
+
+				var targetConn = Exts.TryParseInt32Invariant(s, out var targetId)
+					? server.Conns.SingleOrDefault(c => server.GetClient(c)?.Index == targetId) : null;
+
+				if (targetConn == null)
+				{
+					server.SendFluentMessageTo(conn, EmptySlot);
+					return true;
+				}
+
+				var targetClient = server.GetClient(targetConn);
+				targetClient.Slot = null;
+				targetClient.SpawnPoint = 0;
+				targetClient.Team = 0;
+				targetClient.Handicap = 0;
+				targetClient.Color = Color.White;
+				targetClient.State = Session.ClientState.NotReady;
+				server.SendFluentMessage(MoveSpectators, "admin", client.Name, "player", targetClient.Name);
+				Log.Write("server", $"{client.Name} moved {targetClient.Name} to spectators.");
+				server.SyncLobbyClients();
+				CheckAutoStart(server);
+
+				return true;
+			}
+		}
+
+		static bool Name(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var sanitizedName = Settings.SanitizedPlayerName(s);
+				if (sanitizedName == client.Name)
+					return true;
+
+				Log.Write("server", $"Player@{conn.EndPoint} is now known as {sanitizedName}.");
+				server.SendFluentMessage(Nick, "player", client.Name, "name", sanitizedName);
+				client.Name = sanitizedName;
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool Faction(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var parts = s.Split(' ');
+				var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseInt32Invariant(parts[0]));
+
+				// Only the host can change other client's info
+				if (targetClient.Index != client.Index && !client.IsAdmin)
+					return true;
+
+				// Map has disabled faction changes
+				if (server.LobbyInfo.Slots[targetClient.Slot].LockFaction)
+					return true;
+
+				var factions = server.Map.WorldActorInfo.TraitInfos<FactionInfo>()
+					.Where(f => f.Selectable).Select(f => f.InternalName)
+					.ToList();
+
+				var faction = parts[1];
+				if (!factions.Contains(faction))
+				{
+					server.SendFluentMessageTo(conn, InvalidFactionSelected, new object[] { "faction", faction });
+					server.SendFluentMessageTo(conn, SupportedFactions, new object[] { "factions", factions.JoinWith(", ") });
+					return true;
+				}
+
+				targetClient.Faction = faction;
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool Team(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var parts = s.Split(' ');
+				var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseInt32Invariant(parts[0]));
+
+				// Only the host can change other client's info
+				if (targetClient.Index != client.Index && !client.IsAdmin)
+					return true;
+
+				// Map has disabled team changes
+				if (server.LobbyInfo.Slots[targetClient.Slot].LockTeam)
+					return true;
+
+				if (!Exts.TryParseInt32Invariant(parts[1], out var team))
+				{
+					Log.Write("server", $"Invalid team: {s}");
+					return false;
+				}
+
+				targetClient.Team = team;
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool Handicap(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var parts = s.Split(' ');
+				var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseInt32Invariant(parts[0]));
+
+				// Only the host can change other client's info
+				if (targetClient.Index != client.Index && !client.IsAdmin)
+					return true;
+
+				// Map has disabled handicap changes
+				if (server.LobbyInfo.Slots[targetClient.Slot].LockHandicap)
+					return true;
+
+				if (!Exts.TryParseInt32Invariant(parts[1], out var handicap))
+				{
+					Log.Write("server", $"Invalid handicap: {s}");
+					return false;
+				}
+
+				// Handicaps may be set between 0 - 95% in steps of 5%
+				var options = Enumerable.Range(0, 20).Select(i => 5 * i);
+				if (!options.Contains(handicap))
+				{
+					Log.Write("server", $"Invalid handicap: {s}");
+					return false;
+				}
+
+				targetClient.Handicap = handicap;
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool ClearPlayerSpawn(S server, Connection conn, Session.Client client, string s)
+		{
+			var spawnPoint = Exts.ParseInt32Invariant(s);
+			if (spawnPoint == 0)
+				return true;
+
+			var existingClient = server.LobbyInfo.Clients.FirstOrDefault(cc => cc.SpawnPoint == spawnPoint);
+			if (client != existingClient && !client.IsAdmin)
+			{
+				server.SendFluentMessageTo(conn, AdminClearSpawn);
+				return true;
+			}
+
+			// Clearing a selected spawn point removes the player
+			if (existingClient != null)
+			{
+				// Prevent a map-defined lock spawn from being affected
+				if (existingClient.Slot != null && server.LobbyInfo.Slots[existingClient.Slot].LockSpawn)
+					return true;
+
+				existingClient.SpawnPoint = 0;
+				if (existingClient.State == Session.ClientState.Ready)
+					existingClient.State = Session.ClientState.NotReady;
+
+				server.SyncLobbyClients();
+				return true;
+			}
+
+			// Clearing an empty spawn point prevents it from being selected
+			// Clearing a disabled spawn restores it for use
+			if (!server.LobbyInfo.DisabledSpawnPoints.Add(spawnPoint))
+				server.LobbyInfo.DisabledSpawnPoints.Remove(spawnPoint);
+
+			server.SyncLobbyInfo();
+			return true;
+		}
+
+		static bool Spawn(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var parts = s.Split(' ');
+				var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseInt32Invariant(parts[0]));
+
+				// Only the host can change other client's info
+				if (targetClient.Index != client.Index && !client.IsAdmin)
+					return true;
+
+				// Spectators don't need a spawnpoint
+				if (targetClient.Slot == null)
+					return true;
+
+				// Map has disabled spawn changes
+				if (server.LobbyInfo.Slots[targetClient.Slot].LockSpawn)
+					return true;
+
+				if (!Exts.TryParseInt32Invariant(parts[1], out var spawnPoint)
+					|| spawnPoint < 0 || spawnPoint > server.Map.SpawnPoints.Length)
+				{
+					Log.Write("server", $"Invalid spawn point: {parts[1]}");
+					return true;
+				}
+
+				if (server.LobbyInfo.Clients.Any(cc => cc != client && (cc.SpawnPoint == spawnPoint) && (cc.SpawnPoint != 0)))
+				{
+					server.SendFluentMessageTo(conn, SpawnOccupied);
+					return true;
+				}
+
+				// Check if any other slot has locked the requested spawn
+				if (spawnPoint > 0)
+				{
+					var spawnLockedByAnotherSlot = server.LobbyInfo.Slots.Where(ss => ss.Value.LockSpawn).Any(ss =>
+					{
+						var pr = PlayerReferenceForSlot(server, ss.Value);
+						return pr != null && pr.Spawn == spawnPoint;
+					});
+
+					if (spawnLockedByAnotherSlot)
+					{
+						server.SendFluentMessageTo(conn, SpawnLocked);
+						return true;
+					}
+				}
+
+				targetClient.SpawnPoint = spawnPoint;
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool PlayerColor(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				var parts = s.Split(' ');
+				var targetClient = server.LobbyInfo.ClientWithIndex(Exts.ParseInt32Invariant(parts[0]));
+
+				// Only the host can change other client's info
+				if (targetClient.Index != client.Index && !client.IsAdmin)
+					return true;
+
+				// Spectator or map has disabled color changes
+				if (targetClient.Slot == null || server.LobbyInfo.Slots[targetClient.Slot].LockColor)
+					return true;
+
+				// Validate if color is allowed and get an alternative it isn't
+				var newColor = FieldLoader.GetValue<Color>("(value)", parts[1]);
+				targetClient.Color = SanitizePlayerColor(server, newColor, targetClient.Index, conn);
+
+				// Only update player's preferred color if new color is valid
+				if (newColor == targetClient.Color)
+					targetClient.PreferredColor = targetClient.Color;
+
+				server.SyncLobbyClients();
+
+				return true;
+			}
+		}
+
+		static bool SyncLobby(S server, Connection conn, Session.Client client, string s)
+		{
+			lock (server.LobbyInfo)
+			{
+				if (!client.IsAdmin)
+				{
+					server.SendFluentMessageTo(conn, AdminLobbyInfo);
+					return true;
+				}
+
+				try
+				{
+					server.LobbyInfo = Session.Deserialize(s, nameof(SyncLobby));
+					server.SyncLobbyInfo();
+				}
+				catch (Exception)
+				{
+					server.SendFluentMessageTo(conn, InvalidLobbyInfo);
+				}
+
+				return true;
+			}
+		}
+
+		static void InitializeMapPool(S server)
+		{
+			if (server.Type != ServerType.Dedicated)
+				return;
+
+			var mapCache = server.ModData.MapCache;
+			if (server.Settings.MapPool.Length > 0)
+				server.MapPool = server.Settings.MapPool.ToHashSet();
+			else if (!server.Settings.QueryMapRepository)
+				server.MapPool = mapCache
+					.Where(p => p.Status == MapStatus.Available && p.Visibility.HasFlag(MapVisibility.Lobby))
+					.Select(p => p.Uid)
+					.ToHashSet();
+			else
+				return;
+
+			var unknownMaps = server.MapPool.Where(server.MapIsUnknown).ToList();
+			if (unknownMaps.Count == 0)
+				return;
+
+			if (server.Settings.QueryMapRepository)
+			{
+				Log.Write("server", $"Querying Resource Center for information on {unknownMaps.Count} maps...");
+
+				// Query any missing maps and wait up to 10 seconds for a response
+				// Maps that have not resolved will not be valid for the initial map choice
+				var mapRepository = server.ModData.Manifest.Get<WebServices>().MapRepository;
+				mapCache.QueryRemoteMapDetails(mapRepository, unknownMaps);
+
+				var searchingMaps = server.MapPool.Where(uid => mapCache[uid].Status == MapStatus.Searching);
+				var stopwatch = Stopwatch.StartNew();
+
+				// Each time we check, some map statuses may have updated.
+#pragma warning disable CA1851 // Possible multiple enumerations of 'IEnumerable' collection
+				while (searchingMaps.Any() && stopwatch.ElapsedMilliseconds < 10000)
+					Thread.Sleep(100);
+#pragma warning restore CA1851
+			}
+
+			var stillUnknownMaps = server.MapPool.Where(server.MapIsUnknown).ToList();
+			if (stillUnknownMaps.Count != 0)
+				Log.Write("server", "Failed to resolve maps: " + stillUnknownMaps.JoinWith(", "));
+		}
+
+		static string ChooseInitialMap(S server)
+		{
+			if (server.MapIsKnown(server.Settings.Map))
+				return server.Settings.Map;
+
+			if (server.MapPool == null)
+				return server.ModData.MapCache.ChooseInitialMap(server.Settings.Map, new MersenneTwister());
+
+			return server.MapPool
+				.Where(server.MapIsKnown)
+				.RandomOrDefault(new MersenneTwister());
 		}
 
 		public void ServerStarted(S server)
 		{
-			// Remote maps are not supported for the initial map
-			var uid = server.LobbyInfo.GlobalSettings.Map;
-			server.Map = server.ModData.MapCache[uid];
-			if (server.Map.Status != MapStatus.Available)
-				throw new InvalidOperationException("Map {0} not found".F(uid));
+			lock (server.LobbyInfo)
+			{
+				InitializeMapPool(server);
 
-			server.LobbyInfo.Slots = server.Map.Players.Players
-				.Select(p => MakeSlotFromPlayerReference(p.Value))
-				.Where(s => s != null)
-				.ToDictionary(s => s.PlayerReference, s => s);
+				var uid = ChooseInitialMap(server);
+				if (string.IsNullOrEmpty(uid))
+					throw new InvalidOperationException("Unable to resolve a valid initial map");
 
-			LoadMapSettings(server, server.LobbyInfo.GlobalSettings, server.Map.Rules);
+				server.LobbyInfo.GlobalSettings.Map = server.Settings.Map = uid;
+				server.Map = server.ModData.MapCache[uid];
+				server.LobbyInfo.GlobalSettings.MapStatus = server.MapStatusCache[server.Map];
+				server.LobbyInfo.Slots = server.Map.Players.Players
+					.Select(p => MakeSlotFromPlayerReference(p.Value))
+					.Where(s => s != null)
+					.ToDictionary(s => s.PlayerReference, s => s);
+
+				LoadMapSettings(server, server.LobbyInfo.GlobalSettings, server.Map);
+			}
 		}
 
 		static Session.Slot MakeSlotFromPlayerReference(PlayerReference pr)
 		{
-			if (!pr.Playable) return null;
+			if (!pr.Playable)
+				return null;
+
 			return new Session.Slot
 			{
 				PlayerReference = pr.Name,
@@ -781,74 +1375,72 @@ namespace OpenRA.Mods.Common.Server
 				LockFaction = pr.LockFaction,
 				LockColor = pr.LockColor,
 				LockTeam = pr.LockTeam,
+				LockHandicap = pr.LockHandicap,
 				LockSpawn = pr.LockSpawn,
 				Required = pr.Required,
 			};
 		}
 
-		public static void LoadMapSettings(S server, Session.Global gs, Ruleset rules)
+		public static void LoadMapSettings(S server, Session.Global gs, MapPreview map)
 		{
-			var options = rules.Actors["player"].TraitInfos<ILobbyOptions>()
-				.Concat(rules.Actors["world"].TraitInfos<ILobbyOptions>())
-				.SelectMany(t => t.LobbyOptions(rules));
-
-			foreach (var o in options)
+			lock (server.LobbyInfo)
 			{
-				var value = o.DefaultValue;
-				var preferredValue = o.DefaultValue;
-				Session.LobbyOptionState state;
-				if (gs.LobbyOptions.TryGetValue(o.Id, out state))
+				var options = map.PlayerActorInfo.TraitInfos<ILobbyOptions>()
+					.Concat(map.WorldActorInfo.TraitInfos<ILobbyOptions>())
+					.SelectMany(t => t.LobbyOptions(map));
+
+				foreach (var o in options)
 				{
-					// Propagate old state on map change
-					if (!o.Locked)
+					var value = o.DefaultValue;
+					var preferredValue = o.DefaultValue;
+					if (gs.LobbyOptions.TryGetValue(o.Id, out var state))
 					{
-						if (o.Values.Keys.Contains(state.PreferredValue))
-							value = state.PreferredValue;
-						else if (o.Values.Keys.Contains(state.Value))
-							value = state.Value;
+						// Propagate old state on map change
+						if (!o.IsLocked)
+						{
+							if (o.Values.Keys.Contains(state.PreferredValue))
+								value = state.PreferredValue;
+							else if (o.Values.Keys.Contains(state.Value))
+								value = state.Value;
+						}
+
+						preferredValue = state.PreferredValue;
 					}
+					else
+						state = new Session.LobbyOptionState();
 
-					preferredValue = state.PreferredValue;
-				}
-				else
-					state = new Session.LobbyOptionState();
-
-				state.Locked = o.Locked;
-				state.Value = value;
-				state.PreferredValue = preferredValue;
-				gs.LobbyOptions[o.Id] = state;
-
-				if (o.Id == "gamespeed")
-				{
-					var speed = server.ModData.Manifest.Get<GameSpeeds>().Speeds[value];
-					gs.Timestep = speed.Timestep;
-					gs.OrderLatency = speed.OrderLatency;
+					state.IsLocked = o.IsLocked;
+					state.Value = value;
+					state.PreferredValue = preferredValue;
+					gs.LobbyOptions[o.Id] = state;
 				}
 			}
 		}
 
-		static HSLColor SanitizePlayerColor(S server, HSLColor askedColor, int playerIndex, Connection connectionToEcho = null)
+		public static Color SanitizePlayerColor(S server, Color askedColor, int playerIndex, Connection connectionToEcho = null)
 		{
-			var validator = server.ModData.Manifest.Get<ColorValidator>();
-			var askColor = askedColor;
-
-			Action<string> onError = message =>
+			lock (server.LobbyInfo)
 			{
-				if (connectionToEcho != null)
-					server.SendOrderTo(connectionToEcho, "Message", message);
-			};
+				var colorManager = server.ModData.DefaultRules.Actors[SystemActors.World].TraitInfo<IColorPickerManagerInfo>();
+				var askColor = askedColor;
 
-			var tileset = server.Map.Rules.TileSet;
-			var terrainColors = tileset.TerrainInfo.Where(ti => ti.RestrictPlayerColor).Select(ti => ti.Color).ToList();
-			var playerColors = server.LobbyInfo.Clients.Where(c => c.Index != playerIndex).Select(c => c.Color.RGB)
-				.Concat(server.Map.Players.Players.Values.Select(p => p.Color.RGB)).ToList();
+				void OnError(string message)
+				{
+					if (connectionToEcho != null && message != null)
+						server.SendFluentMessageTo(connectionToEcho, message);
+				}
 
-			return validator.MakeValid(askColor.RGB, server.Random, terrainColors, playerColors, onError);
+				var terrainColors = server.ModData.DefaultTerrainInfo[server.Map.TileSet].RestrictedPlayerColors.ToList();
+				var playerColors = server.LobbyInfo.Clients.Where(c => c.Index != playerIndex).Select(c => c.Color)
+					.Concat(server.Map.Players.Players.Values.Select(p => p.Color)).ToList();
+
+				return colorManager.MakeValid(askColor, server.Random, terrainColors, playerColors, OnError);
+			}
 		}
 
 		static string MissionBriefingOrDefault(S server)
 		{
-			var missionData = server.Map.Rules.Actors["world"].TraitInfoOrDefault<MissionDataInfo>();
+			var missionData = server.Map.WorldActorInfo.TraitInfoOrDefault<MissionDataInfo>();
 			if (missionData != null && !string.IsNullOrEmpty(missionData.Briefing))
 				return missionData.Briefing.Replace("\\n", "\n");
 
@@ -857,21 +1449,45 @@ namespace OpenRA.Mods.Common.Server
 
 		public void ClientJoined(S server, Connection conn)
 		{
-			var client = server.GetClient(conn);
+			lock (server.LobbyInfo)
+			{
+				if (server.MapPool != null)
+					server.SendOrderTo(conn, "SyncMapPool", FieldSaver.FormatValue(server.MapPool));
 
-			// Validate whether color is allowed and get an alternative if it isn't
-			if (client.Slot == null || !server.LobbyInfo.Slots[client.Slot].LockColor)
-				client.Color = SanitizePlayerColor(server, client.Color, client.Index);
+				var client = server.GetClient(conn);
 
-			// Report any custom map details
-			// HACK: this isn't the best place for this to live, but if we move it somewhere else
-			// then we need a larger hack to hook the map change event.
-			var briefing = MissionBriefingOrDefault(server);
-			if (briefing != null)
-				server.SendOrderTo(conn, "Message", briefing);
+				// Validate whether color is allowed and get an alternative if it isn't
+				if (client.Slot != null && !server.LobbyInfo.Slots[client.Slot].LockColor)
+					client.Color = SanitizePlayerColor(server, client.Color, client.Index);
+
+				// Report any custom map details
+				// HACK: this isn't the best place for this to live, but if we move it somewhere else
+				// then we need a larger hack to hook the map change event.
+				var briefing = MissionBriefingOrDefault(server);
+				if (briefing != null)
+					server.SendOrderTo(conn, "Message", briefing);
+			}
 		}
 
-		public PlayerReference PlayerReferenceForSlot(S server, Session.Slot slot)
+		void INotifyServerEmpty.ServerEmpty(S server)
+		{
+			lock (server.LobbyInfo)
+			{
+				// Expire any temporary bans
+				server.TempBans.Clear();
+
+				// Re-enable spectators
+				server.LobbyInfo.GlobalSettings.AllowSpectators = true;
+
+				// Reset player slots
+				server.LobbyInfo.Slots = server.Map.Players.Players
+					.Select(p => MakeSlotFromPlayerReference(p.Value))
+					.Where(ss => ss != null)
+					.ToDictionary(ss => ss.PlayerReference, ss => ss);
+			}
+		}
+
+		public static PlayerReference PlayerReferenceForSlot(S server, Session.Slot slot)
 		{
 			if (slot == null)
 				return null;

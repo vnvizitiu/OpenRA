@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,23 +10,27 @@
 #endregion
 
 using System;
-using System.Threading;
 
 namespace OpenRA.Platforms.Default
 {
 	abstract class ThreadAffine
 	{
-		readonly int managedThreadId;
+		volatile int managedThreadId;
 
 		protected ThreadAffine()
 		{
-			managedThreadId = Thread.CurrentThread.ManagedThreadId;
+			SetThreadAffinity();
+		}
+
+		protected void SetThreadAffinity()
+		{
+			managedThreadId = Environment.CurrentManagedThreadId;
 		}
 
 		protected void VerifyThreadAffinity()
 		{
-			if (managedThreadId != Thread.CurrentThread.ManagedThreadId)
-				throw new InvalidOperationException("Cross-thread operation not valid: This method must be called from the same thread that created this object.");
+			if (managedThreadId != Environment.CurrentManagedThreadId)
+				throw new InvalidOperationException("Cross-thread operation not valid: This method must only be called from the thread that owns this object.");
 		}
 	}
 }

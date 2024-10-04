@@ -1,4 +1,4 @@
-MapFormat: 11
+MapFormat: 12
 
 RequiresMod: d2k
 
@@ -33,18 +33,19 @@ Players:
 		LockFaction: True
 		Faction: atreides
 		LockColor: True
-		Color: 9191FF
+		Color: 5A7394
 		Enemies: Harkonnen, Creeps
 	PlayerReference@Harkonnen:
 		Name: Harkonnen
 		LockFaction: True
 		Faction: harkonnen
 		LockColor: True
-		Color: FE0000
+		Color: D64A42
 		Enemies: Atreides, Creeps
+		Bot: campaign
 
 Actors:
-	Actor0: spicebloom
+	Actor0: spicebloom.spawnpoint
 		Location: 42,4
 		Owner: Neutral
 	Actor1: trike
@@ -86,7 +87,7 @@ Actors:
 	Actor14: light_inf
 		Location: 34,21
 		Owner: Harkonnen
-	Actor15: spicebloom
+	Actor15: spicebloom.spawnpoint
 		Location: 25,23
 		Owner: Neutral
 	Actor16: light_inf
@@ -110,7 +111,7 @@ Actors:
 	Actor22: light_inf
 		Location: 25,38
 		Owner: Harkonnen
-	Actor23: spicebloom
+	Actor23: spicebloom.spawnpoint
 		Location: 11,40
 		Owner: Neutral
 	Actor24: trike
@@ -131,7 +132,7 @@ Actors:
 	Actor31: light_inf
 		Location: 28,46
 		Owner: Harkonnen
-	Actor32: spicebloom
+	Actor32: spicebloom.spawnpoint
 		Location: 42,46
 		Owner: Neutral
 	HConyard: construction_yard
@@ -168,4 +169,6 @@ Actors:
 		Owner: Neutral
 		Location: 30,28
 
-Rules: d2k|rules/campaign-rules.yaml, rules.yaml
+Rules: d2k|rules/campaign-rules.yaml, d2k|rules/campaign-tooltips.yaml, d2k|rules/campaign-palettes.yaml, rules.yaml
+
+Translations: d2k|languages/lua/en.ftl, d2k|languages/campaign/en.ftl

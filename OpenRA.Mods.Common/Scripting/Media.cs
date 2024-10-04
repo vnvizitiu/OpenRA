@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,7 +11,6 @@
 
 using System;
 using System.IO;
-using OpenRA.Mods.Common.FileFormats;
 using OpenRA.Mods.Common.Widgets;
 using OpenRA.Widgets;
 
@@ -19,14 +18,14 @@ namespace OpenRA.Mods.Common.Scripting
 {
 	public static class Media
 	{
-		public static void PlayFMVFullscreen(World w, string movie, Action onComplete)
+		public static void PlayFMVFullscreen(World w, string videoFileName, Action onComplete)
 		{
 			var playerRoot = Game.OpenWindow(w, "FMVPLAYER");
-			var player = playerRoot.Get<VqaPlayerWidget>("PLAYER");
+			var player = playerRoot.Get<VideoPlayerWidget>("PLAYER");
 
 			try
 			{
-				player.Load(movie);
+				player.LoadAndPlay(videoFileName);
 			}
 			catch (FileNotFoundException)
 			{
@@ -60,27 +59,10 @@ namespace OpenRA.Mods.Common.Scripting
 			});
 		}
 
-		public static void PlayFMVInRadar(World w, VqaReader movie, Action onComplete)
+		public static void PlayFMVInRadar(string videoFileName, Action onComplete)
 		{
-			var player = Ui.Root.Get<VqaPlayerWidget>("PLAYER");
-			player.Open(movie);
-
-			player.PlayThen(() =>
-			{
-				onComplete();
-				player.CloseVideo();
-			});
-		}
-
-		public static void StopFMVInRadar()
-		{
-			var player = Ui.Root.Get<VqaPlayerWidget>("PLAYER");
-			player.Stop();
-		}
-
-		public static VqaReader LoadVqa(Stream s)
-		{
-			return new VqaReader(s);
+			var player = Ui.Root.Get<VideoPlayerWidget>("PLAYER");
+			player.LoadAndPlayAsync(videoFileName, onComplete);
 		}
 	}
 }

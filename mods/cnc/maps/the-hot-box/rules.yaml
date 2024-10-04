@@ -1,16 +1,27 @@
 World:
 	CrateSpawner:
+		CheckboxEnabled: true
+		CheckboxLocked: true
+		CheckboxVisible: False
 		Maximum: 4
 		SpawnInterval: 125
 		CrateActors: unitcrate
 		InitialSpawnDelay: 0
-	-SpawnMPUnits:
-	-MPStartLocations:
+	-SpawnStartingUnits:
+	-MapStartingLocations:
 	MapBuildRadius:
-		AllyBuildRadiusLocked: True
-		AllyBuildRadiusEnabled: False
+		AllyBuildRadiusCheckboxLocked: True
+		AllyBuildRadiusCheckboxEnabled: False
+		AllyBuildRadiusCheckboxVisible: False
+		BuildRadiusCheckboxLocked: True
+		BuildRadiusCheckboxEnabled: True
+		BuildRadiusCheckboxVisible: False
 	MapOptions:
-		TechLevelLocked: True
+		ShortGameCheckboxVisible: False
+		ShortGameCheckboxLocked: True
+		ShortGameCheckboxEnabled: False
+		TechLevelDropdownLocked: True
+		TechLevelDropdownVisible: False
 		TechLevel: unrestricted
 
 UNITCRATE:
@@ -30,20 +41,33 @@ UNITCRATE:
 	GiveUnitCrateAction@e1:
 		SelectionShares: 1
 		Units: e1
+	GiveUnitCrateAction@e3:
+		SelectionShares: 1
+		Units: e3
 
 APC:
+	Inherits@AUTOTARGET: ^AutoTargetAll
 	Health:
-		HP: 1000
+		HP: 100000
 	MustBeDestroyed:
 		RequiredForShortGame: true
 	-AttackMove:
 
 Player:
 	Shroud:
-		FogLocked: True
-		FogEnabled: False
-		ExploredMapLocked: True
-		ExploredMapEnabled: True
+		FogCheckboxLocked: True
+		FogCheckboxEnabled: False
+		FogCheckboxVisible: False
+		ExploredMapCheckboxLocked: True
+		ExploredMapCheckboxEnabled: True
+		ExploredMapCheckboxVisible: False
 	PlayerResources:
-		DefaultCashLocked: True
+		DefaultCashDropdownLocked: True
+		DefaultCashDropdownVisible: False
 		DefaultCash: 5000
+	LobbyPrerequisiteCheckbox@GLOBALFACTUNDEPLOY:
+		Visible: False
+	LobbyPrerequisiteCheckbox@GLOBALC17STEALTH:
+		Enabled: False
+		Locked: True
+		Visible: False

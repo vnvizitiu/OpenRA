@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,7 +9,7 @@
  */
 #endregion
 
-using System;
+using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Traits;
@@ -18,89 +18,88 @@ namespace OpenRA.Mods.Common.Traits.Render
 {
 	[Desc("Renders an animation when the Production trait of the actor is activated.",
 		"Works both with per player ClassicProductionQueue and per building ProductionQueue, but needs any of these.")]
-	public class WithProductionOverlayInfo : ITraitInfo, Requires<RenderSpritesInfo>, Requires<BodyOrientationInfo>, Requires<ProductionInfo>
+	public class WithProductionOverlayInfo : PausableConditionalTraitInfo, Requires<RenderSpritesInfo>, Requires<BodyOrientationInfo>, Requires<ProductionInfo>
 	{
+		[Desc("Queues that should be producing for this overlay to render.")]
+		public readonly HashSet<string> Queues = new();
+
+		[SequenceReference]
 		[Desc("Sequence name to use")]
-		[SequenceReference] public readonly string Sequence = "production-overlay";
+		public readonly string Sequence = "production-overlay";
 
 		[Desc("Position relative to body")]
 		public readonly WVec Offset = WVec.Zero;
 
+		[PaletteReference(nameof(IsPlayerPalette))]
 		[Desc("Custom palette name")]
-		[PaletteReference("IsPlayerPalette")] public readonly string Palette = null;
+		public readonly string Palette = null;
 
 		[Desc("Custom palette is a player palette BaseName")]
 		public readonly bool IsPlayerPalette = false;
 
-		public object Create(ActorInitializer init) { return new WithProductionOverlay(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new WithProductionOverlay(init.Self, this); }
 	}
 
-	public class WithProductionOverlay : INotifyDamageStateChanged, INotifyCreated, INotifyBuildComplete, INotifySold, INotifyOwnerChanged
+	public class WithProductionOverlay : PausableConditionalTrait<WithProductionOverlayInfo>, INotifyDamageStateChanged, INotifyCreated, INotifyOwnerChanged
 	{
+		readonly Actor self;
 		readonly Animation overlay;
-		readonly ProductionInfo production;
-		ProductionQueue queue;
-		bool buildComplete;
+		readonly ProductionInfo[] productionInfos;
+		ProductionQueue[] queues;
 
 		bool IsProducing
 		{
-			get { return queue != null && queue.CurrentItem() != null && !queue.CurrentPaused; }
+			get { return queues != null && queues.Any(q => q.Enabled && q.AllQueued().Any(i => !i.Paused && i.Started) && q.MostLikelyProducer().Actor == self); }
 		}
 
 		public WithProductionOverlay(Actor self, WithProductionOverlayInfo info)
+			: base(info)
 		{
+			this.self = self;
+
 			var rs = self.Trait<RenderSprites>();
 			var body = self.Trait<BodyOrientation>();
 
-			buildComplete = !self.Info.HasTraitInfo<BuildingInfo>(); // always render instantly for units
-			production = self.Info.TraitInfo<ProductionInfo>();
+			productionInfos = self.Info.TraitInfos<ProductionInfo>().ToArray();
 
-			overlay = new Animation(self.World, rs.GetImage(self));
+			overlay = new Animation(self.World, rs.GetImage(self), () => IsTraitPaused);
 			overlay.PlayRepeating(info.Sequence);
 
 			var anim = new AnimationWithOffset(overlay,
-				() => body.LocalToWorld(info.Offset.Rotate(body.QuantizeOrientation(self, self.Orientation))),
-				() => !IsProducing || !buildComplete);
+				() => body.LocalToWorld(info.Offset.Rotate(body.QuantizeOrientation(self.Orientation))),
+				() => !IsProducing || IsTraitDisabled);
 
 			rs.Add(anim, info.Palette, info.IsPlayerPalette);
 		}
 
-		void SelectQueue(Actor self)
+		void CacheQueues(Actor self)
 		{
-			var perBuildingQueues = self.TraitsImplementing<ProductionQueue>();
-			queue = perBuildingQueues.FirstOrDefault(q => q.Enabled && production.Produces.Contains(q.Info.Type));
+			// Per-actor production
+			queues = self.TraitsImplementing<ProductionQueue>()
+				.Where(q =>
+					productionInfos.Any(p => p.Produces.Contains(q.Info.Type)) &&
+					(Info.Queues.Count == 0 || Info.Queues.Contains(q.Info.Type)))
+				.ToArray();
 
-			if (queue == null)
+			if (queues.Length == 0)
 			{
-				var perPlayerQueues = self.Owner.PlayerActor.TraitsImplementing<ProductionQueue>();
-				queue = perPlayerQueues.FirstOrDefault(q => q.Enabled && production.Produces.Contains(q.Info.Type));
+				// Player-wide production
+				queues = self.Owner.PlayerActor.TraitsImplementing<ProductionQueue>()
+					.Where(q =>
+						productionInfos.Any(p => p.Produces.Contains(q.Info.Type)) &&
+						(Info.Queues.Count == 0 || Info.Queues.Contains(q.Info.Type)))
+					.ToArray();
 			}
-
-			if (queue == null)
-				throw new InvalidOperationException("Can't find production queues.");
 		}
 
-		void INotifyCreated.Created(Actor self)
+		protected override void TraitEnabled(Actor self)
 		{
-			if (buildComplete)
-				SelectQueue(self);
-		}
-
-		void INotifyBuildComplete.BuildingComplete(Actor self)
-		{
-			buildComplete = true;
-			SelectQueue(self);
+			CacheQueues(self);
 		}
 
 		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
 		{
-			self.World.AddFrameEndTask(w => SelectQueue(self));
-		}
-
-		void INotifySold.Sold(Actor self) { }
-		void INotifySold.Selling(Actor self)
-		{
-			buildComplete = false;
+			self.World.AddFrameEndTask(w => CacheQueues(self));
 		}
 
 		void INotifyDamageStateChanged.DamageStateChanged(Actor self, AttackInfo e)

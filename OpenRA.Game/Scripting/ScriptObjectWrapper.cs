@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System;
 using System.Collections.Generic;
 using Eluant;
 using Eluant.ObjectBinding;
@@ -21,16 +22,36 @@ namespace OpenRA.Scripting
 		protected abstract string MemberNotFoundError(string memberName);
 
 		protected readonly ScriptContext Context;
-		Dictionary<string, ScriptMemberWrapper> members;
+		readonly Dictionary<string, ScriptMemberWrapper> members = new();
 
-		public ScriptObjectWrapper(ScriptContext context)
+#if !NET5_0_OR_GREATER
+		readonly List<string> membersToRemove = new List<string>();
+#endif
+
+		protected ScriptObjectWrapper(ScriptContext context)
 		{
 			Context = context;
 		}
 
-		protected void Bind(IEnumerable<object> clrObjects)
+		protected static object[] CreateObjects(Type[] types, object[] constructorArgs)
 		{
-			members = new Dictionary<string, ScriptMemberWrapper>();
+			var i = 0;
+			var argTypes = new Type[constructorArgs.Length];
+			foreach (var ca in constructorArgs)
+				argTypes[i++] = ca.GetType();
+
+			var objects = new object[types.Length];
+			i = 0;
+			foreach (var type in types)
+				objects[i++] = type.GetConstructor(argTypes).Invoke(constructorArgs);
+
+			return objects;
+		}
+
+		protected void Bind(object[] clrObjects)
+		{
+			members.Clear();
+
 			foreach (var obj in clrObjects)
 			{
 				var wrappable = ScriptMemberWrapper.WrappableMembers(obj.GetType());
@@ -44,6 +65,26 @@ namespace OpenRA.Scripting
 			}
 		}
 
+		protected void Unbind(Type targetType)
+		{
+#if NET5_0_OR_GREATER
+			// NOTE: In newer versions of .NET modifying the collection by calling Remove while iterating over it is valid
+			foreach (var m in members)
+				if (targetType == m.Value.Target.GetType())
+					members.Remove(m.Key);
+#else
+			// PERF: Re-use instead of allocating a new list on each unbind
+			membersToRemove.Clear();
+
+			foreach (var m in members)
+				if (targetType == m.Value.Target.GetType())
+					membersToRemove.Add(m.Key);
+
+			foreach (var m in membersToRemove)
+				members.Remove(m);
+#endif
+		}
+
 		public bool ContainsKey(string key) { return members.ContainsKey(key); }
 
 		public LuaValue this[LuaRuntime runtime, LuaValue keyValue]
@@ -51,8 +92,7 @@ namespace OpenRA.Scripting
 			get
 			{
 				var name = keyValue.ToString();
-				ScriptMemberWrapper wrapper;
-				if (!members.TryGetValue(name, out wrapper))
+				if (!members.TryGetValue(name, out var wrapper))
 					throw new LuaException(MemberNotFoundError(name));
 
 				return wrapper.Get(runtime);
@@ -61,11 +101,10 @@ namespace OpenRA.Scripting
 			set
 			{
 				var name = keyValue.ToString();
-				ScriptMemberWrapper wrapper;
-				if (!members.TryGetValue(name, out wrapper))
+				if (!members.TryGetValue(name, out var wrapper))
 					throw new LuaException(MemberNotFoundError(name));
 
-				wrapper.Set(runtime, value);
+				wrapper.Set(value);
 			}
 		}
 	}

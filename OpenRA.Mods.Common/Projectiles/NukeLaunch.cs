@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,92 +14,160 @@ using System.Linq;
 using OpenRA.Effects;
 using OpenRA.GameRules;
 using OpenRA.Graphics;
-using OpenRA.Mods.Common.Traits;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Effects
 {
-	public class NukeLaunch : IProjectile
+	public class NukeLaunch : IProjectile, ISpatiallyPartitionable
 	{
 		readonly Player firedBy;
 		readonly Animation anim;
 		readonly WeaponInfo weapon;
 		readonly string weaponPalette;
+		readonly string upSequence;
 		readonly string downSequence;
-		readonly string flashType;
 
 		readonly WPos ascendSource;
 		readonly WPos ascendTarget;
 		readonly WPos descendSource;
 		readonly WPos descendTarget;
-		readonly int delay;
+		readonly WDist detonationAltitude;
+		readonly bool removeOnDetonation;
+		readonly int impactDelay;
 		readonly int turn;
+		readonly string trailImage;
+		readonly string[] trailSequences;
+		readonly string trailPalette;
+		readonly int trailInterval;
+		readonly int trailDelay;
 
 		WPos pos;
-		int ticks;
+		int ticks, trailTicks;
+		int launchDelay;
+		bool isLaunched;
+		bool detonated;
 
-		public NukeLaunch(Player firedBy, string name, WeaponInfo weapon, string weaponPalette, string upSequence, string downSequence,
-			WPos launchPos, WPos targetPos, WDist velocity, int delay, bool skipAscent, string flashType)
+		public NukeLaunch(Player firedBy, string image, WeaponInfo weapon, string weaponPalette, string upSequence, string downSequence,
+			WPos launchPos, WPos targetPos, WDist detonationAltitude, bool removeOnDetonation, WDist velocity, int launchDelay, int impactDelay,
+			bool skipAscent,
+			string trailImage, string[] trailSequences, string trailPalette, bool trailUsePlayerPalette, int trailDelay, int trailInterval)
 		{
 			this.firedBy = firedBy;
 			this.weapon = weapon;
 			this.weaponPalette = weaponPalette;
+			this.upSequence = upSequence;
 			this.downSequence = downSequence;
-			this.delay = delay;
-			turn = delay / 2;
-			this.flashType = flashType;
+			this.launchDelay = launchDelay;
+			this.impactDelay = impactDelay;
+			turn = skipAscent ? 0 : impactDelay / 2;
+			this.trailImage = trailImage;
+			this.trailSequences = trailSequences;
+			this.trailPalette = trailPalette;
+			if (trailUsePlayerPalette)
+				this.trailPalette += firedBy.InternalName;
 
-			var offset = new WVec(WDist.Zero, WDist.Zero, velocity * turn);
+			this.trailInterval = trailInterval;
+			this.trailDelay = trailDelay;
+			trailTicks = trailDelay;
+
+			var offset = new WVec(WDist.Zero, WDist.Zero, velocity * (impactDelay - turn));
 			ascendSource = launchPos;
 			ascendTarget = launchPos + offset;
 			descendSource = targetPos + offset;
 			descendTarget = targetPos;
+			this.detonationAltitude = detonationAltitude;
+			this.removeOnDetonation = removeOnDetonation;
 
-			anim = new Animation(firedBy.World, name);
-			anim.PlayRepeating(upSequence);
+			if (!string.IsNullOrEmpty(image))
+				anim = new Animation(firedBy.World, image);
 
-			pos = launchPos;
-			if (weapon.Report != null && weapon.Report.Any())
-				Game.Sound.Play(weapon.Report.Random(firedBy.World.SharedRandom), pos);
-
-			if (skipAscent)
-				ticks = turn;
+			pos = skipAscent ? descendSource : ascendSource;
 		}
 
 		public void Tick(World world)
 		{
-			anim.Tick();
+			if (launchDelay-- > 0)
+				return;
 
-			if (ticks == turn)
-				anim.PlayRepeating(downSequence);
+			if (!isLaunched)
+			{
+				if (weapon.Report != null && weapon.Report.Length > 0)
+					Game.Sound.Play(SoundType.World, weapon.Report, world, pos);
 
-			if (ticks <= turn)
+				if (anim != null)
+				{
+					anim.PlayRepeating(upSequence);
+					world.ScreenMap.Add(this, pos, anim.Image);
+				}
+
+				isLaunched = true;
+			}
+
+			if (anim != null)
+			{
+				anim.Tick();
+
+				if (ticks == turn)
+					anim.PlayRepeating(downSequence);
+			}
+
+			var isDescending = ticks >= turn;
+			if (!isDescending)
 				pos = WPos.LerpQuadratic(ascendSource, ascendTarget, WAngle.Zero, ticks, turn);
 			else
-				pos = WPos.LerpQuadratic(descendSource, descendTarget, WAngle.Zero, ticks - turn, delay - turn);
+				pos = WPos.LerpQuadratic(descendSource, descendTarget, WAngle.Zero, ticks - turn, impactDelay - turn);
 
-			if (ticks == delay)
-				Explode(world);
+			if (!string.IsNullOrEmpty(trailImage) && --trailTicks < 0)
+			{
+				var trailPos = !isDescending ? WPos.LerpQuadratic(ascendSource, ascendTarget, WAngle.Zero, ticks - trailDelay, turn)
+					: WPos.LerpQuadratic(descendSource, descendTarget, WAngle.Zero, ticks - turn - trailDelay, impactDelay - turn);
+
+				world.AddFrameEndTask(w => w.Add(new SpriteEffect(trailPos, w, trailImage, trailSequences.Random(world.SharedRandom),
+					trailPalette)));
+
+				trailTicks = trailInterval;
+			}
+
+			var dat = world.Map.DistanceAboveTerrain(pos);
+			if (ticks == impactDelay || (isDescending && dat <= detonationAltitude))
+				Explode(world, ticks == impactDelay || removeOnDetonation);
+
+			if (anim != null)
+				world.ScreenMap.Update(this, pos, anim.Image);
 
 			ticks++;
 		}
 
-		void Explode(World world)
+		void Explode(World world, bool removeProjectile)
 		{
-			world.AddFrameEndTask(w => w.Remove(this));
-			weapon.Impact(Target.FromPos(pos), firedBy.PlayerActor, Enumerable.Empty<int>());
-			world.WorldActor.Trait<ScreenShaker>().AddEffect(20, pos, 5);
+			if (removeProjectile)
+				world.AddFrameEndTask(w => { w.Remove(this); w.ScreenMap.Remove(this); });
 
-			foreach (var flash in world.WorldActor.TraitsImplementing<FlashPaletteEffect>())
-				if (flash.Info.Type == flashType)
-					flash.Enable(-1);
+			if (detonated)
+				return;
+
+			var target = Target.FromPos(pos);
+			var warheadArgs = new WarheadArgs
+			{
+				Weapon = weapon,
+				Source = target.CenterPosition,
+				SourceActor = firedBy.PlayerActor,
+				WeaponTarget = target
+			};
+
+			weapon.Impact(target, warheadArgs);
+
+			detonated = true;
 		}
 
 		public IEnumerable<IRenderable> Render(WorldRenderer wr)
 		{
+			if (!isLaunched || anim == null)
+				return Enumerable.Empty<IRenderable>();
+
 			return anim.Render(pos, wr.Palette(weaponPalette));
 		}
 
-		public float FractionComplete { get { return ticks * 1f / delay; } }
+		public float FractionComplete => ticks * 1f / impactDelay;
 	}
 }

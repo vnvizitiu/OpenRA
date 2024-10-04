@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -15,7 +15,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using OpenRA.FileSystem;
-using OpenRA.Primitives;
 
 namespace OpenRA
 {
@@ -23,32 +22,34 @@ namespace OpenRA
 	{
 		readonly Dictionary<string, Manifest> mods;
 
-		public InstalledMods(string customModPath)
+		/// <summary>Initializes the collection of locally installed mods.</summary>
+		/// <param name="searchPaths">Filesystem paths to search for mod packages.</param>
+		/// <param name="explicitPaths">Filesystem paths to additional mod packages.</param>
+		public InstalledMods(IEnumerable<string> searchPaths, IEnumerable<string> explicitPaths)
 		{
-			mods = GetInstalledMods(customModPath);
+			mods = GetInstalledMods(searchPaths, explicitPaths);
 		}
 
-		static IEnumerable<Pair<string, string>> GetCandidateMods()
+		static IEnumerable<(string Id, string Path)> GetCandidateMods(IEnumerable<string> searchPaths)
 		{
-			// Get mods that are in the game folder.
-			var basePath = Platform.ResolvePath(Path.Combine(".", "mods"));
-			var mods = Directory.GetDirectories(basePath)
-				.Select(x => Pair.New(x.Substring(basePath.Length + 1), x))
-				.ToList();
+			var mods = new List<(string, string)>();
+			foreach (var path in searchPaths)
+			{
+				try
+				{
+					var resolved = Platform.ResolvePath(path);
+					if (!Directory.Exists(resolved))
+						continue;
 
-			foreach (var m in Directory.GetFiles(basePath, "*.oramod"))
-				mods.Add(Pair.New(Path.GetFileNameWithoutExtension(m), m));
-
-			// Get mods that are in the support folder.
-			var supportPath = Platform.ResolvePath(Path.Combine("^", "mods"));
-			if (!Directory.Exists(supportPath))
-				return mods;
-
-			foreach (var pair in Directory.GetDirectories(supportPath).ToDictionary(x => x.Substring(supportPath.Length + 1)))
-				mods.Add(Pair.New(pair.Key, pair.Value));
-
-			foreach (var m in Directory.GetFiles(supportPath, "*.oramod"))
-				mods.Add(Pair.New(Path.GetFileNameWithoutExtension(m), m));
+					var directory = new DirectoryInfo(resolved);
+					foreach (var subdir in directory.EnumerateDirectories())
+						mods.Add((subdir.Name, subdir.FullName));
+				}
+				catch (Exception e)
+				{
+					Console.WriteLine("Failed to enumerate mod search path {0}: {1}", path, e.Message);
+				}
+			}
 
 			return mods;
 		}
@@ -58,61 +59,46 @@ namespace OpenRA
 			IReadOnlyPackage package = null;
 			try
 			{
-				if (Directory.Exists(path))
-					package = new Folder(path);
-				else
+				if (!Directory.Exists(path))
 				{
-					try
-					{
-						using (var fileStream = File.OpenRead(path))
-							package = new ZipFile(fileStream, path);
-					}
-					catch
-					{
-						throw new InvalidDataException(path + " is not a valid mod package");
-					}
+					Log.Write("debug", path + " is not a valid mod package");
+					return null;
 				}
 
-				if (!package.Contains("mod.yaml"))
-					throw new InvalidDataException(path + " is not a valid mod package");
-
-				// Mods in the support directory and oramod packages (which are listed later
-				// in the CandidateMods list) override mods in the main install.
-				return new Manifest(id, package);
+				package = new Folder(path);
+				if (package.Contains("mod.yaml"))
+					return new Manifest(id, package);
 			}
-			catch (Exception)
+			catch (Exception e)
 			{
-				if (package != null)
-					package.Dispose();
-
-				return null;
+				Log.Write("debug", $"Load mod '{path}': {e}");
 			}
+
+			package?.Dispose();
+
+			return null;
 		}
 
-		static Dictionary<string, Manifest> GetInstalledMods(string customModPath)
+		static Dictionary<string, Manifest> GetInstalledMods(IEnumerable<string> searchPaths, IEnumerable<string> explicitPaths)
 		{
 			var ret = new Dictionary<string, Manifest>();
-			var candidates = GetCandidateMods();
-			if (customModPath != null)
-				candidates = candidates.Append(Pair.New(Path.GetFileNameWithoutExtension(customModPath), customModPath));
+			var candidates = GetCandidateMods(searchPaths)
+				.Concat(explicitPaths.Select(p => (Id: Path.GetFileNameWithoutExtension(p), Path: p)));
 
 			foreach (var pair in candidates)
 			{
-				var mod = LoadMod(pair.First, pair.Second);
-
-				// Mods in the support directory and oramod packages (which are listed later
-				// in the CandidateMods list) override mods in the main install.
+				var mod = LoadMod(pair.Id, pair.Path);
 				if (mod != null)
-					ret[pair.First] = mod;
+					ret[pair.Id] = mod;
 			}
 
 			return ret;
 		}
 
-		public Manifest this[string key] { get { return mods[key]; } }
-		public int Count { get { return mods.Count; } }
-		public ICollection<string> Keys { get { return mods.Keys; } }
-		public ICollection<Manifest> Values { get { return mods.Values; } }
+		public Manifest this[string key] => mods[key];
+		public IEnumerable<string> Keys => mods.Keys;
+		public IEnumerable<Manifest> Values => mods.Values;
+		public int Count => mods.Count;
 		public bool ContainsKey(string key) { return mods.ContainsKey(key); }
 		public IEnumerator<KeyValuePair<string, Manifest>> GetEnumerator() { return mods.GetEnumerator(); }
 		public bool TryGetValue(string key, out Manifest value) { return mods.TryGetValue(key, out value); }

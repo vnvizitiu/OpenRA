@@ -1,3 +1,11 @@
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
 
 IdlingUnits = { }
 AttackGroupSize = 6
@@ -17,8 +25,6 @@ SovietAircraftType = { "yak" }
 HoldProduction = true
 BuildVehicles = true
 TrainInfantry = true
-
-IdleHunt = function(unit) if not unit.IsDead then Trigger.OnIdle(unit, unit.Hunt) end end
 
 SetupAttackGroup = function()
 	local units = { }
@@ -78,7 +84,7 @@ WaterAttack = function()
 		types[i] = Utils.Random(SovietInfantryTypes)
 	end
 
-	return Reinforcements.ReinforceWithTransport(ussr, InsertionTransport, types, { WaterTransportSpawn.Location, Utils.Random(WaterLZs).Location }, { WaterTransportSpawn.Location })[2]
+	return Reinforcements.ReinforceWithTransport(USSR, InsertionTransport, types, { WaterTransportSpawn.Location, Utils.Random(WaterLZs).Location }, { WaterTransportSpawn.Location })[2]
 end
 
 ProtectHarvester = function(unit)
@@ -105,12 +111,12 @@ ProtectHarvester = function(unit)
 end
 
 InitAIUnits = function()
-	IdlingUnits = Utils.Where(Map.ActorsInWorld, function(self) return self.Owner == ussr and self.HasProperty("Hunt") and self.Location.Y > MainBaseTopLeft.Location.Y end)
+	IdlingUnits = Utils.Where(Map.ActorsInWorld, function(self) return self.Owner == USSR and self.HasProperty("Hunt") and self.Location.Y > MainBaseTopLeft.Location.Y end)
 
-	local buildings = Utils.Where(Map.ActorsInWorld, function(self) return self.Owner == ussr and self.HasProperty("StartBuildingRepairs") end)
+	local buildings = Utils.Where(Map.ActorsInWorld, function(self) return self.Owner == USSR and self.HasProperty("StartBuildingRepairs") end)
 	Utils.Do(buildings, function(actor)
 		Trigger.OnDamaged(actor, function(building)
-			if building.Owner == ussr and building.Health < building.MaxHealth * 3/4 then
+			if building.Owner == USSR and building.Health < building.MaxHealth * 3/4 then
 				building.StartBuildingRepairs()
 			end
 		end)
@@ -118,7 +124,7 @@ InitAIUnits = function()
 end
 
 InitAIEconomy = function()
-	ussr.Cash = 6000
+	USSR.Cash = 6000
 
 	if not Harvester.IsDead then
 		Harvester.FindResources()
@@ -158,7 +164,7 @@ InitProductionBuildings = function()
 		end)
 	end
 
-	if Map.LobbyOption("difficulty") ~= "easy" then
+	if Difficulty ~= "easy" then
 
 		if not Airfield1.IsDead then
 			Trigger.OnKilled(Airfield1, function()
@@ -194,7 +200,7 @@ ProduceInfantry = function()
 
 	local delay = Utils.RandomInteger(DateTime.Seconds(3), DateTime.Seconds(9))
 	local toBuild = { Utils.Random(SovietInfantryTypes) }
-	ussr.Build(toBuild, function(unit)
+	USSR.Build(toBuild, function(unit)
 		IdlingUnits[#IdlingUnits + 1] = unit[1]
 		Trigger.AfterDelay(delay, ProduceInfantry)
 
@@ -217,7 +223,7 @@ ProduceVehicles = function()
 	local delay = Utils.RandomInteger(DateTime.Seconds(5), DateTime.Seconds(9))
 	if HarvesterKilled then
 		HarvesterKilled = false
-		ussr.Build({ "harv" }, function(harv)
+		USSR.Build({ "harv" }, function(harv)
 			harv[1].FindResources()
 			ProtectHarvester(harv[1])
 			Trigger.AfterDelay(delay, ProduceVehicles)
@@ -227,7 +233,7 @@ ProduceVehicles = function()
 
 	Warfactory2.RallyPoint = Utils.Random(Rallypoints).Location
 	local toBuild = { Utils.Random(SovietVehicleTypes) }
-	ussr.Build(toBuild, function(unit)
+	USSR.Build(toBuild, function(unit)
 		IdlingUnits[#IdlingUnits + 1] = unit[1]
 		Trigger.AfterDelay(delay, ProduceVehicles)
 
@@ -242,7 +248,7 @@ ProduceAircraft = function()
 		return
 	end
 
-	ussr.Build(SovietAircraftType, function(units)
+	USSR.Build(SovietAircraftType, function(units)
 		local yak = units[1]
 		Yaks[#Yaks + 1] = yak
 
@@ -251,26 +257,7 @@ ProduceAircraft = function()
 			Trigger.AfterDelay(DateTime.Minutes(1), ProduceAircraft)
 		end
 
-		TargetAndAttack(yak)
-	end)
-end
-
-TargetAndAttack = function(yak, target)
-	if not target or target.IsDead or (not target.IsInWorld) then
-		local enemies = Utils.Where(Map.ActorsInWorld, function(self) return self.Owner == greece and self.HasProperty("Health") and yak.CanTarget(self) end)
-		if #enemies > 0 then
-			target = Utils.Random(enemies)
-		end
-	end
-
-	if target and yak.AmmoCount() > 0 and yak.CanTarget(target) then
-		yak.Attack(target)
-	else
-		yak.ReturnToBase()
-	end
-
-	yak.CallFunc(function()
-		TargetAndAttack(yak, target)
+		InitializeAttackAircraft(yak, Greece)
 	end)
 end
 

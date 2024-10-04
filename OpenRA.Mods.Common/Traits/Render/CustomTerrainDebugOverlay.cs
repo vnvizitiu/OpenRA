@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,7 +10,6 @@
 #endregion
 
 using System.Collections.Generic;
-using System.Drawing;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Commands;
 using OpenRA.Mods.Common.Graphics;
@@ -18,24 +17,27 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[TraitLocation(SystemActors.World)]
 	[Desc("Displays custom terrain types.")]
-	class CustomTerrainDebugOverlayInfo : ITraitInfo
+	sealed class CustomTerrainDebugOverlayInfo : TraitInfo
 	{
 		public readonly string Font = "TinyBold";
 
-		public object Create(ActorInitializer init) { return new CustomTerrainDebugOverlay(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new CustomTerrainDebugOverlay(this); }
 	}
 
-	class CustomTerrainDebugOverlay : IWorldLoaded, IChatCommand, IRender
+	sealed class CustomTerrainDebugOverlay : IWorldLoaded, IChatCommand, IRenderAnnotations
 	{
-		const string CommandName = "debugcustomterrain";
-		const string CommandDesc = "Toggles the custom terrain debug overlay.";
+		const string CommandName = "custom-terrain";
+
+		[FluentReference]
+		const string CommandDescription = "description-custom-terrain-debug-overlay";
 
 		public bool Enabled;
 
 		readonly SpriteFont font;
 
-		public CustomTerrainDebugOverlay(Actor self, CustomTerrainDebugOverlayInfo info)
+		public CustomTerrainDebugOverlay(CustomTerrainDebugOverlayInfo info)
 		{
 			font = Game.Renderer.Fonts[info.Font];
 		}
@@ -49,7 +51,7 @@ namespace OpenRA.Mods.Common.Traits
 				return;
 
 			console.RegisterCommand(CommandName, this);
-			help.RegisterHelp(CommandName, CommandDesc);
+			help.RegisterHelp(CommandName, CommandDescription);
 		}
 
 		void IChatCommand.InvokeCommand(string name, string arg)
@@ -58,13 +60,16 @@ namespace OpenRA.Mods.Common.Traits
 				Enabled ^= true;
 		}
 
-		IEnumerable<IRenderable> IRender.Render(Actor self, WorldRenderer wr)
+		IEnumerable<IRenderable> IRenderAnnotations.RenderAnnotations(Actor self, WorldRenderer wr)
 		{
 			if (!Enabled)
 				yield break;
 
 			foreach (var uv in wr.Viewport.VisibleCellsInsideBounds.CandidateMapCoords)
 			{
+				if (self.World.ShroudObscures(uv))
+					continue;
+
 				var cell = uv.ToCPos(wr.World.Map);
 				var center = wr.World.Map.CenterOfCell(cell);
 				var terrainType = self.World.Map.CustomTerrain[cell];
@@ -72,8 +77,10 @@ namespace OpenRA.Mods.Common.Traits
 					continue;
 
 				var info = wr.World.Map.GetTerrainInfo(cell);
-				yield return new TextRenderable(font, center, 0, info.Color, info.Type);
+				yield return new TextAnnotationRenderable(font, center, 0, info.Color, info.Type);
 			}
 		}
+
+		bool IRenderAnnotations.SpatiallyPartitionable => false;
 	}
 }

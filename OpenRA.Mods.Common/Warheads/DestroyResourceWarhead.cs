@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,29 +10,56 @@
 #endregion
 
 using System.Collections.Generic;
+using OpenRA.GameRules;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Warheads
 {
+	[Desc("Destroys resources in a circle.")]
 	public class DestroyResourceWarhead : Warhead
 	{
-		[Desc("Size of the area. The resources are seeded within this area.", "Provide 2 values for a ring effect (outer/inner).")]
+		[Desc("Size of the area. The resources are removed within this area.", "Provide 2 values for a ring effect (outer/inner).")]
 		public readonly int[] Size = { 0, 0 };
 
-		// TODO: Allow maximum resource removal to be defined. (Per tile, and in total).
-		public override void DoImpact(Target target, Actor firedBy, IEnumerable<int> damageModifiers)
+		[Desc("Amount of resources to be removed. If negative or zero, all resources within the area will be removed.")]
+		public readonly int ResourceAmount = 0;
+
+		[Desc("Resource types to remove with this warhead.", "If empty, all resource types will be removed.")]
+		public readonly HashSet<string> ResourceTypes = new();
+
+		public override void DoImpact(in Target target, WarheadArgs args)
 		{
+			if (target.Type == TargetType.Invalid)
+				return;
+
+			var firedBy = args.SourceActor;
+			var pos = target.CenterPosition;
 			var world = firedBy.World;
-			var targetTile = world.Map.CellContaining(target.CenterPosition);
-			var resLayer = world.WorldActor.Trait<ResourceLayer>();
+			var dat = world.Map.DistanceAboveTerrain(pos);
+			if (dat > AirThreshold)
+				return;
+
+			var targetTile = world.Map.CellContaining(pos);
+			var resourceLayer = world.WorldActor.Trait<IResourceLayer>();
 
 			var minRange = (Size.Length > 1 && Size[1] > 0) ? Size[1] : 0;
 			var allCells = world.Map.FindTilesInAnnulus(targetTile, minRange, Size[0]);
 
-			// Destroy all resources in the selected tiles
+			var removeAllTypes = ResourceTypes.Count == 0;
+
 			foreach (var cell in allCells)
-				resLayer.Destroy(cell);
+			{
+				var cellContents = resourceLayer.GetResource(cell);
+
+				if (removeAllTypes || ResourceTypes.Contains(cellContents.Type))
+				{
+					if (ResourceAmount <= 0)
+						resourceLayer.ClearResources(cell);
+					else
+						resourceLayer.RemoveResource(cellContents.Type, cell, ResourceAmount);
+				}
+			}
 		}
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,8 +9,10 @@
  */
 #endregion
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using OpenRA.Activities;
 using OpenRA.Mods.Common.Activities;
 using OpenRA.Primitives;
 using OpenRA.Traits;
@@ -18,86 +20,143 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Spawns remains of a husk actor with the correct facing.")]
-	public class HuskInfo : ITraitInfo, IOccupySpaceInfo, IFacingInfo
+	public class HuskInfo : TraitInfo, IPositionableInfo, IFacingInfo, IActorPreviewInitInfo, IRulesetLoaded
 	{
-		public readonly HashSet<string> AllowedTerrain = new HashSet<string>();
+		public readonly HashSet<string> AllowedTerrain = new();
 
-		public object Create(ActorInitializer init) { return new Husk(init, this); }
+		[Desc("Facing to use for actor previews (map editor, color picker, etc)")]
+		public readonly WAngle PreviewFacing = new(384);
 
-		public int GetInitialFacing() { return 128; }
+		[LocomotorReference]
+		[Desc("Used to define crushes. Locomotor must be defined on the World actor.")]
+		public readonly string Locomotor = null;
+
+		IEnumerable<ActorInit> IActorPreviewInitInfo.ActorPreviewInits(ActorInfo ai, ActorPreviewType type)
+		{
+			yield return new FacingInit(PreviewFacing);
+		}
+
+		public override object Create(ActorInitializer init) { return new Husk(init, this); }
+
+		public WAngle GetInitialFacing() { return new WAngle(512); }
 
 		public IReadOnlyDictionary<CPos, SubCell> OccupiedCells(ActorInfo info, CPos location, SubCell subCell = SubCell.Any)
 		{
-			var occupied = new Dictionary<CPos, SubCell>() { { location, SubCell.FullCell } };
-			return new ReadOnlyDictionary<CPos, SubCell>(occupied);
+			return new Dictionary<CPos, SubCell>() { { location, SubCell.FullCell } };
 		}
 
-		bool IOccupySpaceInfo.SharesCell { get { return false; } }
+		bool IOccupySpaceInfo.SharesCell => false;
+
+		public bool CanEnterCell(World world, Actor self, CPos cell,
+			SubCell subCell = SubCell.FullCell, Actor ignoreActor = null, BlockedByActor check = BlockedByActor.All)
+		{
+			// IPositionable*Info*.CanEnterCell is only ever used for things like exiting production facilities,
+			// all places relevant for husks check IPositionable.CanEnterCell instead, so we can safely set this to true.
+			return true;
+		}
+
+		public LocomotorInfo LocomotorInfo { get; private set; }
+		public void RulesetLoaded(Ruleset rules, ActorInfo ai)
+		{
+			if (string.IsNullOrEmpty(Locomotor))
+				return;
+
+			LocomotorInfo = rules.Actors[SystemActors.World].TraitInfos<LocomotorInfo>().FirstOrDefault(li => li.Name == Locomotor);
+		}
 	}
 
-	public class Husk : IPositionable, IFacing, ISync, INotifyCreated, INotifyAddedToWorld, INotifyRemovedFromWorld, IDisable, IDeathActorInitModifier
+	public class Husk : IPositionable, IFacing, ISync, INotifyCreated, INotifyAddedToWorld, INotifyRemovedFromWorld,
+		IDeathActorInitModifier, IEffectiveOwner
 	{
-		readonly HuskInfo info;
 		readonly Actor self;
+		readonly HuskInfo info;
+		readonly Player effectiveOwner;
 
 		readonly int dragSpeed;
 		readonly WPos finalPosition;
 
-		[Sync] public CPos TopLeft { get; private set; }
-		[Sync] public WPos CenterPosition { get; private set; }
-		[Sync] public int Facing { get; set; }
+		INotifyCenterPositionChanged[] notifyCenterPositionChanged;
 
-		public int TurnSpeed { get { return 0; } }
+		[Sync]
+		public CPos TopLeft { get; private set; }
+
+		[Sync]
+		public WPos CenterPosition { get; private set; }
+
+		[Sync]
+		public WAngle Facing
+		{
+			get => Orientation.Yaw;
+			set => Orientation = Orientation.WithYaw(value);
+		}
+
+		public WRot Orientation { get; private set; }
+
+		public WAngle TurnSpeed => WAngle.Zero;
 
 		public Husk(ActorInitializer init, HuskInfo info)
 		{
 			this.info = info;
 			self = init.Self;
 
-			TopLeft = init.Get<LocationInit, CPos>();
-			CenterPosition = init.Contains<CenterPositionInit>() ? init.Get<CenterPositionInit, WPos>() : init.World.Map.CenterOfCell(TopLeft);
-			Facing = init.Contains<FacingInit>() ? init.Get<FacingInit, int>() : 128;
+			TopLeft = init.GetValue<LocationInit, CPos>();
+			CenterPosition = init.GetValue<CenterPositionInit, WPos>(init.World.Map.CenterOfCell(TopLeft));
+			Facing = init.GetValue<FacingInit, WAngle>(info.GetInitialFacing());
 
-			dragSpeed = init.Contains<HuskSpeedInit>() ? init.Get<HuskSpeedInit, int>() : 0;
+			dragSpeed = init.GetValue<HuskSpeedInit, int>(0);
 			finalPosition = init.World.Map.CenterOfCell(TopLeft);
+
+			effectiveOwner = init.GetValue<EffectiveOwnerInit, Player>(info, self.Owner);
 		}
 
-		public void Created(Actor self)
+		void INotifyCreated.Created(Actor self)
 		{
-			var distance = (finalPosition - CenterPosition).Length;
-			if (dragSpeed > 0 && distance > 0)
-				self.QueueActivity(new Drag(self, CenterPosition, finalPosition, distance / dragSpeed));
+			self.QueueActivity(new DragAndCrush(self, info.LocomotorInfo, dragSpeed, finalPosition));
+			notifyCenterPositionChanged = self.TraitsImplementing<INotifyCenterPositionChanged>().ToArray();
 		}
 
-		public IEnumerable<Pair<CPos, SubCell>> OccupiedCells() { return new[] { Pair.New(TopLeft, SubCell.FullCell) }; }
-		public bool IsLeavingCell(CPos location, SubCell subCell = SubCell.Any) { return false; }
-		public SubCell GetValidSubCell(SubCell preferred = SubCell.Any) { return SubCell.FullCell; }
-		public SubCell GetAvailableSubCell(CPos cell, SubCell preferredSubCell = SubCell.Any, Actor ignoreActor = null, bool checkTransientActors = true)
+		public bool CanExistInCell(CPos cell)
 		{
 			if (!self.World.Map.Contains(cell))
-				return SubCell.Invalid;
+				return false;
 
 			if (!info.AllowedTerrain.Contains(self.World.Map.GetTerrainInfo(cell).Type))
+				return false;
+
+			return true;
+		}
+
+		public (CPos, SubCell)[] OccupiedCells() { return new[] { (TopLeft, SubCell.FullCell) }; }
+		public bool IsLeavingCell(CPos location, SubCell subCell = SubCell.Any) { return false; }
+		public SubCell GetValidSubCell(SubCell preferred = SubCell.Any) { return SubCell.FullCell; }
+		public SubCell GetAvailableSubCell(CPos cell, SubCell preferredSubCell = SubCell.Any, Actor ignoreActor = null, BlockedByActor check = BlockedByActor.All)
+		{
+			if (!CanExistInCell(cell))
 				return SubCell.Invalid;
 
-			if (!checkTransientActors)
+			if (check == BlockedByActor.None)
 				return SubCell.FullCell;
 
 			return self.World.ActorMap.GetActorsAt(cell)
 				.All(x => x == ignoreActor) ? SubCell.FullCell : SubCell.Invalid;
 		}
 
-		public bool CanEnterCell(CPos a, Actor ignoreActor = null, bool checkTransientActors = true)
+		public bool CanEnterCell(CPos a, Actor ignoreActor = null, BlockedByActor check = BlockedByActor.All)
 		{
-			return GetAvailableSubCell(a, SubCell.Any, ignoreActor, checkTransientActors) != SubCell.Invalid;
+			return GetAvailableSubCell(a, SubCell.Any, ignoreActor, check) != SubCell.Invalid;
 		}
 
 		public void SetPosition(Actor self, CPos cell, SubCell subCell = SubCell.Any) { SetPosition(self, self.World.Map.CenterOfCell(cell)); }
 
-		public void SetVisualPosition(Actor self, WPos pos)
+		public void SetCenterPosition(Actor self, WPos pos)
 		{
 			CenterPosition = pos;
-			self.World.ScreenMap.Update(self);
+			self.World.ScreenMap.AddOrUpdate(self);
+
+			// This can be called from the constructor before notifyCenterPositionChanged is assigned.
+			if (notifyCenterPositionChanged != null)
+				foreach (var n in notifyCenterPositionChanged)
+					n.CenterPositionChanged(self, 0, 0);
 		}
 
 		public void SetPosition(Actor self, WPos pos)
@@ -110,32 +169,64 @@ namespace OpenRA.Mods.Common.Traits
 			self.World.UpdateMaps(self, this);
 		}
 
-		public void AddedToWorld(Actor self)
+		void INotifyAddedToWorld.AddedToWorld(Actor self)
 		{
 			self.World.AddToMaps(self, this);
 		}
 
-		public void RemovedFromWorld(Actor self)
+		void INotifyRemovedFromWorld.RemovedFromWorld(Actor self)
 		{
 			self.World.RemoveFromMaps(self, this);
 		}
 
-		public bool Disabled
-		{
-			get { return true; }
-		}
-
-		public void ModifyDeathActorInit(Actor self, TypeDictionary init)
+		void IDeathActorInitModifier.ModifyDeathActorInit(Actor self, TypeDictionary init)
 		{
 			init.Add(new FacingInit(Facing));
 		}
+
+		// We return self.Owner if there's no effective owner
+		bool IEffectiveOwner.Disguised => true;
+		Player IEffectiveOwner.Owner => effectiveOwner;
 	}
 
-	public class HuskSpeedInit : IActorInit<int>
+	public class HuskSpeedInit : ValueActorInit<int>, ISingleInstanceInit
 	{
-		[FieldFromYamlKey] readonly int value = 0;
-		public HuskSpeedInit() { }
-		public HuskSpeedInit(int init) { value = init; }
-		public int Value(World world) { return value; }
+		public HuskSpeedInit(int value)
+			: base(value) { }
+	}
+
+	public class DragAndCrush : Activity
+	{
+		readonly LocomotorInfo info;
+
+		public DragAndCrush(Actor self, LocomotorInfo info, int dragSpeed, WPos finalPosition)
+		{
+			this.info = info;
+
+			var distance = (finalPosition - self.CenterPosition).Length;
+			if (dragSpeed > 0 && distance > 0)
+				self.QueueActivity(new Drag(self, self.CenterPosition, finalPosition, distance / dragSpeed));
+		}
+
+		protected override void OnFirstRun(Actor self)
+		{
+			if (self.IsAtGroundLevel())
+				CrushAction(self, self.CenterPosition, (notifyCrushed) => notifyCrushed.OnCrush);
+		}
+
+		void CrushAction(Actor self, WPos position, Func<INotifyCrushed, Action<Actor, Actor, BitSet<CrushClass>>> action)
+		{
+			if (info == null || info.Crushes.IsEmpty)
+				return;
+
+			var crushables = self.World.ActorMap.GetActorsAt(self.World.Map.CellContaining(position)).Where(a => a != self)
+				.SelectMany(a => a.Crushables.Select(t => new TraitPair<ICrushable>(a, t)));
+
+			// Only crush actors that are on the ground level.
+			foreach (var crushable in crushables)
+				if (crushable.Trait.CrushableBy(crushable.Actor, self, info.Crushes) && crushable.Actor.IsAtGroundLevel())
+					foreach (var notifyCrushed in crushable.Actor.TraitsImplementing<INotifyCrushed>())
+						action(notifyCrushed)(crushable.Actor, self, info.Crushes);
+		}
 	}
 }

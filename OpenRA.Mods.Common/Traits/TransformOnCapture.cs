@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,17 +10,26 @@
 #endregion
 
 using OpenRA.Mods.Common.Activities;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public class TransformOnCaptureInfo : ITraitInfo
+	[Desc("Replaces the captured actor with a new one.")]
+	public class TransformOnCaptureInfo : TraitInfo
 	{
-		[ActorReference] public readonly string IntoActor = null;
+		[ActorReference]
+		[FieldLoader.Require]
+		public readonly string IntoActor = null;
+
 		public readonly int ForceHealthPercentage = 0;
+
 		public readonly bool SkipMakeAnims = true;
 
-		public virtual object Create(ActorInitializer init) { return new TransformOnCapture(init, this); }
+		[Desc("Transform only if the capturer's CaptureTypes overlap with these types. Leave empty to allow all types.")]
+		public readonly BitSet<CaptureType> CaptureTypes = default;
+
+		public override object Create(ActorInitializer init) { return new TransformOnCapture(init, this); }
 	}
 
 	public class TransformOnCapture : INotifyCapture
@@ -31,17 +40,19 @@ namespace OpenRA.Mods.Common.Traits
 		public TransformOnCapture(ActorInitializer init, TransformOnCaptureInfo info)
 		{
 			this.info = info;
-			faction = init.Contains<FactionInit>() ? init.Get<FactionInit, string>() : init.Self.Owner.Faction.InternalName;
+			faction = init.GetValue<FactionInit, string>(init.Self.Owner.Faction.InternalName);
 		}
 
-		public void OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner)
+		void INotifyCapture.OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner, BitSet<CaptureType> captureTypes)
 		{
+			if (!info.CaptureTypes.IsEmpty && !info.CaptureTypes.Overlaps(captureTypes))
+				return;
+
 			var facing = self.TraitOrDefault<IFacing>();
-			var transform = new Transform(self, info.IntoActor) { ForceHealthPercentage = info.ForceHealthPercentage, Faction = faction };
+			var transform = new Transform(info.IntoActor) { ForceHealthPercentage = info.ForceHealthPercentage, Faction = faction };
 			if (facing != null) transform.Facing = facing.Facing;
 			transform.SkipMakeAnims = info.SkipMakeAnims;
-			self.CancelActivity();
-			self.QueueActivity(transform);
+			self.QueueActivity(false, transform);
 		}
 	}
 }

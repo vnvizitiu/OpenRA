@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,29 +9,11 @@
  */
 #endregion
 
-using System.IO;
+using System;
 
 namespace OpenRA.Mods.Common.FileFormats
 {
-	struct ImaAdpcmChunk
-	{
-		public int CompressedSize;
-		public int OutputSize;
-
-		public static ImaAdpcmChunk Read(Stream s)
-		{
-			ImaAdpcmChunk c;
-			c.CompressedSize = s.ReadUInt16();
-			c.OutputSize = s.ReadUInt16();
-			if (s.ReadUInt32() != 0xdeaf)
-				throw new InvalidDataException("Chunk header is bogus");
-			return c;
-		}
-	}
-
-	// Mostly a duplicate of AudReader, with some difference when loading
-	// TODO: Investigate whether they can be fused to get rid of some duplication
-	public class ImaAdpcmReader
+	public static class ImaAdpcmReader
 	{
 		static readonly int[] IndexAdjust = { -1, -1, -1, -1, 2, 4, 6, 8 };
 		static readonly int[] StepTable =
@@ -48,34 +30,40 @@ namespace OpenRA.Mods.Common.FileFormats
 			16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
 		};
 
-		static short DecodeImaAdpcmSample(byte b, ref int index, ref int current)
+		public static short DecodeImaAdpcmSample(byte b, ref int index, ref int current)
 		{
 			var sb = (b & 8) != 0;
 			b &= 7;
 
-			var delta = (StepTable[index] * b) / 4 + StepTable[index] / 8;
-			if (sb) delta = -delta;
+			var delta = StepTable[index] * b / 4 + StepTable[index] / 8;
+			if (sb)
+				delta = -delta;
 
 			current += delta;
-			if (current > short.MaxValue) current = short.MaxValue;
-			if (current < short.MinValue) current = short.MinValue;
+			if (current > short.MaxValue)
+				current = short.MaxValue;
+
+			if (current < short.MinValue)
+				current = short.MinValue;
 
 			index += IndexAdjust[b];
-			if (index < 0) index = 0;
-			if (index > 88) index = 88;
+			if (index < 0)
+				index = 0;
+
+			if (index > 88)
+				index = 88;
 
 			return (short)current;
 		}
 
-		public static byte[] LoadImaAdpcmSound(byte[] raw, ref int index)
+		public static byte[] LoadImaAdpcmSound(ReadOnlySpan<byte> raw, ref int index)
 		{
 			var currentSample = 0;
 			return LoadImaAdpcmSound(raw, ref index, ref currentSample);
 		}
 
-		public static byte[] LoadImaAdpcmSound(byte[] raw, ref int index, ref int currentSample)
+		public static byte[] LoadImaAdpcmSound(ReadOnlySpan<byte> raw, ref int index, ref int currentSample)
 		{
-			var s = new MemoryStream(raw);
 			var dataSize = raw.Length;
 			var outputSize = raw.Length * 4;
 
@@ -84,7 +72,7 @@ namespace OpenRA.Mods.Common.FileFormats
 
 			while (dataSize-- > 0)
 			{
-				var b = s.ReadUInt8();
+				var b = raw[offset / 4];
 
 				var t = DecodeImaAdpcmSample(b, ref index, ref currentSample);
 				output[offset++] = (byte)t;

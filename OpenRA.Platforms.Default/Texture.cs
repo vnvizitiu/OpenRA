@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,28 +10,24 @@
 #endregion
 
 using System;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
+using OpenRA.Primitives;
 
 namespace OpenRA.Platforms.Default
 {
-	sealed class Texture : ThreadAffine, ITexture
+	sealed class Texture : ThreadAffine, ITextureInternal
 	{
 		uint texture;
 		TextureScaleFilter scaleFilter;
 
-		public uint ID { get { return texture; } }
+		public uint ID => texture;
 		public Size Size { get; private set; }
 
 		bool disposed;
 
 		public TextureScaleFilter ScaleFilter
 		{
-			get
-			{
-				return scaleFilter;
-			}
+			get => scaleFilter;
 
 			set
 			{
@@ -48,13 +44,6 @@ namespace OpenRA.Platforms.Default
 		{
 			OpenGL.glGenTextures(1, out texture);
 			OpenGL.CheckGLError();
-		}
-
-		public Texture(Bitmap bitmap)
-		{
-			OpenGL.glGenTextures(1, out texture);
-			OpenGL.CheckGLError();
-			SetData(bitmap);
 		}
 
 		void PrepareTexture()
@@ -80,77 +69,59 @@ namespace OpenRA.Platforms.Default
 			OpenGL.CheckGLError();
 		}
 
+		void SetData(IntPtr data, int width, int height)
+		{
+			PrepareTexture();
+			var glInternalFormat = OpenGL.Profile == GLProfile.Embedded ? OpenGL.GL_BGRA : OpenGL.GL_RGBA8;
+			OpenGL.glTexImage2D(OpenGL.GL_TEXTURE_2D, 0, glInternalFormat, width, height,
+				0, OpenGL.GL_BGRA, OpenGL.GL_UNSIGNED_BYTE, data);
+			OpenGL.CheckGLError();
+		}
+
 		public void SetData(byte[] colors, int width, int height)
 		{
 			VerifyThreadAffinity();
 			if (!Exts.IsPowerOf2(width) || !Exts.IsPowerOf2(height))
-				throw new InvalidDataException("Non-power-of-two array {0}x{1}".F(width, height));
+				throw new InvalidDataException($"Non-power-of-two array {width}x{height}");
 
 			Size = new Size(width, height);
 			unsafe
 			{
 				fixed (byte* ptr = &colors[0])
-				{
-					var intPtr = new IntPtr((void*)ptr);
-					PrepareTexture();
-					OpenGL.glTexImage2D(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_RGBA8, width, height,
-						0, OpenGL.GL_BGRA, OpenGL.GL_UNSIGNED_BYTE, intPtr);
-					OpenGL.CheckGLError();
-				}
+					SetData(new IntPtr(ptr), width, height);
 			}
 		}
 
-		// An array of RGBA
-		public void SetData(uint[,] colors)
+		public void SetFloatData(float[] data, int width, int height)
 		{
 			VerifyThreadAffinity();
-			var width = colors.GetUpperBound(1) + 1;
-			var height = colors.GetUpperBound(0) + 1;
-
 			if (!Exts.IsPowerOf2(width) || !Exts.IsPowerOf2(height))
-				throw new InvalidDataException("Non-power-of-two array {0}x{1}".F(width, height));
+				throw new InvalidDataException($"Non-power-of-two array {width}x{height}");
 
 			Size = new Size(width, height);
 			unsafe
 			{
-				fixed (uint* ptr = &colors[0, 0])
+				fixed (float* ptr = &data[0])
 				{
-					var intPtr = new IntPtr((void*)ptr);
 					PrepareTexture();
-					OpenGL.glTexImage2D(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_RGBA8, width, height,
-						0, OpenGL.GL_BGRA, OpenGL.GL_UNSIGNED_BYTE, intPtr);
+					OpenGL.glTexImage2D(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_RGBA16F, width, height,
+						0, OpenGL.GL_RGBA, OpenGL.GL_FLOAT, new IntPtr(ptr));
 					OpenGL.CheckGLError();
 				}
 			}
 		}
 
-		public void SetData(Bitmap bitmap)
+		public void SetDataFromReadBuffer(Rectangle rect)
 		{
 			VerifyThreadAffinity();
-			var allocatedBitmap = false;
-			if (!Exts.IsPowerOf2(bitmap.Width) || !Exts.IsPowerOf2(bitmap.Height))
-			{
-				bitmap = new Bitmap(bitmap, bitmap.Size.NextPowerOf2());
-				allocatedBitmap = true;
-			}
+			if (!Exts.IsPowerOf2(rect.Width) || !Exts.IsPowerOf2(rect.Height))
+				throw new InvalidDataException($"Non-power-of-two rectangle {rect.Width}x{rect.Height}");
 
-			try
-			{
-				Size = new Size(bitmap.Width, bitmap.Height);
-				var bits = bitmap.LockBits(bitmap.Bounds(),
-					ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+			PrepareTexture();
 
-				PrepareTexture();
-				OpenGL.glTexImage2D(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_RGBA8, bits.Width, bits.Height,
-					0, OpenGL.GL_BGRA, OpenGL.GL_UNSIGNED_BYTE, bits.Scan0); // TODO: weird strides
-				OpenGL.CheckGLError();
-				bitmap.UnlockBits(bits);
-			}
-			finally
-			{
-				if (allocatedBitmap)
-					bitmap.Dispose();
-			}
+			var glInternalFormat = OpenGL.Profile == GLProfile.Embedded ? OpenGL.GL_BGRA : OpenGL.GL_RGBA8;
+			OpenGL.glCopyTexImage2D(OpenGL.GL_TEXTURE_2D, 0, glInternalFormat, rect.X, rect.Y, rect.Width, rect.Height, 0);
+			OpenGL.CheckGLError();
 		}
 
 		public byte[] GetData()
@@ -158,19 +129,62 @@ namespace OpenRA.Platforms.Default
 			VerifyThreadAffinity();
 			var data = new byte[4 * Size.Width * Size.Height];
 
-			OpenGL.CheckGLError();
-			OpenGL.glBindTexture(OpenGL.GL_TEXTURE_2D, texture);
-			unsafe
+			// GLES doesn't support glGetTexImage so data must be read back via a frame buffer
+			if (OpenGL.Profile == GLProfile.Embedded)
 			{
-				fixed (byte* ptr = &data[0])
+				// Query the active framebuffer so we can restore it afterwards
+				OpenGL.glGetIntegerv(OpenGL.GL_FRAMEBUFFER_BINDING, out var lastFramebuffer);
+
+				OpenGL.glGenFramebuffers(1, out var framebuffer);
+				OpenGL.glBindFramebuffer(OpenGL.GL_FRAMEBUFFER, framebuffer);
+				OpenGL.CheckGLError();
+
+				OpenGL.glFramebufferTexture2D(OpenGL.GL_FRAMEBUFFER, OpenGL.GL_COLOR_ATTACHMENT0, OpenGL.GL_TEXTURE_2D, texture, 0);
+				OpenGL.CheckGLError();
+
+				var canReadBGRA = OpenGL.Features.HasFlag(OpenGL.GLFeatures.ESReadFormatBGRA);
+
+				unsafe
 				{
-					var intPtr = new IntPtr((void*)ptr);
-					OpenGL.glGetTexImage(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_BGRA,
-						OpenGL.GL_UNSIGNED_BYTE, intPtr);
+					fixed (byte* ptr = &data[0])
+					{
+						var intPtr = new IntPtr(ptr);
+
+						var format = canReadBGRA ? OpenGL.GL_BGRA : OpenGL.GL_RGBA;
+						OpenGL.glReadPixels(0, 0, Size.Width, Size.Height, format, OpenGL.GL_UNSIGNED_BYTE, intPtr);
+						OpenGL.CheckGLError();
+					}
 				}
+
+				// Convert RGBA to BGRA
+				if (!canReadBGRA)
+				{
+					for (var i = 0; i < 4 * Size.Width * Size.Height; i += 4)
+					{
+						(data[i + 2], data[i]) = (data[i], data[i + 2]);
+					}
+				}
+
+				OpenGL.glBindFramebuffer(OpenGL.GL_FRAMEBUFFER, (uint)lastFramebuffer);
+				OpenGL.glDeleteFramebuffers(1, ref framebuffer);
+				OpenGL.CheckGLError();
+			}
+			else
+			{
+				OpenGL.glBindTexture(OpenGL.GL_TEXTURE_2D, texture);
+				unsafe
+				{
+					fixed (byte* ptr = &data[0])
+					{
+						var intPtr = new IntPtr(ptr);
+						OpenGL.glGetTexImage(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_BGRA,
+							OpenGL.GL_UNSIGNED_BYTE, intPtr);
+					}
+				}
+
+				OpenGL.CheckGLError();
 			}
 
-			OpenGL.CheckGLError();
 			return data;
 		}
 
@@ -178,27 +192,13 @@ namespace OpenRA.Platforms.Default
 		{
 			VerifyThreadAffinity();
 			if (!Exts.IsPowerOf2(width) || !Exts.IsPowerOf2(height))
-				throw new InvalidDataException("Non-power-of-two array {0}x{1}".F(width, height));
+				throw new InvalidDataException($"Non-power-of-two array {width}x{height}");
 
 			Size = new Size(width, height);
-			PrepareTexture();
-			OpenGL.glTexImage2D(OpenGL.GL_TEXTURE_2D, 0, OpenGL.GL_RGBA8, width, height,
-				0, OpenGL.GL_BGRA, OpenGL.GL_UNSIGNED_BYTE, IntPtr.Zero);
-			OpenGL.CheckGLError();
-		}
-
-		~Texture()
-		{
-			Game.RunAfterTick(() => Dispose(false));
+			SetData(IntPtr.Zero, width, height);
 		}
 
 		public void Dispose()
-		{
-			Game.RunAfterTick(() => Dispose(true));
-			GC.SuppressFinalize(this);
-		}
-
-		void Dispose(bool disposing)
 		{
 			if (disposed)
 				return;

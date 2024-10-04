@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,7 +12,6 @@
 using System;
 using System.Linq;
 using OpenRA.Mods.Common.Traits;
-using OpenRA.Network;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
@@ -22,17 +21,17 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		readonly ProductionPaletteWidget palette;
 		readonly World world;
 
-		void SetupProductionGroupButton(OrderManager orderManager, ProductionTypeButtonWidget button)
+		void SetupProductionGroupButton(ProductionTypeButtonWidget button)
 		{
 			if (button == null)
 				return;
 
 			// Classic production queues are initialized at game start, and then never change.
 			var queues = world.LocalPlayer.PlayerActor.TraitsImplementing<ProductionQueue>()
-				.Where(q => q.Info.Type == button.ProductionGroup)
+				.Where(q => (q.Info.Group ?? q.Info.Type) == button.ProductionGroup)
 				.ToArray();
 
-			Action<bool> selectTab = reverse =>
+			void SelectTab(bool reverse)
 			{
 				palette.CurrentQueue = queues.FirstOrDefault(q => q.Enabled);
 
@@ -41,32 +40,22 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 				// Attempt to pick up a completed building (if there is one) so it can be placed
 				palette.PickUpCompletedBuilding();
-			};
-
-			Func<ButtonWidget, Hotkey> getKey = _ => Hotkey.Invalid;
-			if (!string.IsNullOrEmpty(button.HotkeyName))
-			{
-				var ks = Game.Settings.Keys;
-				var field = ks.GetType().GetField(button.HotkeyName);
-				if (field != null)
-					getKey = _ => (Hotkey)field.GetValue(ks);
 			}
 
-			button.IsDisabled = () => !queues.Any(q => q.BuildableItems().Any());
-			button.OnMouseUp = mi => selectTab(mi.Modifiers.HasModifier(Modifiers.Shift));
-			button.OnKeyPress = e => selectTab(e.Modifiers.HasModifier(Modifiers.Shift));
-			button.OnClick = () => selectTab(false);
+			button.IsDisabled = () => !queues.Any(q => q.AnyItemsToBuild());
+			button.OnMouseUp = mi => SelectTab(mi.Modifiers.HasModifier(Modifiers.Shift));
+			button.OnKeyPress = e => SelectTab(e.Modifiers.HasModifier(Modifiers.Shift));
+			button.OnClick = () => SelectTab(false);
 			button.IsHighlighted = () => queues.Contains(palette.CurrentQueue);
-			button.GetKey = getKey;
 
 			var chromeName = button.ProductionGroup.ToLowerInvariant();
 			var icon = button.Get<ImageWidget>("ICON");
 			icon.GetImageName = () => button.IsDisabled() ? chromeName + "-disabled" :
-				queues.Any(q => q.CurrentDone) ? chromeName + "-alert" : chromeName;
+				queues.Any(q => q.AllQueued().Any(i => i.Done)) ? chromeName + "-alert" : chromeName;
 		}
 
 		[ObjectCreator.UseCtor]
-		public ClassicProductionLogic(Widget widget, OrderManager orderManager, World world)
+		public ClassicProductionLogic(Widget widget, World world)
 		{
 			this.world = world;
 			palette = widget.Get<ProductionPaletteWidget>("PRODUCTION_PALETTE");
@@ -88,7 +77,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				if (foreground != null)
 					foregroundTemplate = foreground.Get("ROW_TEMPLATE");
 
-				Action<int, int> updateBackground = (_, icons) =>
+				void UpdateBackground(int _, int icons)
 				{
 					var rows = Math.Max(palette.MinimumRows, (icons + palette.Columns - 1) / palette.Columns);
 					rows = Math.Min(rows, palette.MaximumRows);
@@ -124,17 +113,17 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 							foreground.AddChild(row);
 						}
 					}
-				};
+				}
 
-				palette.OnIconCountChanged += updateBackground;
+				palette.OnIconCountChanged += UpdateBackground;
 
 				// Set the initial palette state
-				updateBackground(0, 0);
+				UpdateBackground(0, 0);
 			}
 
 			var typesContainer = widget.Get("PRODUCTION_TYPES");
 			foreach (var i in typesContainer.Children)
-				SetupProductionGroupButton(orderManager, i as ProductionTypeButtonWidget);
+				SetupProductionGroupButton(i as ProductionTypeButtonWidget);
 
 			var ticker = widget.Get<LogicTickerWidget>("PRODUCTION_TICKER");
 			ticker.OnTick = () =>
@@ -144,8 +133,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					// Select the first active tab
 					foreach (var b in typesContainer.Children)
 					{
-						var button = b as ProductionTypeButtonWidget;
-						if (button == null || button.IsDisabled())
+						if (b is not ProductionTypeButtonWidget button || button.IsDisabled())
 							continue;
 
 						button.OnClick();
@@ -160,7 +148,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			if (scrollDown != null)
 			{
 				scrollDown.OnClick = palette.ScrollDown;
-				scrollDown.IsVisible = () => palette.TotalIconCount > (palette.MaxIconRowOffset * palette.Columns);
+				scrollDown.IsVisible = () => palette.TotalIconCount > palette.MaxIconRowOffset * palette.Columns;
 				scrollDown.IsDisabled = () => !palette.CanScrollDown;
 			}
 
@@ -169,7 +157,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			if (scrollUp != null)
 			{
 				scrollUp.OnClick = palette.ScrollUp;
-				scrollUp.IsVisible = () => palette.TotalIconCount > (palette.MaxIconRowOffset * palette.Columns);
+				scrollUp.IsVisible = () => palette.TotalIconCount > palette.MaxIconRowOffset * palette.Columns;
 				scrollUp.IsDisabled = () => !palette.CanScrollUp;
 			}
 
@@ -191,7 +179,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			// Check if icon heights exceed y resolution
 			var maxItemsHeight = screenHeight - sidebarProductionHeight;
 
-			var maxIconRowOffest = (maxItemsHeight / productionPalette.IconSize.Y) - 1;
+			var maxIconRowOffest = maxItemsHeight / productionPalette.IconSize.Y - 1;
 			productionPalette.MaxIconRowOffset = Math.Min(maxIconRowOffest, productionPalette.MaximumRows);
 		}
 	}

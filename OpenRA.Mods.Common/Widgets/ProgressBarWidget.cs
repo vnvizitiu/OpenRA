@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,8 +10,8 @@
 #endregion
 
 using System;
-using System.Drawing;
 using OpenRA.Graphics;
+using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
@@ -20,7 +20,7 @@ namespace OpenRA.Mods.Common.Widgets
 	{
 		public string Background = "progressbar-bg";
 		public string Bar = "progressbar-thumb";
-		public Size BarMargin = new Size(2, 2);
+		public Size BarMargin = new(2, 2);
 
 		public int Percentage = 0;
 		public bool Indeterminate = false;
@@ -52,7 +52,7 @@ namespace OpenRA.Mods.Common.Widgets
 			var percentage = GetPercentage();
 			WidgetUtils.DrawPanel(Background, rb);
 
-			var minBarWidth = (int)(ChromeProvider.GetImage(Bar, "border-l").Size.X + ChromeProvider.GetImage(Bar, "border-r").Size.X);
+			var minBarWidth = ChromeProvider.GetMinimumPanelSize(Bar).Width;
 			var maxBarWidth = rb.Width - BarMargin.Width * 2;
 			var barWidth = wasIndeterminate ? maxBarWidth / 4 : percentage * maxBarWidth / 100;
 			barWidth = Math.Max(barWidth, minBarWidth);

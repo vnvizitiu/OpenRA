@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -19,31 +19,36 @@ namespace OpenRA.Mods.Common.Effects
 {
 	public class Beacon : IEffect, IScriptBindable, IEffectAboveShroud
 	{
-		static readonly int MaxArrowHeight = 512;
+		const int MaxArrowHeight = 512;
 
 		readonly Player owner;
 		readonly WPos position;
-		readonly string beaconPalette;
 		readonly bool isPlayerPalette;
-		readonly string posterPalette;
-		readonly Animation arrow;
-		readonly Animation circles;
-		readonly Animation poster;
-		readonly Animation clock;
+		readonly string beaconPalette, posterPalette;
+		readonly Animation arrow, beacon, circles, clock, poster;
 		readonly int duration;
 
+		int delay;
 		int arrowHeight = MaxArrowHeight;
 		int arrowSpeed = 50;
 		int tick;
 
 		// Player-placed beacons are removed after a delay
-		public Beacon(Player owner, WPos position, int duration, string beaconPalette, bool isPlayerPalette, string beaconCollection, string arrowSprite, string circleSprite)
+		public Beacon(Player owner, WPos position, int duration, string beaconPalette, bool isPlayerPalette,
+			string beaconCollection, string beaconSequence, string arrowSprite, string circleSprite, int delay = 0)
 		{
 			this.owner = owner;
 			this.position = position;
 			this.beaconPalette = beaconPalette;
 			this.isPlayerPalette = isPlayerPalette;
 			this.duration = duration;
+			this.delay = delay;
+
+			if (!string.IsNullOrEmpty(beaconSequence))
+			{
+				beacon = new Animation(owner.World, beaconCollection);
+				beacon.PlayRepeating(beaconSequence);
+			}
 
 			if (!string.IsNullOrEmpty(arrowSprite))
 			{
@@ -58,10 +63,10 @@ namespace OpenRA.Mods.Common.Effects
 			}
 		}
 
-		// Support power beacons are expected to clean themselves up
+		// By default, support power beacons are expected to clean themselves up
 		public Beacon(Player owner, WPos position, bool isPlayerPalette, string palette, string posterCollection, string posterType, string posterPalette,
-			string arrowSequence, string circleSequence, string clockSequence, Func<float> clockFraction)
-				: this(owner, position, -1, palette, isPlayerPalette, posterCollection, arrowSequence, circleSequence)
+			string beaconSequence, string arrowSequence, string circleSequence, string clockSequence, Func<float> clockFraction, int delay = 0, int duration = -1)
+				: this(owner, position, duration, palette, isPlayerPalette, posterCollection, beaconSequence, arrowSequence, circleSequence, delay)
 		{
 			this.posterPalette = posterPalette;
 
@@ -73,13 +78,16 @@ namespace OpenRA.Mods.Common.Effects
 				if (clockFraction != null)
 				{
 					clock = new Animation(owner.World, posterCollection);
-					clock.PlayFetchIndex(clockSequence, () => Exts.Clamp((int)(clockFraction() * (clock.CurrentSequence.Length - 1)), 0, clock.CurrentSequence.Length - 1));
+					clock.PlayFetchIndex(clockSequence, () => ((int)(clockFraction() * (clock.CurrentSequence.Length - 1))).Clamp(0, clock.CurrentSequence.Length - 1));
 				}
 			}
 		}
 
 		void IEffect.Tick(World world)
 		{
+			if (delay-- > 0)
+				return;
+
 			arrowHeight += arrowSpeed;
 			var clamped = arrowHeight.Clamp(0, MaxArrowHeight);
 			if (arrowHeight != clamped)
@@ -88,14 +96,10 @@ namespace OpenRA.Mods.Common.Effects
 				arrowSpeed *= -1;
 			}
 
-			if (arrow != null)
-				arrow.Tick();
-
-			if (circles != null)
-				circles.Tick();
-
-			if (clock != null)
-				clock.Tick();
+			arrow?.Tick();
+			beacon?.Tick();
+			circles?.Tick();
+			clock?.Tick();
 
 			if (duration > 0 && duration <= tick++)
 				owner.World.AddFrameEndTask(w => w.Remove(this));
@@ -105,10 +109,17 @@ namespace OpenRA.Mods.Common.Effects
 
 		IEnumerable<IRenderable> IEffectAboveShroud.RenderAboveShroud(WorldRenderer r)
 		{
+			if (delay > 0)
+				yield break;
+
 			if (!owner.IsAlliedWith(owner.World.RenderPlayer))
 				yield break;
 
 			var palette = r.Palette(isPlayerPalette ? beaconPalette + owner.InternalName : beaconPalette);
+
+			if (beacon != null)
+				foreach (var a in beacon.Render(position, palette))
+					yield return a;
 
 			if (circles != null)
 				foreach (var a in circles.Render(position, palette))

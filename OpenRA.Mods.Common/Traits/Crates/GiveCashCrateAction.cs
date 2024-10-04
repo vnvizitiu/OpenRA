@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,23 +10,22 @@
 #endregion
 
 using OpenRA.Mods.Common.Effects;
-using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Gives cash to the collector.")]
-	class GiveCashCrateActionInfo : CrateActionInfo
+	sealed class GiveCashCrateActionInfo : CrateActionInfo
 	{
 		[Desc("Amount of cash to give.")]
-		public int Amount = 2000;
+		public readonly int Amount = 2000;
 
 		[Desc("Should the collected amount be displayed as a cash tick?")]
-		public bool UseCashTick = false;
+		public readonly bool UseCashTick = false;
 
 		public override object Create(ActorInitializer init) { return new GiveCashCrateAction(init.Self, this); }
 	}
 
-	class GiveCashCrateAction : CrateAction
+	sealed class GiveCashCrateAction : CrateAction
 	{
 		readonly GiveCashCrateActionInfo info;
 		public GiveCashCrateAction(Actor self, GiveCashCrateActionInfo info)
@@ -39,13 +38,22 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			collector.World.AddFrameEndTask(w =>
 			{
-				collector.Owner.PlayerActor.Trait<PlayerResources>().GiveCash(info.Amount);
+				var amount = collector.Owner.PlayerActor.Trait<PlayerResources>().ChangeCash(info.Amount);
 
 				if (info.UseCashTick)
-					w.Add(new FloatingText(collector.CenterPosition, collector.Owner.Color.RGB, FloatingText.FormatCashTick(info.Amount), 30));
+					w.Add(new FloatingText(collector.CenterPosition, collector.OwnerColor(), FloatingText.FormatCashTick(amount), 30));
 			});
 
 			base.Activate(collector);
+		}
+
+		public override int GetSelectionShares(Actor collector)
+		{
+			var pr = collector.Owner.PlayerActor.Trait<PlayerResources>();
+			if (info.Amount < 0 && pr.GetCashAndResources() == 0)
+				return 0;
+
+			return base.GetSelectionShares(collector);
 		}
 	}
 }

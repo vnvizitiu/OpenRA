@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,11 +14,18 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Commands
 {
+	[TraitLocation(SystemActors.World)]
 	[Desc("Allows the player to pause or surrender the game via the chatbox. Attach this to the world actor.")]
 	public class PlayerCommandsInfo : TraitInfo<PlayerCommands> { }
 
 	public class PlayerCommands : IChatCommand, IWorldLoaded
 	{
+		[FluentReference]
+		const string PauseDescription = "description-pause-description";
+
+		[FluentReference]
+		const string SurrenderDescription = "description-surrender-description";
+
 		World world;
 
 		public void WorldLoaded(World w, WorldRenderer wr)
@@ -28,26 +35,25 @@ namespace OpenRA.Mods.Common.Commands
 			var help = world.WorldActor.Trait<HelpCommand>();
 
 			console.RegisterCommand("pause", this);
-			help.RegisterHelp("pause", "pause or unpause the game");
+			help.RegisterHelp("pause", PauseDescription);
+
 			console.RegisterCommand("surrender", this);
-			help.RegisterHelp("surrender", "self-destruct everything and lose the game");
+			help.RegisterHelp("surrender", SurrenderDescription);
 		}
 
 		public void InvokeCommand(string name, string arg)
 		{
-			if (world.LocalPlayer == null)
-				return;
-
 			switch (name)
 			{
 				case "pause":
-					world.IssueOrder(new Order("PauseGame", null, false)
-					{
-						TargetString = world.Paused ? "UnPause" : "Pause"
-					});
+					if (Game.IsHost || (world.LocalPlayer != null && world.LocalPlayer.WinState != WinState.Lost))
+						world.SetPauseState(!world.Paused);
+
 					break;
 				case "surrender":
-					world.IssueOrder(new Order("Surrender", world.LocalPlayer.PlayerActor, false));
+					if (world.LocalPlayer != null)
+						world.IssueOrder(new Order("Surrender", world.LocalPlayer.PlayerActor, false));
+
 					break;
 			}
 		}

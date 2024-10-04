@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,15 +9,17 @@
  */
 #endregion
 
-using System.Collections.Generic;
-using System.Drawing;
+using System;
 using OpenRA.Graphics;
+using OpenRA.Primitives;
+using OpenRA.Support;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Adds a particle-based overlay.")]
-	public class WeatherOverlayInfo : ITraitInfo, ILobbyCustomRulesIgnore
+	[TraitLocation(SystemActors.World | SystemActors.EditorWorld)]
+	public class WeatherOverlayInfo : ConditionalTraitInfo, ILobbyCustomRulesIgnore
 	{
 		[Desc("Average number of particles per 100x100 px square.")]
 		public readonly int ParticleDensityFactor = 8;
@@ -26,10 +28,10 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly bool ChangingWindLevel = true;
 
 		[Desc("The levels of wind intensity (particles x-axis movement in px/tick).")]
-		public readonly int[] WindLevels = { -5, -3, -2, 0, 2, 3, 5 };
+		public readonly int[] WindLevels = { -12, -7, -5, 0, 5, 7, 12 };
 
 		[Desc("Works only if ChangingWindLevel is enabled. Min. and max. ticks needed to change the WindLevel.")]
-		public readonly int[] WindTick = { 150, 750 };
+		public readonly int[] WindTick = { 150, 550 };
 
 		[Desc("Hard or soft fading between the WindLevels.")]
 		public readonly bool InstantWindChanges = false;
@@ -44,19 +46,20 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly int[] ScatterDirection = { -1, 1 };
 
 		[Desc("Min. and max. speed at which particles fall in px/tick.")]
-		public readonly float[] Gravity = { 1.00f, 2.00f };
+		public readonly float[] Gravity = { 2.5f, 5f };
 
 		[Desc("The current offset value for the swing movement. SwingOffset min. and max. value in px/tick.")]
-		public readonly float[] SwingOffset = { 1.0f, 1.5f };
+		public readonly float[] SwingOffset = { 2.5f, 3.5f };
 
 		[Desc("The value that particles swing to the side each update. SwingSpeed min. and max. value in px/tick.")]
-		public readonly float[] SwingSpeed = { 0.001f, 0.025f };
+		public readonly float[] SwingSpeed = { 0.0025f, 0.06f };
 
 		[Desc("The value range that can be swung to the left or right. SwingAmplitude min. and max. value in px/tick.")]
 		public readonly float[] SwingAmplitude = { 1.0f, 1.5f };
 
 		[Desc("The randomly selected rgb(a) hex colors for the particles. Use this order: rrggbb[aa], rrggbb[aa], ...")]
-		public readonly Color[] ParticleColors = {
+		public readonly Color[] ParticleColors =
+		{
 			Color.FromArgb(236, 236, 236),
 			Color.FromArgb(228, 228, 228),
 			Color.FromArgb(208, 208, 208),
@@ -66,244 +69,235 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Works only with line enabled and can be used to fade out the tail of the line like a contrail.")]
 		public readonly byte LineTailAlphaValue = 200;
 
-		public object Create(ActorInitializer init) { return new WeatherOverlay(init.World, this); }
+		[Desc("Time to fade out once the trait becomes disabled.")]
+		public readonly int FadeOutTicks = 1000;
+
+		[Desc("Time to fade in once the trait becomes enabled.")]
+		public readonly int FadeInTicks = 1000;
+
+		[Desc("Percentage of the initial particle when enabled and the game start.")]
+		public readonly int InitialParticlePercentage = 100;
+
+		public override object Create(ActorInitializer init) { return new WeatherOverlay(init.World, this); }
 	}
 
-	public class WeatherOverlay : ITick, IRenderAboveWorld
+	public class WeatherOverlay : ConditionalTrait<WeatherOverlayInfo>, ITick, IRenderAboveWorld, INotifyViewportZoomExtentsChanged
 	{
-		readonly WeatherOverlayInfo info;
-		readonly World world;
-		struct Particle
+		readonly struct Particle
 		{
-			public float PosX;
-			public float PosY;
-			public int Size;
-			public float DirectionScatterX;
-			public float Gravity;
-			public float SwingOffset;
-			public float SwingSpeed;
-			public int SwingDirection;
-			public float SwingAmplitude;
-			public Color Color;
-			public Color TailColor;
+			public readonly float2 Pos;
+			public readonly int Size;
+			public readonly float DirectionScatterX;
+			public readonly float Gravity;
+			public readonly float SwingOffset;
+			public readonly float SwingSpeed;
+			public readonly int SwingDirection;
+			public readonly float SwingAmplitude;
+			public readonly Color Color;
+			public readonly Color TailColor;
+
+			public Particle(WeatherOverlayInfo info, MersenneTwister r, Rectangle viewport)
+			{
+				var x = r.Next(viewport.Left, viewport.Right);
+				var y = r.Next(viewport.Top, viewport.Bottom);
+
+				Pos = new int2(x, y);
+				Size = r.Next(info.ParticleSize[0], info.ParticleSize[1] + 1);
+				DirectionScatterX = info.ScatterDirection[0] + r.Next(info.ScatterDirection[1] - info.ScatterDirection[0]);
+				Gravity = float2.Lerp(info.Gravity[0], info.Gravity[1], r.NextFloat());
+				SwingOffset = float2.Lerp(info.SwingOffset[0], info.SwingOffset[1], r.NextFloat());
+				SwingSpeed = float2.Lerp(info.SwingSpeed[0], info.SwingSpeed[1], r.NextFloat());
+				SwingDirection = r.Next(2) == 0 ? 1 : -1;
+				SwingAmplitude = float2.Lerp(info.SwingAmplitude[0], info.SwingAmplitude[1], r.NextFloat());
+				Color = info.ParticleColors.Random(r);
+				TailColor = Color.FromArgb(info.LineTailAlphaValue, Color.R, Color.G, Color.B);
+			}
+
+			Particle(in Particle source)
+			{
+				Pos = source.Pos;
+				Size = source.Size;
+				DirectionScatterX = source.DirectionScatterX;
+				Gravity = source.Gravity;
+				SwingOffset = source.SwingOffset;
+				SwingSpeed = source.SwingSpeed;
+				SwingDirection = source.SwingDirection;
+				SwingAmplitude = source.SwingAmplitude;
+				Color = source.Color;
+				TailColor = source.TailColor;
+			}
+
+			public Particle(in Particle source, float2 pos)
+				: this(source)
+			{
+				Pos = pos;
+			}
+
+			public Particle(in Particle source, float2 pos, int swingDirection, float swingOffset)
+				: this(source)
+			{
+				Pos = pos;
+				SwingDirection = swingDirection;
+				SwingOffset = swingOffset;
+			}
 		}
 
-		readonly List<Particle> particleList = new List<Particle>();
-		readonly int maxParticleCount;
+		readonly World world;
+		readonly int fadeInTick;
+		readonly int fadeOutTick;
 
-		enum ParticleCountFaderType { Hold, FadeIn, FadeOut }
-		ParticleCountFaderType particleCountFader = ParticleCountFaderType.FadeIn;
-
-		float targetWindXOffset = 0f;
-		float currentWindXOffset = 0f;
-		int currentWindIndex = 0;
-		long windTickCountdown = 1500;
-		float2 antiScrollPrevTopLeft;
+		float windStrength;
+		int targetWindStrengthIndex;
+		long windUpdateCountdown;
+		Particle[] particles;
+		Size viewportSize;
+		long lastRender;
+		bool initialTick = true;
+		int fadingInTick;
+		int fadingOutTick;
 
 		public WeatherOverlay(World world, WeatherOverlayInfo info)
+			: base(info)
 		{
-			this.info = info;
 			this.world = world;
-			currentWindIndex = info.WindLevels.Length / 2;
-			targetWindXOffset = info.WindLevels[0];
-			maxParticleCount = CalculateParticleCount(Game.Renderer.Resolution.Width, Game.Renderer.Resolution.Height);
+			targetWindStrengthIndex = info.ChangingWindLevel ? world.LocalRandom.Next(info.WindLevels.Length) : 0;
+			windUpdateCountdown = world.LocalRandom.Next(info.WindTick[0], info.WindTick[1]);
+			windStrength = info.WindLevels[targetWindStrengthIndex];
+			fadeInTick = info.FadeInTicks > 0 ? info.FadeInTicks : 1;
+			fadeOutTick = info.FadeOutTicks > 0 ? info.FadeOutTicks : 1;
 		}
 
-		int CalculateParticleCount(int x, int y)
+		void INotifyViewportZoomExtentsChanged.ViewportZoomExtentsChanged(float minZoom, float maxZoom)
 		{
-			return (int)(x * y * info.ParticleDensityFactor / 10000);
+			// Track particles in a viewport fixed to the minimum zoom level
+			var s = (1f / minZoom * new float2(Game.Renderer.NativeResolution)).ToInt2();
+			viewportSize = new Size(s.X, s.Y);
+
+			// Randomly distribute particles within the initial viewport
+			var particleCount = viewportSize.Width * viewportSize.Height * Info.ParticleDensityFactor / 10000;
+			particles = new Particle[particleCount];
+			var rect = new Rectangle(int2.Zero, viewportSize);
+			for (var i = 0; i < particles.Length; i++)
+				particles[i] = new Particle(Info, world.LocalRandom, rect);
 		}
 
-		void SpawnParticles(int count, int rangeY, int spawnChancePercent)
+		protected override void TraitEnabled(Actor self)
 		{
-			for (var i = 0; i < count; i++)
-			{
-				if (Game.CosmeticRandom.Next(100) < spawnChancePercent)
-				{
-					var tempColor = info.ParticleColors.Random(Game.CosmeticRandom);
-					var tempColorTail = Color.FromArgb(info.LineTailAlphaValue, tempColor.R, tempColor.G, tempColor.B);
-					var tempSwingDirection = Game.CosmeticRandom.Next(2) == 0 ? 1 : -1;
-
-					particleList.Add(
-						new Particle
-						{
-							PosX = Game.CosmeticRandom.Next(Game.Renderer.Resolution.Width),
-							PosY = Game.CosmeticRandom.Next(rangeY),
-							Size = Game.CosmeticRandom.Next(info.ParticleSize[0], info.ParticleSize[1] + 1),
-							DirectionScatterX = info.ScatterDirection[0] + Game.CosmeticRandom.Next(info.ScatterDirection[1] - info.ScatterDirection[0]),
-							Gravity = float2.Lerp(info.Gravity[0], info.Gravity[1], Game.CosmeticRandom.NextFloat()),
-							SwingOffset = float2.Lerp(info.SwingOffset[0], info.SwingOffset[1], Game.CosmeticRandom.NextFloat()),
-							SwingSpeed = float2.Lerp(info.SwingSpeed[0], info.SwingSpeed[1], Game.CosmeticRandom.NextFloat()),
-							SwingDirection = tempSwingDirection,
-							SwingAmplitude = float2.Lerp(info.SwingAmplitude[0], info.SwingAmplitude[1], Game.CosmeticRandom.NextFloat()),
-							Color = tempColor,
-							TailColor = tempColorTail
-						});
-				}
-			}
+			if (!initialTick)
+				fadingInTick = (fadeOutTick - fadingOutTick) * 1000 * fadeInTick / fadeOutTick / 1000;
 		}
 
-		void ParticlesCountLogic(WorldRenderer wr)
+		protected override void TraitDisabled(Actor self)
 		{
-			// Logic to switch between the states of the particleCountFader
-			if (particleCountFader == ParticleCountFaderType.Hold && particleList.Count < maxParticleCount)
-				particleCountFader = ParticleCountFaderType.FadeIn;
-			else if (particleCountFader == ParticleCountFaderType.FadeIn && particleList.Count >= maxParticleCount)
-				particleCountFader = ParticleCountFaderType.Hold;
-			else if (particleCountFader == ParticleCountFaderType.FadeOut && particleList.Count == 0)
-				particleCountFader = ParticleCountFaderType.Hold;
-
-			// Do the fade functions
-			if (particleCountFader == ParticleCountFaderType.FadeIn)
-				FadeInParticleCount(wr);
-			else if (particleCountFader == ParticleCountFaderType.FadeOut)
-				FadeOutParticleCount(wr);
-		}
-
-		void FadeInParticleCount(WorldRenderer wr)
-		{
-			SpawnParticles(1, 0, 100);
-
-			// Remove Particles, which are getting replaced from the top to the bottom by the "EdgeCheckReplace",
-			// when scrolling down, as long as the FadeIn is not completed,
-			// to avoid having particles at the top and bottom, but not in the middle of the screen.
-			for (var i = 0; i < particleList.Count; i++)
-				if (particleList[i].PosY < 0)
-					particleList.RemoveAt(i);
-
-			// Add Particles when the weather is fading in and scrolling up, to fill areas above
-			if (antiScrollPrevTopLeft.Y > wr.Viewport.TopLeft.Y)
-			{
-				// Get delta Y and limit to the max value
-				var tempRangeY = antiScrollPrevTopLeft.Y - wr.Viewport.TopLeft.Y;
-				var tempParticleCount = CalculateParticleCount(Game.Renderer.Resolution.Width, (int)tempRangeY);
-				if (particleList.Count + tempParticleCount > maxParticleCount)
-					tempParticleCount = maxParticleCount - particleList.Count;
-
-				SpawnParticles(tempParticleCount, (int)tempRangeY, 50);
-			}
-		}
-
-		void FadeOutParticleCount(WorldRenderer wr)
-		{
-			for (var i = 0; i < particleList.Count; i++)
-				if (particleList[i].PosY > (Game.Renderer.Resolution.Height - particleList[i].Gravity))
-					particleList.RemoveAt(i);
-		}
-
-		void XAxisSwing(ref Particle tempParticle)
-		{
-			// Direction turn
-			if (tempParticle.SwingOffset < -tempParticle.SwingAmplitude || tempParticle.SwingOffset > tempParticle.SwingAmplitude)
-				tempParticle.SwingDirection *= -1;
-
-			// Perform the X-Axis-Swing
-			tempParticle.SwingOffset += tempParticle.SwingDirection * tempParticle.SwingSpeed;
+			if (!initialTick)
+				fadingOutTick = (fadeInTick - fadingInTick) * 1000 * fadeOutTick / fadeInTick / 1000;
 		}
 
 		void ITick.Tick(Actor self)
 		{
-			windTickCountdown--;
-		}
-
-		void WindLogic(ref Particle tempParticle)
-		{
-			if (!info.ChangingWindLevel)
-				targetWindXOffset = info.WindLevels[0];
-			else if (windTickCountdown <= 0)
+			if (initialTick)
 			{
-				windTickCountdown = Game.CosmeticRandom.Next(info.WindTick[0], info.WindTick[1]);
-				if (Game.CosmeticRandom.Next(2) == 1 && currentWindIndex > 0)
-				{
-					currentWindIndex--;
-					targetWindXOffset = info.WindLevels[currentWindIndex];
-				}
-				else if (currentWindIndex < info.WindLevels.Length - 1)
-				{
-					currentWindIndex++;
-					targetWindXOffset = info.WindLevels[currentWindIndex];
-				}
+				initialTick = false;
+				var initialPercentage = Exts.Clamp(Info.InitialParticlePercentage, 0, 100);
+				if (IsTraitDisabled)
+					fadingOutTick = fadeOutTick * (100 - initialPercentage) / 100;
+				else
+					fadingInTick = fadeInTick * initialPercentage / 100;
+			}
+
+			if (IsTraitDisabled)
+			{
+				if (fadingOutTick < fadeOutTick)
+					fadingOutTick++;
+			}
+			else if (fadingInTick < fadeInTick)
+				fadingInTick++;
+
+			if (!Info.ChangingWindLevel || Info.WindLevels.Length == 1)
+				return;
+
+			if (--windUpdateCountdown <= 0)
+			{
+				windUpdateCountdown = self.World.LocalRandom.Next(Info.WindTick[0], Info.WindTick[1]);
+				if (targetWindStrengthIndex > 0 && self.World.LocalRandom.Next(2) == 1)
+					targetWindStrengthIndex--;
+				else if (targetWindStrengthIndex < Info.WindLevels.Length - 1)
+					targetWindStrengthIndex++;
 			}
 
 			// Fading the wind in little steps towards the TargetWindOffset
-			if (info.InstantWindChanges)
-				currentWindXOffset = targetWindXOffset;
-			else if (currentWindXOffset != targetWindXOffset)
+			var targetWindLevel = Info.WindLevels[targetWindStrengthIndex];
+			if (Info.InstantWindChanges)
+				windStrength = targetWindLevel;
+			else if (Math.Abs(windStrength - targetWindLevel) > 0.01f)
 			{
-				if (currentWindXOffset > targetWindXOffset)
-					currentWindXOffset -= 0.00001f;
-				else if (currentWindXOffset < targetWindXOffset)
-					currentWindXOffset += 0.00001f;
-			}
-		}
-
-		void Movement(ref Particle tempParticle)
-		{
-			tempParticle.PosX += tempParticle.DirectionScatterX + tempParticle.SwingOffset + currentWindXOffset;
-			tempParticle.PosY += tempParticle.Gravity;
-		}
-
-		// AntiScroll keeps the particles in place when scrolling the viewport
-		void AntiScroll(ref Particle tempParticle, WorldRenderer wr)
-		{
-			tempParticle.PosX += antiScrollPrevTopLeft.X - wr.Viewport.TopLeft.X;
-			tempParticle.PosY += antiScrollPrevTopLeft.Y - wr.Viewport.TopLeft.Y;
-		}
-
-		void EdgeCheckReplace(ref Particle tempParticle, WorldRenderer wr)
-		{
-			tempParticle.PosX %= Game.Renderer.Resolution.Width;
-			if (tempParticle.PosX < 0)
-				tempParticle.PosX += Game.Renderer.Resolution.Width;
-
-			tempParticle.PosY %= Game.Renderer.Resolution.Height;
-			if (tempParticle.PosY < 0 && particleCountFader != ParticleCountFaderType.FadeIn)
-				tempParticle.PosY += Game.Renderer.Resolution.Height;
-		}
-
-		void UpdateWeatherOverlay(WorldRenderer wr)
-		{
-			ParticlesCountLogic(wr);
-
-			for (var i = 0; i < particleList.Count; i++)
-			{
-				Particle tempParticle = particleList[i];
-
-				XAxisSwing(ref tempParticle);
-				WindLogic(ref tempParticle);
-				Movement(ref tempParticle);
-				AntiScroll(ref tempParticle, wr);
-				EdgeCheckReplace(ref tempParticle, wr);
-
-				particleList[i] = tempParticle;
-			}
-
-			antiScrollPrevTopLeft = wr.Viewport.TopLeft;
-		}
-
-		void DrawWeatherOverlay(WorldRenderer wr)
-		{
-			var topLeft = wr.Viewport.TopLeft;
-			foreach (var item in particleList)
-			{
-				var tempPos = new float2(item.PosX + topLeft.X, item.PosY + topLeft.Y);
-
-				if (info.UseSquares)
-					Game.Renderer.WorldRgbaColorRenderer.FillRect(tempPos, tempPos + new float2(item.Size, item.Size), item.Color);
-				else
-				{
-					var tempPosTail = new float2(topLeft.X + item.PosX - currentWindXOffset, item.PosY - (item.Gravity * 2 / 3) + topLeft.Y);
-					Game.Renderer.WorldRgbaColorRenderer.DrawLine(tempPos, tempPosTail, item.Size, item.TailColor);
-				}
+				if (windStrength > targetWindLevel)
+					windStrength -= 0.01f;
+				else if (windStrength < targetWindLevel)
+					windStrength += 0.01f;
 			}
 		}
 
 		void IRenderAboveWorld.RenderAboveWorld(Actor self, WorldRenderer wr)
 		{
-			if (!world.Paused)
-				UpdateWeatherOverlay(wr);
+			var center = wr.Viewport.CenterLocation;
+			var viewport = new Rectangle(center - new int2(viewportSize) / 2, viewportSize);
+			var wcr = Game.Renderer.WorldRgbaColorRenderer;
 
-			DrawWeatherOverlay(wr);
+			// SwingSpeed is defined in px/tick so we must account for the fraction of a tick that elapsed since the last render.
+			// The scale is capped at 1 tick to avoid unexpected behaviour at game start, if RunTime overflows, or if the game stalls.
+			var runtime = Game.RunTime;
+			var tickFraction = Math.Min((runtime - lastRender) * 1f / world.Timestep, 1);
+			lastRender = runtime;
+
+			var spawnNum = particles.Length * (IsTraitDisabled ? (fadeOutTick - fadingOutTick) * 1000 / fadeOutTick : fadingInTick * 1000 / fadeInTick) / 1000;
+
+			for (var i = 0; i < spawnNum; i++)
+			{
+				// Simulate wind and gravity effects on the particle
+				var p = particles[i];
+				if (!world.Paused)
+				{
+					var swingDirection = p.SwingDirection;
+					if (p.SwingOffset < -p.SwingAmplitude || p.SwingOffset > p.SwingAmplitude)
+						swingDirection *= -1;
+
+					var swingOffset = p.SwingOffset + p.SwingDirection * p.SwingSpeed;
+					var pos = p.Pos + tickFraction * new float2(p.DirectionScatterX + p.SwingOffset + windStrength, p.Gravity);
+					particles[i] = p = new Particle(p, pos, swingDirection, swingOffset);
+				}
+
+				// Move the particle back inside the viewport if necessary
+				if (!viewport.Contains(p.Pos.ToInt2()))
+				{
+					var dx = (p.Pos.X - viewport.Left) % viewport.Width;
+					var dy = (p.Pos.Y - viewport.Top) % viewport.Height;
+
+					if (dx < 0)
+						dx += viewport.Width;
+
+					if (dy < 0)
+						dy += viewport.Height;
+
+					particles[i] = p = new Particle(p, new float2(viewport.Left + dx, viewport.Top + dy));
+				}
+
+				// Render the particle
+				// We must provide a z coordinate to stop the GL near and far Z limits from culling the geometry
+				var a = new float3(p.Pos.X, p.Pos.Y, p.Pos.Y);
+				if (Info.UseSquares)
+				{
+					var b = a + new float2(p.Size, p.Size);
+					wcr.FillRect(a, b, p.Color);
+				}
+				else
+				{
+					var tail = p.Pos + new float2(-windStrength, -p.Gravity * 2 / 3);
+
+					var b = new float3(tail.X, tail.Y, tail.Y);
+					wcr.DrawLine(a, b, p.Size, p.TailColor);
+				}
+			}
 		}
 	}
 }

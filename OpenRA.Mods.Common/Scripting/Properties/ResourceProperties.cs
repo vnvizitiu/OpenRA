@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,7 @@
 #endregion
 
 using System;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Scripting;
 using OpenRA.Traits;
 
@@ -29,18 +30,18 @@ namespace OpenRA.Mods.Common.Scripting
 		[Desc("The amount of harvestable resources held by the player.")]
 		public int Resources
 		{
-			get { return pr.Resources; }
-			set { pr.Resources = value.Clamp(0, pr.ResourceCapacity); }
+			get => pr.Resources;
+			set => pr.Resources = value.Clamp(0, pr.ResourceCapacity);
 		}
 
 		[Desc("The maximum resource storage of the player.")]
-		public int ResourceCapacity { get { return pr.ResourceCapacity; } }
+		public int ResourceCapacity => pr.ResourceCapacity;
 
 		[Desc("The amount of cash held by the player.")]
 		public int Cash
 		{
-			get { return pr.Cash; }
-			set { pr.Cash = Math.Max(0, value); }
+			get => pr.Cash;
+			set => pr.Cash = Math.Max(0, value);
 		}
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,11 +11,11 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using System.Text;
+using OpenRA.Primitives;
 using OpenRA.Support;
 using OpenRA.Traits;
 
@@ -23,26 +23,24 @@ namespace OpenRA
 {
 	public static class Exts
 	{
-		public static bool IsUppercase(this string str)
+		/// <summary>Returns <see cref="Color"/> of the <paramref name="actor"/>, taking <see cref="Actor.EffectiveOwner"/> into account.</summary>
+		public static Color OwnerColor(this Actor actor)
 		{
-			return string.Compare(str.ToUpperInvariant(), str, false) == 0;
+			var effectiveOwner = actor.EffectiveOwner;
+			if (effectiveOwner != null && effectiveOwner.Disguised && actor.World.RenderPlayer != null)
+				return effectiveOwner.Owner.Color;
+
+			return actor.Owner.Color;
 		}
 
-		public static string F(this string fmt, params object[] args)
+		public static string FormatInvariant(this string format, params object[] args)
 		{
-			return string.Format(fmt, args);
+			return string.Format(CultureInfo.InvariantCulture, format, args);
 		}
 
-		public static T WithDefault<T>(T def, Func<T> f)
+		public static string FormatCurrent(this string format, params object[] args)
 		{
-			try { return f(); }
-			catch { return def; }
-		}
-
-		public static void Do<T>(this IEnumerable<T> e, Action<T> fn)
-		{
-			foreach (var ee in e)
-				fn(ee);
+			return string.Format(CultureInfo.CurrentCulture, format, args);
 		}
 
 		public static Lazy<T> Lazy<T>(Func<T> p) { return new Lazy<T>(p); }
@@ -52,21 +50,16 @@ namespace OpenRA
 			return a.GetTypes().Select(t => t.Namespace).Distinct().Where(n => n != null);
 		}
 
-		public static bool HasAttribute<T>(this MemberInfo mi)
+		public static bool HasAttribute<TAttribute>(this MemberInfo mi)
+			where TAttribute : Attribute
 		{
-			return mi.GetCustomAttributes(typeof(T), true).Length != 0;
+			return Attribute.IsDefined(mi, typeof(TAttribute));
 		}
 
-		public static T[] GetCustomAttributes<T>(this MemberInfo mi, bool inherit)
-			where T : class
+		public static TAttribute[] GetCustomAttributes<TAttribute>(this MemberInfo mi, bool inherit)
+			where TAttribute : Attribute
 		{
-			return (T[])mi.GetCustomAttributes(typeof(T), inherit);
-		}
-
-		public static T[] GetCustomAttributes<T>(this ParameterInfo mi)
-			where T : class
-		{
-			return (T[])mi.GetCustomAttributes(typeof(T), true);
+			return (TAttribute[])mi.GetCustomAttributes(typeof(TAttribute), inherit);
 		}
 
 		public static T Clamp<T>(this T val, T min, T max) where T : IComparable<T>
@@ -79,19 +72,9 @@ namespace OpenRA
 				return val;
 		}
 
-		public static bool Contains(this Rectangle r, int2 p)
-		{
-			return r.Contains(p.ToPoint());
-		}
-
-		public static bool Contains(this RectangleF r, int2 p)
-		{
-			return r.Contains(p.ToPointF());
-		}
-
 		static int WindingDirectionTest(int2 v0, int2 v1, int2 p)
 		{
-			return (v1.X - v0.X) * (p.Y - v0.Y) - (p.X - v0.X) * (v1.Y - v0.Y);
+			return Math.Sign((v1.X - v0.X) * (p.Y - v0.Y) - (p.X - v0.X) * (v1.Y - v0.Y));
 		}
 
 		public static bool PolygonContains(this int2[] polygon, int2 p)
@@ -112,6 +95,16 @@ namespace OpenRA
 			return windingNumber != 0;
 		}
 
+		public static bool LinesIntersect(int2 a, int2 b, int2 c, int2 d)
+		{
+			// If line segments AB and CD intersect:
+			//  - the triangles ACD and BCD must have opposite sense (clockwise or anticlockwise)
+			//  - the triangles CAB and DAB must have opposite sense
+			// Segments intersect if the orientation (clockwise or anticlockwise) of the two points in each line segment are opposite with respect to the other
+			// Assumes that lines are not collinear
+			return WindingDirectionTest(c, d, a) != WindingDirectionTest(c, d, b) && WindingDirectionTest(a, b, c) != WindingDirectionTest(a, b, d);
+		}
+
 		public static bool HasModifier(this Modifiers k, Modifiers mod)
 		{
 			// PERF: Enum.HasFlag is slower and requires allocations.
@@ -121,20 +114,60 @@ namespace OpenRA
 		public static V GetOrAdd<K, V>(this Dictionary<K, V> d, K k)
 			where V : new()
 		{
-			return d.GetOrAdd(k, _ => new V());
+			return d.GetOrAdd(k, new V());
+		}
+
+		public static V GetOrAdd<K, V>(this Dictionary<K, V> d, K k, V v)
+		{
+#if NET5_0_OR_GREATER
+			// SAFETY: Dictionary cannot be modified whilst the ref is alive.
+			ref var value = ref System.Runtime.InteropServices.CollectionsMarshal.GetValueRefOrAddDefault(d, k, out var exists);
+			if (!exists)
+				value = v;
+			return value;
+#else
+			if (!d.TryGetValue(k, out var ret))
+				d.Add(k, ret = v);
+			return ret;
+#endif
 		}
 
 		public static V GetOrAdd<K, V>(this Dictionary<K, V> d, K k, Func<K, V> createFn)
 		{
-			V ret;
-			if (!d.TryGetValue(k, out ret))
+			// Cannot use CollectionsMarshal.GetValueRefOrAddDefault here,
+			// the creation function could mutate the dictionary which would invalidate the ref.
+			if (!d.TryGetValue(k, out var ret))
 				d.Add(k, ret = createFn(k));
+			return ret;
+		}
+
+		public static T GetOrAdd<T>(this HashSet<T> set, T value)
+		{
+			if (!set.TryGetValue(value, out var ret))
+				set.Add(ret = value);
+			return ret;
+		}
+
+		public static T GetOrAdd<T>(this HashSet<T> set, T value, Func<T, T> createFn)
+		{
+			if (!set.TryGetValue(value, out var ret))
+				set.Add(ret = createFn(value));
 			return ret;
 		}
 
 		public static int IndexOf<T>(this T[] array, T value)
 		{
 			return Array.IndexOf(array, value);
+		}
+
+		public static T FirstOrDefault<T>(this T[] array, Predicate<T> match)
+		{
+			return Array.Find(array, match);
+		}
+
+		public static T FirstOrDefault<T>(this List<T> list, Predicate<T> match)
+		{
+			return list.Find(match);
 		}
 
 		public static T Random<T>(this IEnumerable<T> ts, MersenneTwister r)
@@ -149,17 +182,37 @@ namespace OpenRA
 
 		static T Random<T>(IEnumerable<T> ts, MersenneTwister r, bool throws)
 		{
-			var xs = ts as ICollection<T>;
-			xs = xs ?? ts.ToList();
+			var xs = ts as IReadOnlyCollection<T>;
+			xs ??= ts.ToList();
 			if (xs.Count == 0)
 			{
 				if (throws)
-					throw new ArgumentException("Collection must not be empty.", "ts");
+					throw new ArgumentException("Collection must not be empty.", nameof(ts));
 				else
-					return default(T);
+					return default;
 			}
 			else
 				return xs.ElementAt(r.Next(xs.Count));
+		}
+
+		public static Rectangle Union(this IEnumerable<Rectangle> rects)
+		{
+			// PERF: Avoid LINQ.
+			var first = true;
+			var result = Rectangle.Empty;
+			foreach (var rect in rects)
+			{
+				if (first)
+				{
+					first = false;
+					result = rect;
+					continue;
+				}
+
+				result = Rectangle.Union(rect, result);
+			}
+
+			return result;
 		}
 
 		public static float Product(this IEnumerable<float> xs)
@@ -175,7 +228,11 @@ namespace OpenRA
 
 		public static IEnumerable<T> Iterate<T>(this T t, Func<T, T> f)
 		{
-			for (;;) { yield return t; t = f(t); }
+			while (true)
+			{
+				yield return t;
+				t = f(t);
+			}
 		}
 
 		public static T MinBy<T, U>(this IEnumerable<T> ts, Func<T, U> selector)
@@ -207,9 +264,9 @@ namespace OpenRA
 			{
 				if (!e.MoveNext())
 					if (throws)
-						throw new ArgumentException("Collection must not be empty.", "ts");
+						throw new ArgumentException("Collection must not be empty.", nameof(ts));
 					else
-						return default(T);
+						return default;
 				t = e.Current;
 				u = selector(t);
 				while (e.MoveNext())
@@ -249,7 +306,7 @@ namespace OpenRA
 		public static int ISqrt(int number, ISqrtRoundMode round = ISqrtRoundMode.Floor)
 		{
 			if (number < 0)
-				throw new InvalidOperationException("Attempted to calculate the square root of a negative integer: {0}".F(number));
+				throw new InvalidOperationException($"Attempted to calculate the square root of a negative integer: {number}");
 
 			return (int)ISqrt((uint)number, round);
 		}
@@ -280,9 +337,9 @@ namespace OpenRA
 
 			// Adjust for other rounding modes
 			if (round == ISqrtRoundMode.Nearest && remainder > root)
-				root += 1;
+				root++;
 			else if (round == ISqrtRoundMode.Ceiling && root * root < number)
-				root += 1;
+				root++;
 
 			return root;
 		}
@@ -290,7 +347,7 @@ namespace OpenRA
 		public static long ISqrt(long number, ISqrtRoundMode round = ISqrtRoundMode.Floor)
 		{
 			if (number < 0)
-				throw new InvalidOperationException("Attempted to calculate the square root of a negative integer: {0}".F(number));
+				throw new InvalidOperationException($"Attempted to calculate the square root of a negative integer: {number}");
 
 			return (long)ISqrt((ulong)number, round);
 		}
@@ -321,17 +378,26 @@ namespace OpenRA
 
 			// Adjust for other rounding modes
 			if (round == ISqrtRoundMode.Nearest && remainder > root)
-				root += 1;
+				root++;
 			else if (round == ISqrtRoundMode.Ceiling && root * root < number)
-				root += 1;
+				root++;
 
 			return root;
 		}
 
+		public static int MultiplyBySqrtTwo(short number)
+		{
+			return number * 46341 / 32768;
+		}
+
+		public static int MultiplyBySqrtTwoOverTwo(int number)
+		{
+			return (int)(number * 23170L / 32768L);
+		}
+
 		public static int IntegerDivisionRoundingAwayFromZero(int dividend, int divisor)
 		{
-			int remainder;
-			var quotient = Math.DivRem(dividend, divisor, out remainder);
+			var quotient = Math.DivRem(dividend, divisor, out var remainder);
 			if (remainder == 0)
 				return quotient;
 			return quotient + (Math.Sign(dividend) == Math.Sign(divisor) ? 1 : -1);
@@ -345,6 +411,11 @@ namespace OpenRA
 		public static IEnumerable<T> Append<T>(this IEnumerable<T> ts, params T[] moreTs)
 		{
 			return ts.Concat(moreTs);
+		}
+
+		public static IEnumerable<T> Exclude<T>(this IEnumerable<T> ts, params T[] exclusions)
+		{
+			return ts.Except(exclusions);
 		}
 
 		public static HashSet<T> ToHashSet<T>(this IEnumerable<T> source)
@@ -363,48 +434,62 @@ namespace OpenRA
 			this IEnumerable<TSource> source, Func<TSource, TKey> keySelector, Func<TSource, TElement> elementSelector,
 			string debugName, Func<TKey, string> logKey = null, Func<TElement, string> logValue = null)
 		{
+			var output = new Dictionary<TKey, TElement>();
+			IntoDictionaryWithConflictLog(source, keySelector, elementSelector, debugName, output, logKey, logValue);
+			return output;
+		}
+
+		public static void IntoDictionaryWithConflictLog<TSource, TKey, TElement>(
+			this IEnumerable<TSource> source, Func<TSource, TKey> keySelector, Func<TSource, TElement> elementSelector,
+			string debugName, Dictionary<TKey, TElement> output,
+			Func<TKey, string> logKey = null, Func<TElement, string> logValue = null)
+		{
 			// Fall back on ToString() if null functions are provided:
-			logKey = logKey ?? (s => s.ToString());
-			logValue = logValue ?? (s => s.ToString());
+			logKey ??= s => s.ToString();
+			logValue ??= s => s.ToString();
 
 			// Try to build a dictionary and log all duplicates found (if any):
-			var dupKeys = new Dictionary<TKey, List<string>>();
-			var d = new Dictionary<TKey, TElement>();
+			Dictionary<TKey, List<string>> dupKeys = null;
+			var capacity = source is ICollection<TSource> collection ? collection.Count : 0;
+			output.Clear();
+			output.EnsureCapacity(capacity);
 			foreach (var item in source)
 			{
 				var key = keySelector(item);
 				var element = elementSelector(item);
 
+				// Discard elements with null keys
+				if (!typeof(TKey).IsValueType && key == null)
+					continue;
+
 				// Check for a key conflict:
-				if (d.ContainsKey(key))
+				if (!output.TryAdd(key, element))
 				{
-					List<string> dupKeyMessages;
-					if (!dupKeys.TryGetValue(key, out dupKeyMessages))
+					dupKeys ??= new Dictionary<TKey, List<string>>();
+					if (!dupKeys.TryGetValue(key, out var dupKeyMessages))
 					{
 						// Log the initial conflicting value already inserted:
-						dupKeyMessages = new List<string>();
-						dupKeyMessages.Add(logValue(d[key]));
+						dupKeyMessages = new List<string>
+						{
+							logValue(output[key])
+						};
 						dupKeys.Add(key, dupKeyMessages);
 					}
 
 					// Log this conflicting value:
 					dupKeyMessages.Add(logValue(element));
-					continue;
 				}
-
-				d.Add(key, element);
 			}
 
 			// If any duplicates were found, throw a descriptive error
-			if (dupKeys.Count > 0)
+			if (dupKeys != null)
 			{
-				var badKeysFormatted = string.Join(", ", dupKeys.Select(p => "{0}: [{1}]".F(logKey(p.Key), string.Join(",", p.Value))));
-				var msg = "{0}, duplicate values found for the following keys: {1}".F(debugName, badKeysFormatted);
-				throw new ArgumentException(msg);
+				var badKeysFormatted = new StringBuilder(
+					$"{debugName}, duplicate values found for the following keys: ");
+				foreach (var p in dupKeys)
+					badKeysFormatted.Append($"{logKey(p.Key)}: [{string.Join(",", p.Value)}]");
+				throw new ArgumentException(badKeysFormatted.ToString());
 			}
-
-			// Return the dictionary we built:
-			return d;
 		}
 
 		public static Color ColorLerp(float t, Color c1, Color c2)
@@ -444,27 +529,6 @@ namespace OpenRA
 			return result;
 		}
 
-		public static Rectangle Bounds(this Bitmap b) { return new Rectangle(0, 0, b.Width, b.Height); }
-
-		public static Bitmap CloneWith32bbpArgbPixelFormat(this Bitmap original)
-		{
-			// Note: We would use original.Clone(original.Bounds(), PixelFormat.Format32bppArgb)
-			// but this doesn't work on mono.
-			var clone = new Bitmap(original.Width, original.Height, PixelFormat.Format32bppArgb);
-			try
-			{
-				using (var g = System.Drawing.Graphics.FromImage(clone))
-					g.DrawImage(original, original.Bounds());
-			}
-			catch (Exception)
-			{
-				clone.Dispose();
-				throw;
-			}
-
-			return clone;
-		}
-
 		public static int ToBits(this IEnumerable<bool> bits)
 		{
 			var i = 0;
@@ -479,12 +543,22 @@ namespace OpenRA
 			return result;
 		}
 
-		public static int ParseIntegerInvariant(string s)
+		public static byte ParseByteInvariant(string s)
+		{
+			return byte.Parse(s, NumberStyles.Integer, NumberFormatInfo.InvariantInfo);
+		}
+
+		public static short ParseInt16Invariant(string s)
+		{
+			return short.Parse(s, NumberStyles.Integer, NumberFormatInfo.InvariantInfo);
+		}
+
+		public static int ParseInt32Invariant(string s)
 		{
 			return int.Parse(s, NumberStyles.Integer, NumberFormatInfo.InvariantInfo);
 		}
 
-		public static bool TryParseIntegerInvariant(string s, out int i)
+		public static bool TryParseInt32Invariant(string s, out int i)
 		{
 			return int.TryParse(s, NumberStyles.Integer, NumberFormatInfo.InvariantInfo, out i);
 		}
@@ -494,15 +568,114 @@ namespace OpenRA
 			return long.TryParse(s, NumberStyles.Integer, NumberFormatInfo.InvariantInfo, out i);
 		}
 
-		public static bool IsTraitEnabled(this object trait)
+		public static string ToStringInvariant(this byte i)
 		{
-			return trait as IDisabledTrait == null || !(trait as IDisabledTrait).IsTraitDisabled;
+			return i.ToString(NumberFormatInfo.InvariantInfo);
 		}
 
-		public static bool IsTraitEnabled<T>(T t)
+		public static string ToStringInvariant(this byte i, string format)
 		{
-			return IsTraitEnabled(t as object);
+			return i.ToString(format, NumberFormatInfo.InvariantInfo);
 		}
+
+		public static string ToStringInvariant(this int i)
+		{
+			return i.ToString(NumberFormatInfo.InvariantInfo);
+		}
+
+		public static string ToStringInvariant(this int i, string format)
+		{
+			return i.ToString(format, NumberFormatInfo.InvariantInfo);
+		}
+
+		public static bool IsTraitEnabled<T>(this T trait)
+		{
+			return trait is not IDisabledTrait disabledTrait || !disabledTrait.IsTraitDisabled;
+		}
+
+		public static T FirstEnabledTraitOrDefault<T>(this IEnumerable<T> ts)
+		{
+			// PERF: Avoid LINQ.
+			foreach (var t in ts)
+				if (t.IsTraitEnabled())
+					return t;
+
+			return default;
+		}
+
+		public static T FirstEnabledTraitOrDefault<T>(this T[] ts)
+		{
+			// PERF: Avoid LINQ.
+			foreach (var t in ts)
+				if (t.IsTraitEnabled())
+					return t;
+
+			return default;
+		}
+
+		public static T FirstEnabledConditionalTraitOrDefault<T>(this IEnumerable<T> ts) where T : IDisabledTrait
+		{
+			// PERF: Avoid LINQ.
+			foreach (var t in ts)
+				if (!t.IsTraitDisabled)
+					return t;
+
+			return default;
+		}
+
+		public static T FirstEnabledConditionalTraitOrDefault<T>(this T[] ts) where T : IDisabledTrait
+		{
+			// PERF: Avoid LINQ.
+			foreach (var t in ts)
+				if (!t.IsTraitDisabled)
+					return t;
+
+			return default;
+		}
+
+		public static LineSplitEnumerator SplitLines(this string str, char separator)
+		{
+			return new LineSplitEnumerator(str.AsSpan(), separator);
+		}
+	}
+
+	public ref struct LineSplitEnumerator
+	{
+		ReadOnlySpan<char> str;
+		readonly char separator;
+
+		public LineSplitEnumerator(ReadOnlySpan<char> str, char separator)
+		{
+			this.str = str;
+			this.separator = separator;
+			Current = default;
+		}
+
+		public readonly LineSplitEnumerator GetEnumerator() => this;
+
+		public bool MoveNext()
+		{
+			var span = str;
+
+			// Reach the end of the string
+			if (span.Length == 0)
+				return false;
+
+			var index = span.IndexOf(separator);
+			if (index == -1)
+			{
+				// The remaining string is an empty string
+				str = ReadOnlySpan<char>.Empty;
+				Current = span;
+				return true;
+			}
+
+			Current = span[..index];
+			str = span[(index + 1)..];
+			return true;
+		}
+
+		public ReadOnlySpan<char> Current { get; private set; }
 	}
 
 	public static class Enum<T>
@@ -518,7 +691,7 @@ namespace OpenRA
 
 			if (values.Any(x => !names.Contains(x)))
 			{
-				value = default(T);
+				value = default;
 				return false;
 			}
 

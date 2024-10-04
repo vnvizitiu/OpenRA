@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,355 +11,259 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using OpenRA.Activities;
 using OpenRA.Mods.Common.Activities;
+using OpenRA.Mods.Common.Pathfinder;
 using OpenRA.Primitives;
+using OpenRA.Support;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	[Flags]
-	public enum CellConditions
-	{
-		None = 0,
-		TransientActors,
-		BlockedByMovers,
-		All = TransientActors | BlockedByMovers
-	}
-
-	public static class CellConditionsExts
-	{
-		public static bool HasCellCondition(this CellConditions c, CellConditions cellCondition)
-		{
-			// PERF: Enum.HasFlag is slower and requires allocations.
-			return (c & cellCondition) == cellCondition;
-		}
-	}
-
 	[Desc("Unit is able to move.")]
-	public class MobileInfo : UpgradableTraitInfo, IMoveInfo, IPositionableInfo, IOccupySpaceInfo, IFacingInfo,
-		UsesInit<FacingInit>, UsesInit<LocationInit>, UsesInit<SubCellInit>
+	public class MobileInfo : PausableConditionalTraitInfo, IMoveInfo, IPositionableInfo, IFacingInfo, IActorPreviewInitInfo,
+		IEditorActorOptions
 	{
-		[FieldLoader.LoadUsing("LoadSpeeds", true)]
-		[Desc("Set Water: 0 for ground units and lower the value on rough terrain.")]
-		public readonly Dictionary<string, TerrainInfo> TerrainSpeeds;
+		[LocomotorReference]
+		[FieldLoader.Require]
+		[Desc("Which Locomotor does this trait use. Must be defined on the World actor.")]
+		public readonly string Locomotor = null;
 
-		[Desc("e.g. crate, wall, infantry")]
-		public readonly HashSet<string> Crushes = new HashSet<string>();
-
-		public readonly int WaitAverage = 5;
-
-		public readonly int WaitSpread = 2;
-
-		public readonly int InitialFacing = 0;
+		public readonly WAngle InitialFacing = WAngle.Zero;
 
 		[Desc("Speed at which the actor turns.")]
-		public readonly int TurnSpeed = 255;
+		public readonly WAngle TurnSpeed = new(512);
 
 		public readonly int Speed = 1;
 
-		public readonly bool OnRails = false;
+		[Desc("If set to true, this unit will always turn in place instead of following a curved trajectory (like infantry).")]
+		public readonly bool AlwaysTurnInPlace = false;
 
-		[Desc("Allow multiple (infantry) units in one cell.")]
-		public readonly bool SharesCell = false;
+		[Desc("If set to true, this unit won't stop to turn, it will turn while moving instead.")]
+		public readonly bool TurnsWhileMoving = false;
 
-		[Desc("Can the actor be ordered to move in to shroud?")]
-		public readonly bool MoveIntoShroud = true;
-
+		[CursorReference]
+		[Desc("Cursor to display when a move order can be issued at target location.")]
 		public readonly string Cursor = "move";
+
+		[CursorReference(dictionaryReference: LintDictionaryReference.Values)]
+		[Desc("Cursor overrides to display for specific terrain types.",
+			"A dictionary of [terrain type]: [cursor name].")]
+		public readonly Dictionary<string, string> TerrainCursors = new();
+
+		[CursorReference]
+		[Desc("Cursor to display when a move order cannot be issued at target location.")]
 		public readonly string BlockedCursor = "move-blocked";
 
-		[VoiceReference] public readonly string Voice = "Action";
+		[VoiceReference]
+		public readonly string Voice = "Action";
+
+		[Desc("Color to use for the target line for regular move orders.")]
+		public readonly Color TargetLineColor = Color.Green;
+
+		[Desc("Facing to use for actor previews (map editor, color picker, etc)")]
+		public readonly WAngle PreviewFacing = new(384);
+
+		[Desc("Display order for the facing slider in the map editor")]
+		public readonly int EditorFacingDisplayOrder = 3;
+
+		[Desc("Can move backward if possible")]
+		public readonly bool CanMoveBackward = false;
+
+		[Desc("After how many ticks the actor will turn forward during backoff.",
+			"If set to -1 the unit will be allowed to move backwards without time limit.")]
+		public readonly int BackwardDuration = 40;
+
+		[Desc("Actor will only try to move backwards when the path (in cells) is shorter than this value.",
+			"If set to -1 the unit will be allowed to move backwards without range limit.")]
+		public readonly int MaxBackwardCells = 15;
+
+		[ConsumedConditionReference]
+		[Desc("Boolean expression defining the condition under which the regular (non-force) move cursor is disabled.")]
+		public readonly BooleanExpression RequireForceMoveCondition = null;
+
+		[ConsumedConditionReference]
+		[Desc("Boolean expression defining the condition under which this actor cannot be nudged by other actors.")]
+		public readonly BooleanExpression ImmovableCondition = null;
+
+		[Desc("The distance from the edge of a cell over which the actor will adjust its tilt when moving between cells with different ramp types.",
+			"-1 means that the actor does not tilt on slopes.")]
+		public readonly WDist TerrainOrientationAdjustmentMargin = new(-1);
+
+		IEnumerable<ActorInit> IActorPreviewInitInfo.ActorPreviewInits(ActorInfo ai, ActorPreviewType type)
+		{
+			yield return new FacingInit(PreviewFacing);
+		}
+
+		public Color GetTargetLineColor() { return TargetLineColor; }
 
 		public override object Create(ActorInitializer init) { return new Mobile(init, this); }
 
-		static object LoadSpeeds(MiniYaml y)
-		{
-			var ret = new Dictionary<string, TerrainInfo>();
-			foreach (var t in y.ToDictionary()["TerrainSpeeds"].Nodes)
-			{
-				var speed = FieldLoader.GetValue<int>("speed", t.Value.Value);
-				var nodesDict = t.Value.ToDictionary();
-				var cost = nodesDict.ContainsKey("PathingCost")
-					? FieldLoader.GetValue<int>("cost", nodesDict["PathingCost"].Value)
-					: 10000 / speed;
-				ret.Add(t.Key, new TerrainInfo(speed, cost));
-			}
+		public LocomotorInfo LocomotorInfo { get; private set; }
 
-			return ret;
+		public override void RulesetLoaded(Ruleset rules, ActorInfo ai)
+		{
+			var locomotorInfos = rules.Actors[SystemActors.World].TraitInfos<LocomotorInfo>()
+				.Where(li => li.Name == Locomotor).ToList();
+			if (locomotorInfos.Count == 0)
+				throw new YamlException($"A locomotor named '{Locomotor}' doesn't exist.");
+			else if (locomotorInfos.Count > 1)
+				throw new YamlException($"There is more than one locomotor named '{Locomotor}'.");
+
+			LocomotorInfo = locomotorInfos[0];
+
+			// We need to reset the reference to the locomotor between each worlds, otherwise we are reference the previous state.
+			locomotor = null;
+
+			base.RulesetLoaded(rules, ai);
 		}
 
-		TerrainInfo[] LoadTilesetSpeeds(TileSet tileSet)
+		public WAngle GetInitialFacing() { return InitialFacing; }
+
+		// initialized and used by CanEnterCell
+		Locomotor locomotor;
+
+		/// <summary>
+		/// Note: If the target <paramref name="cell"/> has any free subcell, the value of <paramref name="subCell"/> is ignored.
+		/// </summary>
+		public bool CanEnterCell(World world, Actor self, CPos cell,
+			SubCell subCell = SubCell.FullCell, Actor ignoreActor = null, BlockedByActor check = BlockedByActor.All)
 		{
-			var info = new TerrainInfo[tileSet.TerrainInfo.Length];
-			for (var i = 0; i < info.Length; i++)
-				info[i] = TerrainInfo.Impassable;
+			// PERF: Avoid repeated trait queries on the hot path
+			locomotor ??= world.WorldActor.TraitsImplementing<Locomotor>()
+				   .SingleOrDefault(l => l.Info.Name == Locomotor);
 
-			foreach (var kvp in TerrainSpeeds)
-			{
-				byte index;
-				if (tileSet.TryGetTerrainIndex(kvp.Key, out index))
-					info[index] = kvp.Value;
-			}
-
-			return info;
+			return locomotor.MovementCostToEnterCell(
+				self, cell, check, ignoreActor, false, subCell) != PathGraph.MovementCostForUnreachableCell;
 		}
 
-		public class TerrainInfo
+		public bool CanStayInCell(World world, CPos cell)
 		{
-			public static readonly TerrainInfo Impassable = new TerrainInfo();
+			// PERF: Avoid repeated trait queries on the hot path
+			locomotor ??= world.WorldActor.TraitsImplementing<Locomotor>()
+				   .SingleOrDefault(l => l.Info.Name == Locomotor);
 
-			public readonly int Cost;
-			public readonly int Speed;
-
-			public TerrainInfo()
-			{
-				Cost = int.MaxValue;
-				Speed = 0;
-			}
-
-			public TerrainInfo(int speed, int cost)
-			{
-				Speed = speed;
-				Cost = cost;
-			}
-		}
-
-		public struct WorldMovementInfo
-		{
-			internal readonly World World;
-			internal readonly TerrainInfo[] TerrainInfos;
-			internal WorldMovementInfo(World world, MobileInfo info)
-			{
-				// PERF: This struct allows us to cache the terrain info for the tileset used by the world.
-				// This allows us to speed up some performance-sensitive pathfinding calculations.
-				World = world;
-				TerrainInfos = info.TilesetTerrainInfo[world.Map.Rules.TileSet];
-			}
-		}
-
-		public readonly Cache<TileSet, TerrainInfo[]> TilesetTerrainInfo;
-		public readonly Cache<TileSet, int> TilesetMovementClass;
-
-		public MobileInfo()
-		{
-			TilesetTerrainInfo = new Cache<TileSet, TerrainInfo[]>(LoadTilesetSpeeds);
-			TilesetMovementClass = new Cache<TileSet, int>(CalculateTilesetMovementClass);
-		}
-
-		public int MovementCostForCell(World world, CPos cell)
-		{
-			return MovementCostForCell(world.Map, TilesetTerrainInfo[world.Map.Rules.TileSet], cell);
-		}
-
-		int MovementCostForCell(Map map, TerrainInfo[] terrainInfos, CPos cell)
-		{
-			if (!map.Contains(cell))
-				return int.MaxValue;
-
-			var index = map.GetTerrainIndex(cell);
-			if (index == byte.MaxValue)
-				return int.MaxValue;
-
-			return terrainInfos[index].Cost;
-		}
-
-		public int CalculateTilesetMovementClass(TileSet tileset)
-		{
-			// collect our ability to cross *all* terraintypes, in a bitvector
-			return TilesetTerrainInfo[tileset].Select(ti => ti.Cost < int.MaxValue).ToBits();
-		}
-
-		public int GetMovementClass(TileSet tileset)
-		{
-			return TilesetMovementClass[tileset];
-		}
-
-		static bool IsMovingInMyDirection(Actor self, Actor other)
-		{
-			var otherMobile = other.TraitOrDefault<Mobile>();
-			if (otherMobile == null || !otherMobile.IsMoving)
+			if (cell.Layer == CustomMovementLayerType.Tunnel)
 				return false;
 
-			var selfMobile = self.TraitOrDefault<Mobile>();
-			if (selfMobile == null)
-				return false;
-
-			// Moving in the same direction if the facing delta is between +/- 90 degrees
-			var delta = Util.NormalizeFacing(otherMobile.Facing - selfMobile.Facing);
-			return delta < 64 || delta > 192;
+			return locomotor.CanStayInCell(cell);
 		}
-
-		public int TileSetMovementHash(TileSet tileSet)
-		{
-			var terrainInfos = TilesetTerrainInfo[tileSet];
-
-			// Compute and return the hash using aggregate
-			return terrainInfos.Aggregate(terrainInfos.Length,
-				(current, terrainInfo) => unchecked(current * 31 + terrainInfo.Cost));
-		}
-
-		public bool CanEnterCell(World world, Actor self, CPos cell, Actor ignoreActor = null, CellConditions check = CellConditions.All)
-		{
-			if (MovementCostForCell(world, cell) == int.MaxValue)
-				return false;
-
-			return CanMoveFreelyInto(world, self, cell, ignoreActor, check);
-		}
-
-		// Determines whether the actor is blocked by other Actors
-		public bool CanMoveFreelyInto(World world, Actor self, CPos cell, Actor ignoreActor, CellConditions check)
-		{
-			if (!check.HasCellCondition(CellConditions.TransientActors))
-				return true;
-
-			if (SharesCell && world.ActorMap.HasFreeSubCell(cell))
-				return true;
-
-			// PERF: Avoid LINQ.
-			foreach (var otherActor in world.ActorMap.GetActorsAt(cell))
-				if (IsBlockedBy(self, otherActor, ignoreActor, check))
-					return false;
-
-			return true;
-		}
-
-		bool IsBlockedBy(Actor self, Actor otherActor, Actor ignoreActor, CellConditions check)
-		{
-			// We are not blocked by the actor we are ignoring.
-			if (otherActor == ignoreActor)
-				return false;
-
-			// If self is null, we don't have a real actor - we're just checking what would happen theoretically.
-			// In such a scenario - we'll just assume any other actor in the cell will block us by default.
-			// If we have a real actor, we can then perform the extra checks that allow us to avoid being blocked.
-			if (self == null)
-				return true;
-
-			// If the check allows: we are not blocked by allied units moving in our direction.
-			if (!check.HasCellCondition(CellConditions.BlockedByMovers) &&
-				self.Owner.Stances[otherActor.Owner] == Stance.Ally &&
-				IsMovingInMyDirection(self, otherActor))
-				return false;
-
-			// If there is a temporary blocker in our path, but we can remove it, we are not blocked.
-			var temporaryBlocker = otherActor.TraitOrDefault<ITemporaryBlocker>();
-			if (temporaryBlocker != null && temporaryBlocker.CanRemoveBlockage(otherActor, self))
-				return false;
-
-			// If we cannot crush the other actor in our way, we are blocked.
-			if (Crushes == null || Crushes.Count == 0)
-				return true;
-
-			// If the other actor in our way cannot be crushed, we are blocked.
-			// PERF: Avoid LINQ.
-			var crushables = otherActor.TraitsImplementing<ICrushable>();
-			var lacksCrushability = true;
-			foreach (var crushable in crushables)
-			{
-				lacksCrushability = false;
-				if (!crushable.CrushableBy(otherActor, self, Crushes))
-					return true;
-			}
-
-			// If there are no crushable traits at all, this means the other actor cannot be crushed - we are blocked.
-			if (lacksCrushability)
-				return true;
-
-			// We are not blocked by the other actor.
-			return false;
-		}
-
-		public WorldMovementInfo GetWorldMovementInfo(World world)
-		{
-			return new WorldMovementInfo(world, this);
-		}
-
-		public int MovementCostToEnterCell(WorldMovementInfo worldMovementInfo, Actor self, CPos cell, Actor ignoreActor = null, CellConditions check = CellConditions.All)
-		{
-			var cost = MovementCostForCell(worldMovementInfo.World.Map, worldMovementInfo.TerrainInfos, cell);
-			if (cost == int.MaxValue || !CanMoveFreelyInto(worldMovementInfo.World, self, cell, ignoreActor, check))
-				return int.MaxValue;
-			return cost;
-		}
-
-		public SubCell GetAvailableSubCell(
-			World world, Actor self, CPos cell, SubCell preferredSubCell = SubCell.Any, Actor ignoreActor = null, CellConditions check = CellConditions.All)
-		{
-			if (MovementCostForCell(world, cell) == int.MaxValue)
-				return SubCell.Invalid;
-
-			if (check.HasCellCondition(CellConditions.TransientActors))
-			{
-				Func<Actor, bool> checkTransient = otherActor => IsBlockedBy(self, otherActor, ignoreActor, check);
-
-				if (!SharesCell)
-					return world.ActorMap.AnyActorsAt(cell, SubCell.FullCell, checkTransient) ? SubCell.Invalid : SubCell.FullCell;
-
-				return world.ActorMap.FreeSubCell(cell, preferredSubCell, checkTransient);
-			}
-
-			if (!SharesCell)
-				return world.ActorMap.AnyActorsAt(cell, SubCell.FullCell) ? SubCell.Invalid : SubCell.FullCell;
-
-			return world.ActorMap.FreeSubCell(cell, preferredSubCell);
-		}
-
-		public int GetInitialFacing() { return InitialFacing; }
 
 		public IReadOnlyDictionary<CPos, SubCell> OccupiedCells(ActorInfo info, CPos location, SubCell subCell = SubCell.Any)
 		{
-			return new ReadOnlyDictionary<CPos, SubCell>(new Dictionary<CPos, SubCell>() { { location, subCell } });
+			return new Dictionary<CPos, SubCell>() { { location, subCell } };
 		}
 
-		bool IOccupySpaceInfo.SharesCell { get { return SharesCell; } }
+		bool IOccupySpaceInfo.SharesCell => LocomotorInfo.SharesCell;
+
+		IEnumerable<EditorActorOption> IEditorActorOptions.ActorOptions(ActorInfo ai, World world)
+		{
+			yield return new EditorActorSlider("Facing", EditorFacingDisplayOrder, 0, 1023, 8,
+				actor =>
+				{
+					var init = actor.GetInitOrDefault<FacingInit>(this);
+					return (init?.Value ?? InitialFacing).Angle;
+				},
+				(actor, value) => actor.ReplaceInit(new FacingInit(new WAngle((int)value))));
+		}
 	}
 
-	public class Mobile : UpgradableTrait<MobileInfo>, IIssueOrder, IResolveOrder, IOrderVoice, IPositionable, IMove, IFacing, ISync,
-		IDeathActorInitModifier, INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyBlockingMove, IActorPreviewInitModifier
+	public class Mobile : PausableConditionalTrait<MobileInfo>, IIssueOrder, IResolveOrder, IOrderVoice, IPositionable, IMove, ITick, ICreationActivity,
+		IFacing, IDeathActorInitModifier, INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyBlockingMove, IActorPreviewInitModifier, INotifyBecomingIdle
 	{
-		const int AverageTicksBeforePathing = 5;
-		const int SpreadTicksBeforePathing = 5;
-		internal int TicksBeforePathing = 0;
-
 		readonly Actor self;
 		readonly Lazy<IEnumerable<int>> speedModifiers;
-		public bool IsMoving { get; set; }
-		public bool IsMovingVertically { get { return false; } set { } }
 
-		int facing;
-		CPos fromCell, toCell;
+		readonly bool returnToCellOnCreation;
+		readonly bool returnToCellOnCreationRecalculateSubCell = true;
+		readonly int creationActivityDelay;
+		readonly CPos[] creationRallypoint;
+
+		#region IMove CurrentMovementTypes
+		MovementType movementTypes;
+		public MovementType CurrentMovementTypes
+		{
+			get => movementTypes;
+
+			set
+			{
+				var oldValue = movementTypes;
+				movementTypes = value;
+				if (value != oldValue)
+				{
+					self.World.ActorMap.UpdateOccupiedCells(self.OccupiesSpace);
+					foreach (var n in notifyMoving)
+						n.MovementTypeChanged(self, value);
+				}
+			}
+		}
+		#endregion
+
+		WRot terrainRampOrientation = WRot.None;
+		WAngle oldFacing;
+		WRot orientation;
+		WPos oldPos;
 		public SubCell FromSubCell, ToSubCell;
 
-		[Sync] public int Facing
+		INotifyCustomLayerChanged[] notifyCustomLayerChanged;
+		INotifyCenterPositionChanged[] notifyCenterPositionChanged;
+		INotifyMoving[] notifyMoving;
+		INotifyFinishedMoving[] notifyFinishedMoving;
+		IWrapMove[] moveWrappers;
+		bool requireForceMove;
+
+		public bool IsImmovable { get; private set; }
+		public bool TurnToMove;
+		public bool IsBlocking { get; private set; }
+
+		public bool IsMovingBetweenCells => FromCell != ToCell;
+		public MoveResult MoveResult { get; set; }
+
+		#region IFacing
+
+		[Sync]
+		public WAngle Facing
 		{
-			get { return facing; }
-			set { facing = value; }
+			get => orientation.Yaw;
+			set => orientation = orientation.WithYaw(value);
 		}
 
-		public int TurnSpeed { get { return Info.TurnSpeed; } }
+		public WRot Orientation => orientation.Rotate(terrainRampOrientation);
 
-		[Sync] public WPos CenterPosition { get; private set; }
-		[Sync] public CPos FromCell { get { return fromCell; } }
-		[Sync] public CPos ToCell { get { return toCell; } }
+		public WAngle TurnSpeed => Info.TurnSpeed;
 
-		[Sync] public int PathHash;	// written by Move.EvalPath, to temporarily debug this crap.
+		#endregion
 
-		// Sets only the location (fromCell, toCell, FromSubCell, ToSubCell)
-		public void SetLocation(CPos from, SubCell fromSub, CPos to, SubCell toSub)
+		[Sync]
+		public CPos FromCell { get; private set; }
+
+		[Sync]
+		public CPos ToCell { get; private set; }
+
+		public Locomotor Locomotor { get; private set; }
+
+		public IPathFinder PathFinder { get; private set; }
+
+		#region IOccupySpace
+
+		[Sync]
+		public WPos CenterPosition { get; private set; }
+
+		public CPos TopLeft => ToCell;
+
+		public (CPos, SubCell)[] OccupiedCells()
 		{
-			if (FromCell == from && ToCell == to && FromSubCell == fromSub && ToSubCell == toSub)
-				return;
+			if (FromCell == ToCell)
+				return new[] { (FromCell, FromSubCell) };
 
-			RemoveInfluence();
-			fromCell = from;
-			toCell = to;
-			FromSubCell = fromSub;
-			ToSubCell = toSub;
-			AddInfluence();
+			// HACK: Should be fixed properly, see https://github.com/OpenRA/OpenRA/pull/17292 for an explanation
+			if (Info.LocomotorInfo.SharesCell)
+				return new[] { (ToCell, ToSubCell) };
+
+			return new[] { (FromCell, FromSubCell), (ToCell, ToSubCell) };
 		}
+		#endregion
 
 		public Mobile(ActorInitializer init, MobileInfo info)
 			: base(info)
@@ -368,23 +272,174 @@ namespace OpenRA.Mods.Common.Traits
 
 			speedModifiers = Exts.Lazy(() => self.TraitsImplementing<ISpeedModifier>().ToArray().Select(x => x.GetSpeedModifier()));
 
-			ToSubCell = FromSubCell = info.SharesCell ? init.World.Map.Grid.DefaultSubCell : SubCell.FullCell;
-			if (init.Contains<SubCellInit>())
-				FromSubCell = ToSubCell = init.Get<SubCellInit, SubCell>();
+			ToSubCell = FromSubCell = info.LocomotorInfo.SharesCell ? init.World.Map.Grid.DefaultSubCell : SubCell.FullCell;
 
-			if (init.Contains<LocationInit>())
+			var subCellInit = init.GetOrDefault<SubCellInit>();
+			if (subCellInit != null)
 			{
-				fromCell = toCell = init.Get<LocationInit, CPos>();
-				SetVisualPosition(self, init.World.Map.CenterOfSubCell(FromCell, FromSubCell));
+				FromSubCell = ToSubCell = subCellInit.Value;
+				returnToCellOnCreationRecalculateSubCell = false;
 			}
 
-			Facing = init.Contains<FacingInit>() ? init.Get<FacingInit, int>() : info.InitialFacing;
+			var locationInit = init.GetOrDefault<LocationInit>();
+			if (locationInit != null)
+			{
+				FromCell = ToCell = locationInit.Value;
+				SetCenterPosition(self, init.World.Map.CenterOfSubCell(FromCell, FromSubCell));
+			}
 
-			// Sets the visual position to WPos accuracy
-			// Use LocationInit if you want to insert the actor into the ActorMap!
-			if (init.Contains<CenterPositionInit>())
-				SetVisualPosition(self, init.Get<CenterPositionInit, WPos>());
+			Facing = oldFacing = init.GetValue<FacingInit, WAngle>(info.InitialFacing);
+
+			// Sets the initial center position
+			// Unit will move into the cell grid (defined by LocationInit) as its initial activity
+			var centerPositionInit = init.GetOrDefault<CenterPositionInit>();
+			if (centerPositionInit != null)
+			{
+				oldPos = centerPositionInit.Value;
+				SetCenterPosition(self, oldPos);
+				returnToCellOnCreation = true;
+			}
+
+			creationActivityDelay = init.GetValue<CreationActivityDelayInit, int>(0);
+			creationRallypoint = init.GetOrDefault<RallyPointInit>()?.Value;
 		}
+
+		protected override void Created(Actor self)
+		{
+			notifyCustomLayerChanged = self.TraitsImplementing<INotifyCustomLayerChanged>().ToArray();
+			notifyCenterPositionChanged = self.TraitsImplementing<INotifyCenterPositionChanged>().ToArray();
+			notifyMoving = self.TraitsImplementing<INotifyMoving>().ToArray();
+			notifyFinishedMoving = self.TraitsImplementing<INotifyFinishedMoving>().ToArray();
+			moveWrappers = self.TraitsImplementing<IWrapMove>().ToArray();
+			PathFinder = self.World.WorldActor.Trait<IPathFinder>();
+			Locomotor = self.World.WorldActor.TraitsImplementing<Locomotor>()
+				.Single(l => l.Info.Name == Info.Locomotor);
+
+			base.Created(self);
+		}
+
+		void ITick.Tick(Actor self)
+		{
+			UpdateMovement();
+		}
+
+		public void UpdateMovement()
+		{
+			var newMovementTypes = MovementType.None;
+			if ((oldPos - CenterPosition).HorizontalLengthSquared != 0)
+				newMovementTypes |= MovementType.Horizontal;
+
+			if (oldPos.Z != CenterPosition.Z)
+				newMovementTypes |= MovementType.Vertical;
+
+			if (oldFacing != Facing)
+				newMovementTypes |= MovementType.Turn;
+
+			CurrentMovementTypes = newMovementTypes;
+
+			oldPos = CenterPosition;
+			oldFacing = Facing;
+		}
+
+		void INotifyAddedToWorld.AddedToWorld(Actor self)
+		{
+			self.World.AddToMaps(self, this);
+		}
+
+		void INotifyRemovedFromWorld.RemovedFromWorld(Actor self)
+		{
+			self.World.RemoveFromMaps(self, this);
+		}
+
+		protected override void TraitEnabled(Actor self)
+		{
+			self.World.ActorMap.UpdateOccupiedCells(self.OccupiesSpace);
+		}
+
+		protected override void TraitDisabled(Actor self)
+		{
+			self.World.ActorMap.UpdateOccupiedCells(self.OccupiesSpace);
+		}
+
+		protected override void TraitResumed(Actor self)
+		{
+			self.World.ActorMap.UpdateOccupiedCells(self.OccupiesSpace);
+		}
+
+		protected override void TraitPaused(Actor self)
+		{
+			self.World.ActorMap.UpdateOccupiedCells(self.OccupiesSpace);
+		}
+
+		#region Local misc stuff
+
+		public CPos? GetAdjacentCell(CPos nextCell, Func<CPos, bool> preferToAvoid = null)
+		{
+			var availCells = new List<CPos>();
+			var notStupidCells = new List<CPos>();
+			foreach (var direction in CVec.Directions)
+			{
+				var p = ToCell + direction;
+				if (CanEnterCell(p) && CanStayInCell(p) && (preferToAvoid == null || !preferToAvoid(p)))
+					availCells.Add(p);
+				else if (p != nextCell && p != ToCell)
+					notStupidCells.Add(p);
+			}
+
+			CPos? newCell = null;
+			if (availCells.Count > 0)
+				newCell = availCells.Random(self.World.SharedRandom);
+			else
+			{
+				var cellInfo = notStupidCells
+					.SelectMany(c => self.World.ActorMap.GetActorsAt(c).Where(IsMovable),
+						(c, a) => new { Cell = c, Actor = a })
+					.RandomOrDefault(self.World.SharedRandom);
+				if (cellInfo != null)
+					newCell = cellInfo.Cell;
+			}
+
+			return newCell;
+		}
+
+		static bool IsMovable(Actor otherActor)
+		{
+			if (!otherActor.IsIdle)
+				return false;
+
+			var mobile = otherActor.TraitOrDefault<Mobile>();
+			if (mobile == null || mobile.IsTraitDisabled || mobile.IsTraitPaused || mobile.IsImmovable)
+				return false;
+
+			return true;
+		}
+
+		public bool IsLeaving()
+		{
+			if (CurrentMovementTypes.HasMovementType(MovementType.Horizontal))
+				return true;
+
+			if (CurrentMovementTypes.HasMovementType(MovementType.Turn))
+				return TurnToMove;
+
+			return false;
+		}
+
+		public bool CanInteractWithGroundLayer(Actor self)
+		{
+			// TODO: Think about extending this to support arbitrary layer-layer checks
+			// in a way that is compatible with the other IMove types.
+			// This would then allow us to e.g. have units attack other units inside tunnels.
+			if (ToCell.Layer == 0)
+				return true;
+
+			var layer = self.World.GetCustomMovementLayers()[ToCell.Layer];
+			return layer == null || layer.InteractsWithDefaultLayer;
+		}
+
+		#endregion
+
+		#region IPositionable
 
 		// Returns a valid sub-cell
 		public SubCell GetValidSubCell(SubCell preferred = SubCell.Any)
@@ -394,7 +449,7 @@ namespace OpenRA.Mods.Common.Traits
 				preferred = FromSubCell;
 
 			// Fix sub-cell assignment
-			if (Info.SharesCell)
+			if (Info.LocomotorInfo.SharesCell)
 			{
 				if (preferred <= SubCell.FullCell)
 					return self.World.Map.Grid.DefaultSubCell;
@@ -408,55 +463,267 @@ namespace OpenRA.Mods.Common.Traits
 			return preferred;
 		}
 
-		// Sets the location (fromCell, toCell, FromSubCell, ToSubCell) and visual position (CenterPosition)
+		// Sets the location (fromCell, toCell, FromSubCell, ToSubCell) and CenterPosition
 		public void SetPosition(Actor self, CPos cell, SubCell subCell = SubCell.Any)
 		{
 			subCell = GetValidSubCell(subCell);
 			SetLocation(cell, subCell, cell, subCell);
-			SetVisualPosition(self, self.World.Map.CenterOfSubCell(cell, subCell));
+
+			var position = cell.Layer == 0 ? self.World.Map.CenterOfCell(cell) :
+				self.World.GetCustomMovementLayers()[cell.Layer].CenterOfCell(cell);
+
+			position += self.World.Map.Grid.OffsetOfSubCell(subCell);
+			position -= new WVec(0, 0, self.World.Map.DistanceAboveTerrain(position).Length);
+
+			SetCenterPosition(self, position);
 			FinishedMoving(self);
 		}
 
-		// Sets the location (fromCell, toCell, FromSubCell, ToSubCell) and visual position (CenterPosition)
+		// Sets the location (fromCell, toCell, FromSubCell, ToSubCell) and CenterPosition
 		public void SetPosition(Actor self, WPos pos)
 		{
 			var cell = self.World.Map.CellContaining(pos);
 			SetLocation(cell, FromSubCell, cell, FromSubCell);
-			SetVisualPosition(self, self.World.Map.CenterOfSubCell(cell, FromSubCell) + new WVec(0, 0, self.World.Map.DistanceAboveTerrain(pos).Length));
+			SetCenterPosition(self, self.World.Map.CenterOfSubCell(cell, FromSubCell) + new WVec(0, 0, self.World.Map.DistanceAboveTerrain(pos).Length));
 			FinishedMoving(self);
 		}
 
-		// Sets only the visual position (CenterPosition)
-		public void SetVisualPosition(Actor self, WPos pos)
+		// Sets only the CenterPosition
+		public void SetCenterPosition(Actor self, WPos pos)
 		{
 			CenterPosition = pos;
 			self.World.UpdateMaps(self, this);
+
+			var map = self.World.Map;
+			SetTerrainRampOrientation(map.TerrainOrientation(map.CellContaining(pos)));
+
+			// The first time SetCenterPosition is called is in the constructor before creation, so we need a null check here as well
+			if (notifyCenterPositionChanged == null)
+				return;
+
+			foreach (var n in notifyCenterPositionChanged)
+				n.CenterPositionChanged(self, FromCell.Layer, ToCell.Layer);
 		}
 
-		public void AddedToWorld(Actor self)
+		public void SetTerrainRampOrientation(WRot orientation)
 		{
-			self.World.AddToMaps(self, this);
+			if (Info.TerrainOrientationAdjustmentMargin.Length >= 0)
+				terrainRampOrientation = orientation;
 		}
 
-		public void RemovedFromWorld(Actor self)
+		public bool IsLeavingCell(CPos location, SubCell subCell = SubCell.Any)
 		{
-			self.World.RemoveFromMaps(self, this);
+			return ToCell != location && FromCell == location
+				&& (subCell == SubCell.Any || FromSubCell == subCell || subCell == SubCell.FullCell || FromSubCell == SubCell.FullCell);
 		}
 
-		public IEnumerable<IOrderTargeter> Orders { get { yield return new MoveOrderTargeter(self, this); } }
-
-		// Note: Returns a valid order even if the unit can't move to the target
-		public Order IssueOrder(Actor self, IOrderTargeter order, Target target, bool queued)
+		public SubCell GetAvailableSubCell(CPos a, SubCell preferredSubCell = SubCell.Any, Actor ignoreActor = null, BlockedByActor check = BlockedByActor.All)
 		{
-			if (order is MoveOrderTargeter)
+			return Locomotor.GetAvailableSubCell(self, a, check, preferredSubCell, ignoreActor);
+		}
+
+		public bool CanExistInCell(CPos cell)
+		{
+			return Locomotor.MovementCostForCell(cell) != PathGraph.MovementCostForUnreachableCell;
+		}
+
+		public bool CanEnterCell(CPos cell, Actor ignoreActor = null, BlockedByActor check = BlockedByActor.All)
+		{
+			return Info.CanEnterCell(self.World, self, cell, ToSubCell, ignoreActor, check);
+		}
+
+		public bool CanStayInCell(CPos cell)
+		{
+			return Info.CanStayInCell(self.World, cell);
+		}
+
+		#endregion
+
+		#region Local IPositionable-related
+
+		// Sets only the location (fromCell, toCell, FromSubCell, ToSubCell)
+		public void SetLocation(CPos from, SubCell fromSub, CPos to, SubCell toSub)
+		{
+			if (FromCell == from && ToCell == to && FromSubCell == fromSub && ToSubCell == toSub)
+				return;
+
+			RemoveInfluence();
+			FromCell = from;
+			ToCell = to;
+			FromSubCell = fromSub;
+			ToSubCell = toSub;
+			AddInfluence();
+			IsBlocking = false;
+
+			// Most custom layer conditions are added/removed when starting the transition between layers.
+			if (ToCell.Layer != FromCell.Layer)
+				foreach (var n in notifyCustomLayerChanged)
+					n.CustomLayerChanged(self, FromCell.Layer, ToCell.Layer);
+		}
+
+		public void FinishedMoving(Actor self)
+		{
+			// Need to check both fromCell and toCell because FinishedMoving is called multiple times during the move
+			if (FromCell.Layer == ToCell.Layer)
+				foreach (var n in notifyFinishedMoving)
+					n.FinishedMoving(self, FromCell.Layer, ToCell.Layer);
+
+			// Only crush actors on having landed
+			if (!self.IsAtGroundLevel())
+				return;
+
+			CrushAction(self, (notifyCrushed) => notifyCrushed.OnCrush);
+		}
+
+		void CrushAction(Actor self, Func<INotifyCrushed, Action<Actor, Actor, BitSet<CrushClass>>> action)
+		{
+			var crushables = self.World.ActorMap.GetActorsAt(ToCell, ToSubCell).Where(a => a != self)
+				.SelectMany(a => a.Crushables.Select(t => new TraitPair<ICrushable>(a, t)));
+
+			// Only crush actors that are on the ground level
+			foreach (var crushable in crushables)
+				if (crushable.Trait.CrushableBy(crushable.Actor, self, Info.LocomotorInfo.Crushes) && crushable.Actor.IsAtGroundLevel())
+					foreach (var notifyCrushed in crushable.Actor.TraitsImplementing<INotifyCrushed>())
+						action(notifyCrushed)(crushable.Actor, self, Info.LocomotorInfo.Crushes);
+		}
+
+		public void AddInfluence()
+		{
+			if (self.IsInWorld)
+				self.World.ActorMap.AddInfluence(self, this);
+		}
+
+		public void RemoveInfluence()
+		{
+			if (self.IsInWorld)
+				self.World.ActorMap.RemoveInfluence(self, this);
+		}
+
+		#endregion
+
+		#region IMove
+
+		Activity WrapMove(Activity inner)
+		{
+			var moveWrapper = moveWrappers.FirstEnabledTraitOrDefault();
+			if (moveWrapper != null)
+				return moveWrapper.WrapMove(inner);
+
+			return inner;
+		}
+
+		public Activity MoveTo(CPos cell, int nearEnough = 0, Actor ignoreActor = null,
+			bool evaluateNearestMovableCell = false, Color? targetLineColor = null)
+		{
+			return WrapMove(new Move(self, cell, WDist.FromCells(nearEnough), ignoreActor, evaluateNearestMovableCell, targetLineColor));
+		}
+
+		public Activity MoveWithinRange(in Target target, WDist range,
+			WPos? initialTargetPosition = null, Color? targetLineColor = null)
+		{
+			return WrapMove(new MoveWithinRange(self, target, WDist.Zero, range, initialTargetPosition, targetLineColor));
+		}
+
+		public Activity MoveWithinRange(in Target target, WDist minRange, WDist maxRange,
+			WPos? initialTargetPosition = null, Color? targetLineColor = null)
+		{
+			return WrapMove(new MoveWithinRange(self, target, minRange, maxRange, initialTargetPosition, targetLineColor));
+		}
+
+		public Activity MoveFollow(Actor self, in Target target, WDist minRange, WDist maxRange,
+			WPos? initialTargetPosition = null, Color? targetLineColor = null)
+		{
+			return WrapMove(new Follow(self, target, minRange, maxRange, initialTargetPosition, targetLineColor));
+		}
+
+		public Activity ReturnToCell(Actor self)
+		{
+			return new ReturnToCellActivity(self);
+		}
+
+		public class ReturnToCellActivity : Activity
+		{
+			readonly Mobile mobile;
+			readonly bool recalculateSubCell;
+
+			CPos cell;
+			SubCell subCell;
+			WPos pos;
+			readonly int delay;
+
+			public ReturnToCellActivity(Actor self, int delay = 0, bool recalculateSubCell = false)
 			{
-				if (Info.OnRails)
-					return null;
-
-				return new Order("Move", self, queued) { TargetLocation = self.World.Map.CellContaining(target.CenterPosition) };
+				mobile = self.Trait<Mobile>();
+				IsInterruptible = false;
+				this.delay = delay;
+				this.recalculateSubCell = recalculateSubCell;
 			}
 
-			return null;
+			protected override void OnFirstRun(Actor self)
+			{
+				pos = self.CenterPosition;
+				if (self.World.Map.DistanceAboveTerrain(pos) > WDist.Zero && self.TraitOrDefault<Parachutable>() != null)
+					QueueChild(new Parachute(self));
+			}
+
+			public override bool Tick(Actor self)
+			{
+				pos = self.CenterPosition;
+				cell = mobile.ToCell;
+				subCell = mobile.ToSubCell;
+
+				if (recalculateSubCell)
+					subCell = mobile.Info.LocomotorInfo.SharesCell ? self.World.ActorMap.FreeSubCell(cell, subCell, a => a != self) : SubCell.FullCell;
+
+				// TODO: solve/reduce cell is full problem
+				if (subCell == SubCell.Invalid)
+					subCell = self.World.Map.Grid.DefaultSubCell;
+
+				// Reserve the exit cell
+				mobile.SetPosition(self, cell, subCell);
+				mobile.SetCenterPosition(self, pos);
+
+				if (delay > 0)
+					QueueChild(new Wait(delay));
+
+				QueueChild(mobile.LocalMove(self, pos, self.World.Map.CenterOfSubCell(cell, subCell)));
+				return true;
+			}
+		}
+
+		public Activity MoveToTarget(Actor self, in Target target,
+			WPos? initialTargetPosition = null, Color? targetLineColor = null)
+		{
+			if (target.Type == TargetType.Invalid)
+				return null;
+
+			return WrapMove(new MoveAdjacentTo(self, target, initialTargetPosition, targetLineColor));
+		}
+
+		public Activity MoveIntoTarget(Actor self, in Target target)
+		{
+			if (target.Type == TargetType.Invalid)
+				return null;
+
+			// Activity cancels if the target moves by more than half a cell
+			// to avoid problems with the cell grid
+			return WrapMove(new LocalMoveIntoTarget(self, target, new WDist(512)));
+		}
+
+		public Activity MoveOntoTarget(Actor self, in Target target, in WVec offset, WAngle? facing, Color? targetLineColor = null)
+		{
+			return WrapMove(new MoveOntoAndTurn(self, target, offset, facing, targetLineColor));
+		}
+
+		public Activity LocalMove(Actor self, WPos fromPos, WPos toPos)
+		{
+			return WrapMove(LocalMove(self, fromPos, toPos, self.Location));
+		}
+
+		public int EstimatedMoveDuration(Actor self, WPos fromPos, WPos toPos)
+		{
+			var speed = MovementSpeedForCell(self.Location);
+			return speed > 0 ? (toPos - fromPos).Length / speed : 0;
 		}
 
 		public CPos NearestMoveableCell(CPos target)
@@ -465,13 +732,44 @@ namespace OpenRA.Mods.Common.Traits
 			return NearestMoveableCell(target, 1, 10);
 		}
 
+		public bool CanEnterTargetNow(Actor self, in Target target)
+		{
+			if (target.Type == TargetType.FrozenActor && !target.FrozenActor.IsValid)
+				return false;
+
+			return self.Location == self.World.Map.CellContaining(target.CenterPosition) || Util.AdjacentCells(self.World, target).Any(c => c == self.Location);
+		}
+
+		#endregion
+
+		#region Local IMove-related
+
+		public int MovementSpeedForCell(CPos cell)
+		{
+			var terrainSpeed = Locomotor.MovementSpeedForCell(cell);
+			var modifiers = speedModifiers.Value.Append(terrainSpeed);
+
+			return Util.ApplyPercentageModifiers(Info.Speed, modifiers);
+		}
+
 		public CPos NearestMoveableCell(CPos target, int minRange, int maxRange)
 		{
-			if (CanEnterCell(target))
+			// HACK: This entire method is a hack, and needs to be replaced with
+			// a proper path search that can account for movement layer transitions.
+			// HACK: Work around code that blindly tries to move to cells in invalid movement layers.
+			// This will need to change (by removing this method completely as above) before we can
+			// properly support user-issued orders on to elevated bridges or other interactable custom layers
+			if (target.Layer != 0)
+				target = new CPos(target.X, target.Y);
+
+			if (target == self.Location && CanStayInCell(target))
+				return target;
+
+			if (CanEnterCell(target, check: BlockedByActor.Immovable) && CanStayInCell(target))
 				return target;
 
 			foreach (var tile in self.World.Map.FindTilesInAnnulus(target, minRange, maxRange))
-				if (CanEnterCell(tile))
+				if (CanEnterCell(tile, check: BlockedByActor.Immovable) && CanStayInCell(tile))
 					return tile;
 
 			// Couldn't find a cell
@@ -491,56 +789,182 @@ namespace OpenRA.Mods.Common.Traits
 			return target;
 		}
 
-		void PerformMoveInner(Actor self, CPos targetLocation, bool queued)
+		public void EnteringCell(Actor self)
 		{
-			var currentLocation = NearestMoveableCell(targetLocation);
+			// Only crush actors on having landed
+			if (!self.IsAtGroundLevel())
+				return;
 
-			if (!CanEnterCell(currentLocation))
+			CrushAction(self, (notifyCrushed) => notifyCrushed.WarnCrush);
+		}
+
+		public Activity MoveTo(Func<BlockedByActor, (bool AlreadyAtDestination, List<CPos> Path)> pathFunc) { return new Move(self, pathFunc); }
+
+		Activity LocalMove(Actor self, WPos fromPos, WPos toPos, CPos cell)
+		{
+			var speed = MovementSpeedForCell(cell);
+			var length = speed > 0 ? (toPos - fromPos).Length / speed : 0;
+
+			var delta = toPos - fromPos;
+			var facing = delta.HorizontalLengthSquared != 0 ? delta.Yaw : Facing;
+
+			return new Drag(self, fromPos, toPos, length, facing);
+		}
+
+		CPos? ClosestGroundCell()
+		{
+			// Creating a new CPos serves to reset a potential custom layer
+			var above = new CPos(TopLeft.X, TopLeft.Y);
+			if (CanEnterCell(above))
+				return above;
+
+			var path = PathFinder.FindPathToTargetCellByPredicate(
+				self, new[] { self.Location }, loc => loc.Layer == 0 && CanEnterCell(loc), BlockedByActor.All);
+
+			if (path.Count > 0)
+				return path[0];
+
+			return null;
+		}
+
+		#endregion
+
+		void IActorPreviewInitModifier.ModifyActorPreviewInit(Actor self, TypeDictionary inits)
+		{
+			if (!inits.Contains<DynamicFacingInit>() && !inits.Contains<FacingInit>())
+				inits.Add(new DynamicFacingInit(() => Facing));
+		}
+
+		void IDeathActorInitModifier.ModifyDeathActorInit(Actor self, TypeDictionary init)
+		{
+			init.Add(new FacingInit(Facing));
+
+			// Allows the husk to drag to its final position
+			if (CanEnterCell(self.Location, self, BlockedByActor.Stationary))
+				init.Add(new HuskSpeedInit(MovementSpeedForCell(self.Location)));
+		}
+
+		void INotifyBecomingIdle.OnBecomingIdle(Actor self)
+		{
+			if (self.Location.Layer == 0)
 			{
-				if (queued) self.CancelActivity();
+				// Make sure that units aren't left idling in a transit-only cell
+				// HACK: activities should be making sure that this can't happen in the first place!
+				if (!Locomotor.CanStayInCell(self.Location))
+					self.QueueActivity(MoveTo(self.Location, evaluateNearestMovableCell: true));
 				return;
 			}
 
-			if (!queued) self.CancelActivity();
+			var cml = self.World.GetCustomMovementLayers()[self.Location.Layer];
+			if (!cml.ReturnToGroundLayerOnIdle)
+				return;
 
-			TicksBeforePathing = AverageTicksBeforePathing + self.World.SharedRandom.Next(-SpreadTicksBeforePathing, SpreadTicksBeforePathing);
-
-			self.QueueActivity(new Move(self, currentLocation, WDist.FromCells(8)));
-
-			self.SetTargetLine(Target.FromCell(self.World, currentLocation), Color.Green);
+			var moveTo = ClosestGroundCell();
+			if (moveTo != null)
+				self.QueueActivity(MoveTo(moveTo.Value, 0));
 		}
 
-		protected void PerformMove(Actor self, CPos targetLocation, bool queued)
+		void INotifyBlockingMove.OnNotifyBlockingMove(Actor self, Actor blocking)
 		{
-			if (queued)
-				self.QueueActivity(new CallFunc(() => PerformMoveInner(self, targetLocation, true)));
-			else
-				PerformMoveInner(self, targetLocation, false);
-		}
+			if (!self.AppearsFriendlyTo(blocking))
+				return;
 
-		public void ResolveOrder(Actor self, Order order)
-		{
-			if (order.OrderString == "Move")
+			if (self.IsIdle)
 			{
-				if (!Info.MoveIntoShroud && !self.Owner.Shroud.IsExplored(order.TargetLocation))
-					return;
-
-				PerformMove(self, self.World.Map.Clamp(order.TargetLocation),
-					order.Queued && !self.IsIdle);
+				self.QueueActivity(false, new Nudge(blocking));
+				return;
 			}
 
-			if (order.OrderString == "Stop")
-				self.CancelActivity();
-
-			if (order.OrderString == "Scatter")
-				Nudge(self, self, true);
+			IsBlocking = true;
 		}
 
-		public string VoicePhraseForOrder(Actor self, Order order)
+		public override IEnumerable<VariableObserver> GetVariableObservers()
 		{
+			foreach (var observer in base.GetVariableObservers())
+				yield return observer;
+
+			if (Info.RequireForceMoveCondition != null)
+				yield return new VariableObserver(RequireForceMoveConditionChanged, Info.RequireForceMoveCondition.Variables);
+
+			if (Info.ImmovableCondition != null)
+				yield return new VariableObserver(ImmovableConditionChanged, Info.ImmovableCondition.Variables);
+		}
+
+		void RequireForceMoveConditionChanged(Actor self, IReadOnlyDictionary<string, int> conditions)
+		{
+			requireForceMove = Info.RequireForceMoveCondition.Evaluate(conditions);
+		}
+
+		void ImmovableConditionChanged(Actor self, IReadOnlyDictionary<string, int> conditions)
+		{
+			var wasImmovable = IsImmovable;
+			IsImmovable = Info.ImmovableCondition.Evaluate(conditions);
+			if (wasImmovable != IsImmovable)
+				self.World.ActorMap.UpdateOccupiedCells(self.OccupiesSpace);
+		}
+
+		IEnumerable<IOrderTargeter> IIssueOrder.Orders
+		{
+			get
+			{
+				if (!IsTraitDisabled)
+					yield return new MoveOrderTargeter(self, this);
+			}
+		}
+
+		// Note: Returns a valid order even if the unit can't move to the target
+		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
+		{
+			if (order is MoveOrderTargeter)
+				return new Order("Move", self, target, queued);
+
+			return null;
+		}
+
+		void IResolveOrder.ResolveOrder(Actor self, Order order)
+		{
+			if (IsTraitDisabled)
+				return;
+
+			if (order.OrderString == "Move")
+			{
+				if (!order.Target.IsValidFor(self))
+					return;
+
+				var cell = self.World.Map.Clamp(this.self.World.Map.CellContaining(order.Target.CenterPosition));
+				if (!Info.LocomotorInfo.MoveIntoShroud && !self.Owner.Shroud.IsExplored(cell))
+					return;
+
+				self.QueueActivity(order.Queued, WrapMove(new Move(self, cell, WDist.FromCells(8), null, true, Info.TargetLineColor)));
+				self.ShowTargetLines();
+			}
+
+			// TODO: This should only cancel activities queued by this trait
+			else if (order.OrderString == "Stop")
+				self.CancelActivity();
+			else if (order.OrderString == "Scatter")
+			{
+				self.QueueActivity(order.Queued, new Nudge(self));
+				self.ShowTargetLines();
+			}
+		}
+
+		string IOrderVoice.VoicePhraseForOrder(Actor self, Order order)
+		{
+			if (IsTraitDisabled)
+				return null;
+
 			switch (order.OrderString)
 			{
 				case "Move":
+					if (!Info.LocomotorInfo.MoveIntoShroud && order.Target.Type != TargetType.Invalid)
+					{
+						var cell = self.World.Map.CellContaining(order.Target.CenterPosition);
+						if (!self.Owner.Shroud.IsExplored(cell))
+							return null;
+					}
+
+					return Info.Voice;
 				case "Scatter":
 				case "Stop":
 					return Info.Voice;
@@ -549,294 +973,89 @@ namespace OpenRA.Mods.Common.Traits
 			}
 		}
 
-		public CPos TopLeft { get { return ToCell; } }
-
-		public IEnumerable<Pair<CPos, SubCell>> OccupiedCells()
-		{
-			if (FromCell == ToCell)
-				return new[] { Pair.New(FromCell, FromSubCell) };
-			if (CanEnterCell(ToCell))
-				return new[] { Pair.New(ToCell, ToSubCell) };
-			return new[] { Pair.New(FromCell, FromSubCell), Pair.New(ToCell, ToSubCell) };
-		}
-
-		public bool IsLeavingCell(CPos location, SubCell subCell = SubCell.Any)
-		{
-			return ToCell != location && fromCell == location
-				&& (subCell == SubCell.Any || FromSubCell == subCell || subCell == SubCell.FullCell || FromSubCell == SubCell.FullCell);
-		}
-
-		public SubCell GetAvailableSubCell(CPos a, SubCell preferredSubCell = SubCell.Any, Actor ignoreActor = null, bool checkTransientActors = true)
-		{
-			return Info.GetAvailableSubCell(self.World, self, a, preferredSubCell, ignoreActor, checkTransientActors ? CellConditions.All : CellConditions.None);
-		}
-
-		public bool CanEnterCell(CPos cell, Actor ignoreActor = null, bool checkTransientActors = true)
-		{
-			return Info.CanEnterCell(self.World, self, cell, ignoreActor, checkTransientActors ? CellConditions.All : CellConditions.BlockedByMovers);
-		}
-
-		public bool CanMoveFreelyInto(CPos cell, Actor ignoreActor = null, bool checkTransientActors = true)
-		{
-			return Info.CanMoveFreelyInto(self.World, self, cell, ignoreActor, checkTransientActors ? CellConditions.All : CellConditions.BlockedByMovers);
-		}
-
-		public void EnteringCell(Actor self)
-		{
-			// Only make actor crush if it is on the ground
-			if (!self.IsAtGroundLevel())
-				return;
-
-			var actors = self.World.ActorMap.GetActorsAt(ToCell).Where(a => a != self).ToList();
-			if (!AnyCrushables(actors))
-				return;
-
-			var notifiers = actors.SelectMany(a => a.TraitsImplementing<INotifyCrushed>().Select(t => new TraitPair<INotifyCrushed>(a, t)));
-			foreach (var notifyCrushed in notifiers)
-				notifyCrushed.Trait.WarnCrush(notifyCrushed.Actor, self, Info.Crushes);
-		}
-
-		public void FinishedMoving(Actor self)
-		{
-			// Only make actor crush if it is on the ground
-			if (!self.IsAtGroundLevel())
-				return;
-
-			var actors = self.World.ActorMap.GetActorsAt(ToCell).Where(a => a != self).ToList();
-			if (!AnyCrushables(actors))
-				return;
-
-			var notifiers = actors.SelectMany(a => a.TraitsImplementing<INotifyCrushed>().Select(t => new TraitPair<INotifyCrushed>(a, t)));
-			foreach (var notifyCrushed in notifiers)
-				notifyCrushed.Trait.OnCrush(notifyCrushed.Actor, self, Info.Crushes);
-		}
-
-		bool AnyCrushables(List<Actor> actors)
-		{
-			var crushables = actors.SelectMany(a => a.TraitsImplementing<ICrushable>().Select(t => new TraitPair<ICrushable>(a, t))).ToList();
-			if (crushables.Count == 0)
-				return false;
-
-			foreach (var crushes in crushables)
-				if (!crushes.Trait.CrushableBy(crushes.Actor, self, Info.Crushes))
-					return false;
-
-			return true;
-		}
-
-		public int MovementSpeedForCell(Actor self, CPos cell)
-		{
-			var index = self.World.Map.GetTerrainIndex(cell);
-			if (index == byte.MaxValue)
-				return 0;
-
-			var terrainSpeed = Info.TilesetTerrainInfo[self.World.Map.Rules.TileSet][index].Speed;
-			if (terrainSpeed == 0)
-				return 0;
-
-			var modifiers = speedModifiers.Value.Append(terrainSpeed);
-
-			return Util.ApplyPercentageModifiers(Info.Speed, modifiers);
-		}
-
-		public void AddInfluence()
-		{
-			if (self.IsInWorld)
-				self.World.ActorMap.AddInfluence(self, this);
-		}
-
-		public void RemoveInfluence()
-		{
-			if (self.IsInWorld)
-				self.World.ActorMap.RemoveInfluence(self, this);
-		}
-
-		public void Nudge(Actor self, Actor nudger, bool force)
-		{
-			if (IsTraitDisabled)
-				return;
-
-			/* initial fairly braindead implementation. */
-			if (!force && self.Owner.Stances[nudger.Owner] != Stance.Ally)
-				return;		/* don't allow ourselves to be pushed around
-							 * by the enemy! */
-
-			if (!force && !self.IsIdle)
-				return;		/* don't nudge if we're busy doing something! */
-
-			// pick an adjacent available cell.
-			var availCells = new List<CPos>();
-			var notStupidCells = new List<CPos>();
-
-			for (var i = -1; i < 2; i++)
-				for (var j = -1; j < 2; j++)
-				{
-					var p = ToCell + new CVec(i, j);
-					if (CanEnterCell(p))
-						availCells.Add(p);
-					else if (p != nudger.Location && p != ToCell)
-						notStupidCells.Add(p);
-				}
-
-			var moveTo = availCells.Any() ? availCells.Random(self.World.SharedRandom) : (CPos?)null;
-
-			if (moveTo.HasValue)
-			{
-				self.CancelActivity();
-				self.SetTargetLine(Target.FromCell(self.World, moveTo.Value), Color.Green, false);
-				self.QueueActivity(new Move(self, moveTo.Value, WDist.Zero));
-
-				Log.Write("debug", "OnNudge #{0} from {1} to {2}",
-					self.ActorID, self.Location, moveTo.Value);
-			}
-			else
-			{
-				var cellInfo = notStupidCells
-					.SelectMany(c => self.World.ActorMap.GetActorsAt(c)
-						.Where(a => a.IsIdle && a.Info.HasTraitInfo<MobileInfo>()),
-						(c, a) => new { Cell = c, Actor = a })
-					.RandomOrDefault(self.World.SharedRandom);
-
-				if (cellInfo != null)
-				{
-					self.CancelActivity();
-					var notifyBlocking = new CallFunc(() => self.NotifyBlocker(cellInfo.Cell));
-					var waitFor = new WaitFor(() => CanEnterCell(cellInfo.Cell));
-					var move = new Move(self, cellInfo.Cell);
-					self.QueueActivity(ActivityUtils.SequenceActivities(notifyBlocking, waitFor, move));
-
-					Log.Write("debug", "OnNudge (notify next blocking actor, wait and move) #{0} from {1} to {2}",
-						self.ActorID, self.Location, cellInfo.Cell);
-				}
-				else
-				{
-					Log.Write("debug", "OnNudge #{0} refuses at {1}",
-						self.ActorID, self.Location);
-				}
-			}
-		}
-
-		void IActorPreviewInitModifier.ModifyActorPreviewInit(Actor self, TypeDictionary inits)
-		{
-			if (!inits.Contains<DynamicFacingInit>() && !inits.Contains<FacingInit>())
-				inits.Add(new DynamicFacingInit(() => facing));
-		}
-
-		class MoveOrderTargeter : IOrderTargeter
+		public class LeaveProductionActivity : Activity
 		{
 			readonly Mobile mobile;
-			readonly bool rejectMove;
-			public bool TargetOverridesSelection(TargetModifiers modifiers)
+			readonly int delay;
+			readonly CPos[] rallyPoint;
+			readonly ReturnToCellActivity returnToCell;
+
+			public LeaveProductionActivity(Actor self, int delay, CPos[] rallyPoint, ReturnToCellActivity returnToCell)
 			{
+				mobile = self.Trait<Mobile>();
+				this.delay = delay;
+				this.rallyPoint = rallyPoint;
+				this.returnToCell = returnToCell;
+			}
+
+			protected override void OnFirstRun(Actor self)
+			{
+				// It is vital that ReturnToCell is queued first as it needs the power to intercept a possible cancellation of this activity.
+				if (returnToCell != null)
+					QueueChild(returnToCell);
+				else if (delay > 0)
+					QueueChild(new Wait(delay));
+
+				if (rallyPoint != null)
+					foreach (var cell in rallyPoint)
+						QueueChild(new AttackMoveActivity(self, () => mobile.MoveTo(cell, 1, evaluateNearestMovableCell: true, targetLineColor: Color.OrangeRed)));
+			}
+		}
+
+		Activity ICreationActivity.GetCreationActivity()
+		{
+			if (returnToCellOnCreation || creationRallypoint != null || creationActivityDelay > 0)
+				return new LeaveProductionActivity(self, creationActivityDelay, creationRallypoint,
+					returnToCellOnCreation ? new ReturnToCellActivity(self, creationActivityDelay, returnToCellOnCreationRecalculateSubCell) : null);
+
+			return null;
+		}
+
+		sealed class MoveOrderTargeter : IOrderTargeter
+		{
+			readonly Mobile mobile;
+			readonly LocomotorInfo locomotorInfo;
+			readonly bool rejectMove;
+			public bool TargetOverridesSelection(Actor self, in Target target, List<Actor> actorsAt, CPos xy, TargetModifiers modifiers)
+			{
+				// Always prioritise orders over selecting other peoples actors or own actors that are already selected
+				if (target.Type == TargetType.Actor && (target.Actor.Owner != self.Owner || self.World.Selection.Contains(target.Actor)))
+					return true;
+
 				return modifiers.HasModifier(TargetModifiers.ForceMove);
 			}
 
 			public MoveOrderTargeter(Actor self, Mobile unit)
 			{
 				mobile = unit;
+				locomotorInfo = mobile.Info.LocomotorInfo;
 				rejectMove = !self.AcceptsOrder("Move");
 			}
 
-			public string OrderID { get { return "Move"; } }
-			public int OrderPriority { get { return 4; } }
-			public bool IsQueued { get; protected set; }
+			public string OrderID => "Move";
+			public int OrderPriority => 4;
+			public bool IsQueued { get; private set; }
 
-			public bool CanTarget(Actor self, Target target, List<Actor> othersAtTarget, ref TargetModifiers modifiers, ref string cursor)
+			public bool CanTarget(Actor self, in Target target, ref TargetModifiers modifiers, ref string cursor)
 			{
-				if (rejectMove || target.Type != TargetType.Terrain)
+				if (rejectMove || target.Type != TargetType.Terrain || (mobile.requireForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove)))
 					return false;
 
 				var location = self.World.Map.CellContaining(target.CenterPosition);
 				IsQueued = modifiers.HasModifier(TargetModifiers.ForceQueue);
 
 				var explored = self.Owner.Shroud.IsExplored(location);
-				cursor = self.World.Map.Contains(location) ?
-					(self.World.Map.GetTerrainInfo(location).CustomCursor ?? mobile.Info.Cursor) : mobile.Info.BlockedCursor;
 
-				if (mobile.IsTraitDisabled
-					|| (!explored && !mobile.Info.MoveIntoShroud)
-					|| (explored && mobile.Info.MovementCostForCell(self.World, location) == int.MaxValue))
+				if (mobile.IsTraitPaused
+					|| !self.World.Map.Contains(location)
+					|| (!explored && !locomotorInfo.MoveIntoShroud)
+					|| (explored && mobile.Locomotor.MovementCostForCell(location) == PathGraph.MovementCostForUnreachableCell))
 					cursor = mobile.Info.BlockedCursor;
+				else if (!explored || !mobile.Info.TerrainCursors.TryGetValue(self.World.Map.GetTerrainInfo(location).Type, out cursor))
+					cursor = mobile.Info.Cursor;
 
 				return true;
 			}
-		}
-
-		public Activity ScriptedMove(CPos cell) { return new Move(self, cell); }
-		public Activity MoveTo(CPos cell, int nearEnough) { return new Move(self, cell, WDist.FromCells(nearEnough)); }
-		public Activity MoveTo(CPos cell, Actor ignoredActor) { return new Move(self, cell, ignoredActor); }
-		public Activity MoveWithinRange(Target target, WDist range) { return new MoveWithinRange(self, target, WDist.Zero, range); }
-		public Activity MoveWithinRange(Target target, WDist minRange, WDist maxRange) { return new MoveWithinRange(self, target, minRange, maxRange); }
-		public Activity MoveFollow(Actor self, Target target, WDist minRange, WDist maxRange) { return new Follow(self, target, minRange, maxRange); }
-		public Activity MoveTo(Func<List<CPos>> pathFunc) { return new Move(self, pathFunc); }
-
-		void INotifyBlockingMove.OnNotifyBlockingMove(Actor self, Actor blocking)
-		{
-			if (self.IsIdle && self.AppearsFriendlyTo(blocking))
-				Nudge(self, blocking, true);
-		}
-
-		public Activity MoveIntoWorld(Actor self, CPos cell, SubCell subCell = SubCell.Any)
-		{
-			var pos = self.CenterPosition;
-
-			if (subCell == SubCell.Any)
-				subCell = Info.SharesCell ? self.World.ActorMap.FreeSubCell(cell, subCell) : SubCell.FullCell;
-
-			// TODO: solve/reduce cell is full problem
-			if (subCell == SubCell.Invalid)
-				subCell = self.World.Map.Grid.DefaultSubCell;
-
-			// Reserve the exit cell
-			SetPosition(self, cell, subCell);
-			SetVisualPosition(self, pos);
-
-			return VisualMove(self, pos, self.World.Map.CenterOfSubCell(cell, subCell), cell);
-		}
-
-		public Activity MoveToTarget(Actor self, Target target)
-		{
-			if (target.Type == TargetType.Invalid)
-				return null;
-
-			return new MoveAdjacentTo(self, target);
-		}
-
-		public Activity MoveIntoTarget(Actor self, Target target)
-		{
-			if (target.Type == TargetType.Invalid)
-				return null;
-
-			return VisualMove(self, self.CenterPosition, target.CenterPosition);
-		}
-
-		public bool CanEnterTargetNow(Actor self, Target target)
-		{
-			return self.Location == self.World.Map.CellContaining(target.CenterPosition) || Util.AdjacentCells(self.World, target).Any(c => c == self.Location);
-		}
-
-		public Activity VisualMove(Actor self, WPos fromPos, WPos toPos)
-		{
-			return VisualMove(self, fromPos, toPos, self.Location);
-		}
-
-		public Activity VisualMove(Actor self, WPos fromPos, WPos toPos, CPos cell)
-		{
-			var speed = MovementSpeedForCell(self, cell);
-			var length = speed > 0 ? (toPos - fromPos).Length / speed : 0;
-
-			var delta = toPos - fromPos;
-			var facing = delta.HorizontalLengthSquared != 0 ? delta.Yaw.Facing : Facing;
-			return ActivityUtils.SequenceActivities(new Turn(self, facing), new Drag(self, fromPos, toPos, length));
-		}
-
-		public void ModifyDeathActorInit(Actor self, TypeDictionary init)
-		{
-			init.Add(new FacingInit(facing));
-
-			// Allows the husk to drag to its final position
-			if (CanEnterCell(self.Location, self, false))
-				init.Add(new HuskSpeedInit(MovementSpeedForCell(self, self.Location)));
 		}
 	}
 }

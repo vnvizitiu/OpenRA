@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,63 +10,60 @@
 #endregion
 
 using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Drawing;
+using OpenRA.Primitives;
 
 namespace OpenRA
 {
 	// Represents a layer of "something" that covers the map
-	public class CellLayer<T> : IEnumerable<T>
+	public sealed class CellLayer<T> : CellLayerBase<T>
 	{
-		public readonly Size Size;
-		readonly Rectangle bounds;
-		public readonly MapGridType GridType;
 		public event Action<CPos> CellEntryChanged = null;
 
-		readonly T[] entries;
-
 		public CellLayer(Map map)
-			: this(map.Grid.Type, new Size(map.MapSize.X, map.MapSize.Y)) { }
+			: base(map) { }
 
 		public CellLayer(MapGridType gridType, Size size)
-		{
-			Size = size;
-			bounds = new Rectangle(0, 0, Size.Width, Size.Height);
-			GridType = gridType;
-			entries = new T[size.Width * size.Height];
-		}
+			: base(gridType, size) { }
 
-		public void CopyValuesFrom(CellLayer<T> anotherLayer)
+		public override void CopyValuesFrom(CellLayerBase<T> anotherLayer)
 		{
-			if (Size != anotherLayer.Size || GridType != anotherLayer.GridType)
-				throw new ArgumentException(
-					"layers must have a matching size and shape (grid type).", "anotherLayer");
 			if (CellEntryChanged != null)
 				throw new InvalidOperationException(
-					"Cannot copy values when there are listeners attached to the CellEntryChanged event.");
-			Array.Copy(anotherLayer.entries, entries, entries.Length);
+					$"Cannot copy values when there are listeners attached to the {nameof(CellEntryChanged)} event.");
+
+			base.CopyValuesFrom(anotherLayer);
 		}
 
-		public static CellLayer<T> CreateInstance(Func<MPos, T> initialCellValueFactory, Size size, MapGridType mapGridType)
+		public override void Clear()
 		{
-			var cellLayer = new CellLayer<T>(mapGridType, size);
-			for (var v = 0; v < size.Height; v++)
-			{
-				for (var u = 0; u < size.Width; u++)
-				{
-					var mpos = new MPos(u, v);
-					cellLayer[mpos] = initialCellValueFactory(mpos);
-				}
-			}
+			if (CellEntryChanged != null)
+				throw new InvalidOperationException(
+					$"Cannot clear values when there are listeners attached to the {nameof(CellEntryChanged)} event.");
 
-			return cellLayer;
+			base.Clear();
+		}
+
+		public override void Clear(T clearValue)
+		{
+			if (CellEntryChanged != null)
+				throw new InvalidOperationException(
+					$"Cannot clear values when there are listeners attached to the {nameof(CellEntryChanged)} event.");
+
+			base.Clear(clearValue);
 		}
 
 		// Resolve an array index from cell coordinates
 		int Index(CPos cell)
 		{
-			return Index(cell.ToMPos(GridType));
+			// PERF: Inline CPos.ToMPos to avoid MPos allocation
+			var x = cell.X;
+			var y = cell.Y;
+			if (GridType == MapGridType.Rectangular)
+				return y * Size.Width + x;
+
+			var u = (x - y) / 2;
+			var v = x + y;
+			return v * Size.Width + u;
 		}
 
 		// Resolve an array index from map coordinates
@@ -75,55 +72,52 @@ namespace OpenRA
 			return uv.V * Size.Width + uv.U;
 		}
 
-		/// <summary>Gets or sets the <see cref="CellLayer"/> using cell coordinates</summary>
+		/// <summary>Gets or sets the <see cref="CellLayer"/> using cell coordinates.</summary>
 		public T this[CPos cell]
 		{
-			get
-			{
-				return entries[Index(cell)];
-			}
+			get => Entries[Index(cell)];
 
 			set
 			{
-				entries[Index(cell)] = value;
+				Entries[Index(cell)] = value;
 
-				if (CellEntryChanged != null)
-					CellEntryChanged(cell);
+				CellEntryChanged?.Invoke(cell);
 			}
 		}
 
-		/// <summary>Gets or sets the layer contents using raw map coordinates (not CPos!)</summary>
+		/// <summary>Gets or sets the layer contents using raw map coordinates (not CPos!).</summary>
 		public T this[MPos uv]
 		{
-			get
-			{
-				return entries[Index(uv)];
-			}
+			get => Entries[Index(uv)];
 
 			set
 			{
-				entries[Index(uv)] = value;
+				Entries[Index(uv)] = value;
 
-				if (CellEntryChanged != null)
-					CellEntryChanged(uv.ToCPos(GridType));
+				CellEntryChanged?.Invoke(uv.ToCPos(GridType));
 			}
 		}
 
-		/// <summary>Clears the layer contents with a known value</summary>
-		public void Clear(T clearValue)
+		public bool TryGetValue(CPos cell, out T value)
 		{
-			for (var i = 0; i < entries.Length; i++)
-				entries[i] = clearValue;
-		}
+			// .ToMPos() returns the same result if the X and Y coordinates
+			// are switched. X < Y is invalid in the RectangularIsometric coordinate system,
+			// so we pre-filter these to avoid returning the wrong result
+			if (GridType == MapGridType.RectangularIsometric && cell.X < cell.Y)
+			{
+				value = default;
+				return false;
+			}
 
-		public IEnumerator<T> GetEnumerator()
-		{
-			return ((IEnumerable<T>)entries).GetEnumerator();
-		}
+			var uv = cell.ToMPos(GridType);
+			if (Bounds.Contains(uv.U, uv.V))
+			{
+				value = Entries[Index(uv)];
+				return true;
+			}
 
-		IEnumerator IEnumerable.GetEnumerator()
-		{
-			return GetEnumerator();
+			value = default;
+			return false;
 		}
 
 		public bool Contains(CPos cell)
@@ -139,7 +133,7 @@ namespace OpenRA
 
 		public bool Contains(MPos uv)
 		{
-			return bounds.Contains(uv.U, uv.V);
+			return Bounds.Contains(uv.U, uv.V);
 		}
 
 		public CPos Clamp(CPos uv)

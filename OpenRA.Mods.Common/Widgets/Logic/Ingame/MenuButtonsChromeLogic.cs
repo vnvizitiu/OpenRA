@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,10 +9,8 @@
  */
 #endregion
 
-using System;
 using System.Linq;
 using OpenRA.Mods.Common.Traits;
-using OpenRA.Traits;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
@@ -22,6 +20,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 		readonly World world;
 		readonly Widget worldRoot;
 		readonly Widget menuRoot;
+
 		bool disableSystemButtons;
 		Widget currentWidget;
 
@@ -45,23 +44,23 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					blinking = false;
 					OpenMenuPanel(options, new WidgetArgs()
 					{
-						{ "activePanel", IngameInfoPanel.AutoSelect }
+						{ "initialPanel", IngameInfoPanel.AutoSelect }
 					});
 				};
 				options.IsHighlighted = () => blinking && Game.LocalTick % 50 < 25;
 
 				if (lp != null)
 				{
-					Action<Player, bool> startBlinking = (player, inhibitAnnouncement) =>
+					void StartBlinking(Player player, bool inhibitAnnouncement)
 					{
 						if (!inhibitAnnouncement && player == world.LocalPlayer)
 							blinking = true;
-					};
+					}
 
 					var mo = lp.PlayerActor.TraitOrDefault<MissionObjectives>();
 
 					if (mo != null)
-						mo.ObjectiveAdded += startBlinking;
+						mo.ObjectiveAdded += StartBlinking;
 				}
 			}
 
@@ -71,21 +70,14 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				// Can't use DeveloperMode.Enabled because there is a hardcoded hack to *always*
 				// enable developer mode for singleplayer games, but we only want to show the button
 				// if it has been explicitly enabled
-				var def = world.Map.Rules.Actors["player"].TraitInfo<DeveloperModeInfo>().Enabled;
+				var def = world.Map.Rules.Actors[SystemActors.Player].TraitInfo<DeveloperModeInfo>().CheckboxEnabled;
 				var enabled = world.LobbyInfo.GlobalSettings.OptionOrDefault("cheats", def);
 				debug.IsVisible = () => enabled;
 				debug.IsDisabled = () => disableSystemButtons;
 				debug.OnClick = () => OpenMenuPanel(debug, new WidgetArgs()
 				{
-					{ "activePanel", IngameInfoPanel.Debug }
+					{ "initialPanel", IngameInfoPanel.Debug }
 				});
-			}
-
-			var stats = widget.GetOrNull<MenuButtonWidget>("OBSERVER_STATS_BUTTON");
-			if (stats != null)
-			{
-				stats.IsDisabled = () => disableSystemButtons || world.Map.Visibility.HasFlag(MapVisibility.MissionSelector);
-				stats.OnClick = () => OpenMenuPanel(stats);
 			}
 		}
 
@@ -102,16 +94,23 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				worldRoot.IsVisible = () => false;
 			}
 
-			if (button.Pause && world.LobbyInfo.IsSinglePlayer)
+			if (button.Pause && world.LobbyInfo.NonBotClients.Count() == 1)
 				world.SetPauseState(true);
 
-			widgetArgs = widgetArgs ?? new WidgetArgs();
+			var cachedDisableWorldSounds = Game.Sound.DisableWorldSounds;
+			if (button.DisableWorldSounds)
+				Game.Sound.DisableWorldSounds = true;
+
+			widgetArgs ??= new WidgetArgs();
 			widgetArgs.Add("onExit", () =>
 			{
 				if (button.HideIngameUI)
 					worldRoot.IsVisible = () => true;
 
-				if (button.Pause && world.LobbyInfo.IsSinglePlayer)
+				if (button.DisableWorldSounds)
+					Game.Sound.DisableWorldSounds = cachedDisableWorldSounds;
+
+				if (button.Pause && world.LobbyInfo.NonBotClients.Count() == 1)
 					world.SetPauseState(cachedPause);
 
 				menuRoot.RemoveChild(currentWidget);

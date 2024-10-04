@@ -1,126 +1,204 @@
 E1:
 	Inherits: ^Soldier
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
+	Inherits@DECORATIONS: ^InfantryExperienceHospitalHazmatOverrides
 	Valued:
 		Cost: 100
 	Tooltip:
-		Name: Minigunner
+		Name: actor-e1.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		BuildPaletteOrder: 10
+		Prerequisites: barracks
 		Queue: Infantry.GDI, Infantry.Nod
-		Description: General-purpose infantry.\n  Strong vs Infantry\n  Weak vs Vehicles
+		Description: actor-e1.description
 	Mobile:
-		Speed: 56
+		Speed: 54
 	Health:
-		HP: 50
+		HP: 5000
+	AutoTarget:
+		ScanRadius: 4
 	Armament:
 		Weapon: M16
+	Encyclopedia:
+		Description: actor-e1.encyclopedia
+		Order: 0
+		Category: Units
 	AttackFrontal:
+		Voice: Attack
+		FacingTolerance: 0
+	AttackMove:
+		Voice: Attack
 	WithInfantryBody:
 		IdleSequences: idle1,idle2,idle3,idle4
 		DefaultAttackSequence: shoot
 
 E2:
 	Inherits: ^Soldier
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
+	Inherits@DECORATIONS: ^InfantryExperienceHospitalHazmatOverrides
 	Valued:
 		Cost: 160
 	Tooltip:
-		Name: Grenadier
+		Name: actor-e2.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		BuildPaletteOrder: 40
 		Prerequisites: anyhq, ~techlevel.medium
 		Queue: Infantry.GDI
-		Description: Fast infantry armed with grenades. \n  Strong vs Buildings, slow-moving targets
+		Description: actor-e2.description
 	Mobile:
-		Speed: 71
+		Speed: 68
 	Health:
-		HP: 50
+		HP: 5000
+	AutoTarget:
+		ScanRadius: 4
 	Armament:
 		Weapon: Grenade
 		LocalOffset: 0,0,427
 		FireDelay: 15
+	Encyclopedia:
+		Description: actor-e2.encyclopedia
+		Category: Units
 	AttackFrontal:
+		Voice: Attack
+		FacingTolerance: 0
+	AttackMove:
+		Voice: Attack
+	TakeCover:
+		ProneOffset: 300,0,-227
 	WithInfantryBody:
 		DefaultAttackSequence: throw
-	Explodes:
+	FireWarheadsOnDeath:
 		Weapon: GrenadierExplode
 		EmptyWeapon: GrenadierExplode
 		Chance: 50
 
 E3:
 	Inherits: ^Soldier
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@AUTOTARGET: ^AutoTargetAllAssaultMove
+	Inherits@DECORATIONS: ^InfantryExperienceHospitalHazmatOverrides
 	Valued:
 		Cost: 300
 	Tooltip:
-		Name: Rocket Soldier
+		Name: actor-e3.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		BuildPaletteOrder: 20
+		Prerequisites: barracks
 		Queue: Infantry.GDI, Infantry.Nod
-		Description: Anti-tank/Anti-aircraft infantry. \n  Strong vs Tanks, Aircraft\n  Weak vs Infantry
+		Description: actor-e3.description
 	Mobile:
-		Speed: 42
+		Speed: 39
 	Health:
-		HP: 45
+		HP: 4500
 	AutoTarget:
 		ScanRadius: 6
 	Armament:
 		Weapon: Rockets
 		LocalOffset: 256,43,341
 		FireDelay: 5
+	Encyclopedia:
+		Description: actor-e3.encyclopedia
+		Order: 20
+		Category: Units
 	AttackFrontal:
+		Voice: Attack
+		FacingTolerance: 0
+	AttackMove:
+		Voice: Attack
+	TakeCover:
+		ProneOffset: 180,0,-200
 	WithInfantryBody:
 		DefaultAttackSequence: shoot
 
 E4:
 	Inherits: ^Soldier
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
+	Inherits@DECORATIONS: ^InfantryExperienceHospitalHazmatOverrides
 	Valued:
 		Cost: 200
 	Tooltip:
-		Name: Flamethrower
+		Name: actor-e4.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		BuildPaletteOrder: 40
 		Prerequisites: anyhq, ~techlevel.medium
 		Queue: Infantry.Nod
-		Description: Advanced Anti-infantry unit.\n  Strong vs Infantry, Buildings\n  Weak vs Tanks
+		Description: actor-e4.description
 	Mobile:
-		Speed: 56
+		Speed: 54
 	Health:
-		HP: 90
+		HP: 9000
+	AutoTarget:
+		ScanRadius: 4
 	Armament:
 		Weapon: Flamethrower
 		LocalOffset: 341,0,256
 		FireDelay: 3
 		MuzzleSequence: muzzle
+	Encyclopedia:
+		Description: actor-e4.encyclopedia
+		Order: 30
+		Category: Units
 	AttackFrontal:
+		Voice: Attack
+		FacingTolerance: 0
+	AttackMove:
+		Voice: Attack
+	TakeCover:
+		ProneOffset: 190,0,-198
 	WithMuzzleOverlay:
 	WithInfantryBody:
 		DefaultAttackSequence: shoot
 
 E5:
 	Inherits: ^Soldier
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
+	Inherits@DECORATIONS: ^InfantryExperienceHospitalHazmatOverrides
 	Valued:
 		Cost: 300
 	Tooltip:
-		Name: Chemical Warrior
+		Name: actor-e5.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		BuildPaletteOrder: 50
 		Prerequisites: tmpl, ~techlevel.high
 		Queue: Infantry.Nod
-		Description: Advanced general-purpose infantry.\n  Strong vs all Ground units
+		Description: actor-e5.description
 	Mobile:
-		Speed: 56
-		TerrainSpeeds:
-			Tiberium: 90
-				PathingCost: 90
-			BlueTiberium: 90
-				PathingCost: 90
+		Speed: 54
+		Locomotor: chem
 	Health:
-		HP: 90
+		HP: 9000
+	AutoTarget:
+		ScanRadius: 4
 	Armament:
 		Weapon: Chemspray
 		LocalOffset: 341,0,256
 		FireDelay: 3
 		MuzzleSequence: muzzle
+	Encyclopedia:
+		Description: actor-e5.encyclopedia
+		Order: 40
+		Category: Units
 	AttackFrontal:
+		Voice: Attack
+		FacingTolerance: 0
+	AttackMove:
+		Voice: Attack
+	TakeCover:
+		ProneOffset: 190,0,-190
 	WithMuzzleOverlay:
 	-DamagedByTerrain:
 	WithInfantryBody:
@@ -128,122 +206,148 @@ E5:
 
 E6:
 	Inherits: ^Soldier
+	Inherits@selection: ^SelectableSupportUnit
 	Valued:
 		Cost: 500
 	Tooltip:
-		Name: Engineer
+		Name: actor-e6.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		BuildPaletteOrder: 30
+		Prerequisites: barracks
 		Queue: Infantry.GDI, Infantry.Nod
-		Description: Damages and captures enemy structures.\n  Unarmed
+		Description: actor-e6.description
 	Mobile:
-		Speed: 56
+		Speed: 46
 	Health:
-		HP: 25
+		HP: 3000
+	Encyclopedia:
+		Description: actor-e6.encyclopedia
+		Order: 50
+		Category: Units
 	Passenger:
-		PipType: Yellow
-	EngineerRepair:
+		CustomPipType: yellow
+	InstantlyRepairs:
 	RepairsBridges:
-	Captures:
-		CaptureTypes: building, husk
-		PlayerExperience: 50
-	-AutoTarget:
-	-GainsExperience:
+	CaptureManager:
+	Captures@SABOTAGE:
+		CaptureTypes: building-sabotage
+		SabotageThreshold: 55
+		PlayerExperience: 10
+	Captures@CAPTURES:
+		CaptureTypes: building
+		PlayerExperience: 10
+	Captures@CATURESHUSK:
+		CaptureTypes: husk
+		PlayerExperience: 10
+		ValidRelationships: Enemy, Neutral, Ally
+	-AttackFrontal:
 
 RMBO:
 	Inherits: ^Soldier
+	Inherits@EXPERIENCE: ^GainsExperience
+	Inherits@AUTOTARGET: ^AutoTargetGroundAssaultMove
+	Inherits@DECORATIONS: ^InfantryExperienceHospitalHazmatOverrides
 	Valued:
-		Cost: 1000
+		Cost: 1500
 	Tooltip:
-		Name: Commando
+		Name: actor-rmbo.name
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	Buildable:
 		BuildPaletteOrder: 50
 		Prerequisites: eye, ~techlevel.high
 		Queue: Infantry.GDI
-		Description: Elite sniper infantry unit.\n  Strong vs Infantry, Buildings\n  Weak vs Vehicles
+		Description: actor-rmbo.description
 	Mobile:
-		Speed: 71
-		Voice: Move
-	Guard:
-		Voice: Move
+		Speed: 68
 	Health:
-		HP: 150
+		HP: 15000
 	Passenger:
-		PipType: Red
-		Voice: Move
+		CustomPipType: red
 	RevealsShroud:
 		Range: 6c0
 	AutoTarget:
-		ScanRadius: 6
+		ScanRadius: 8
 	Demolition:
 		DetonationDelay: 45
 		Voice: Demolish
 	Armament:
 		Weapon: Sniper
-	AttackFrontal:
-		Voice: Attack
-	AttackMove:
-		Voice: Attack
+	Encyclopedia:
+		Description: actor-rmbo.encyclopedia
+		Order: 60
+		Category: Units
 	WithInfantryBody:
 		DefaultAttackSequence: shoot
 		IdleSequences: idle1,idle2,idle3
-	AnnounceOnBuild:
+	ExternalCondition@PRODUCED:
+		Condition: produced
+	VoiceAnnouncement:
+		RequiresCondition: produced
+		Voice: Build
 	AnnounceOnKill:
 	Voiced:
 		VoiceSet: CommandoVoice
 
 PVICE:
 	Inherits: ^Viceroid
-	Mobile:
-		Crushes: crate
 	Buildable:
-		Queue: Biolab
-		BuildPaletteOrder: 40
-		Description: Mutated abomination that spits liquid Tiberium.\n  Strong vs Infantry, Buildings\n  Weak vs Aircraft
+		Queue: Infantry.GDI, Infantry.Nod
+		BuildPaletteOrder: 50
+		Prerequisites: ~disabled
+		Description: actor-pvice.description
 	Tooltip:
+	UpdatesPlayerStatistics:
+		AddToArmyValue: true
 	ActorLostNotification:
+		TextNotification: notification-unit-lost
+	Encyclopedia:
+		Description: actor-pvice.encyclopedia
+		Order: 70
+		Category: Units
 
 STEG:
 	Inherits: ^DINO
 	Tooltip:
-		Name: Stegosaurus
+		Name: actor-steg.name
 	Armament:
 		Weapon: tail
 	WithDeathAnimation:
 		DeathSequencePalette: terrain
 		DeathPaletteIsPlayerPalette: false
 	Buildable:
-		Description: A large, heavily built, herbivorous quadruped
+		Description: actor-steg.description
 
 TREX:
 	Inherits: ^DINO
 	Tooltip:
-		Name: Tyrannosaurus rex
+		Name: actor-trex.name
 	Armament:
 		Weapon: teeth
 	Selectable:
-		Bounds: 48,36,2,1
-	SelectionDecorations:
-		VisualBounds: 52,38
+		Bounds: 2048, 1536, 85, 42
+		DecorationBounds: 2218, 1621
 	Buildable:
-		Description: Bipedal carnivore with a massive skull
+		Description: actor-trex.description
 
 TRIC:
 	Inherits: ^DINO
 	Tooltip:
-		Name: Triceratops
+		Name: actor-tric.name
 	Armament:
 		Weapon: horn
-	SelectionDecorations:
-		VisualBounds: 34,24,0,2
 	Buildable:
-		Description: Quadruped with large bony frill and three horns
+		Description: actor-tric.description
+	Selectable:
+		DecorationBounds: 1450, 1024, 0, 85
 
 RAPT:
 	Inherits: ^DINO
 	Tooltip:
-		Name: Velociraptor
+		Name: actor-rapt.name
 	Armament:
 		Weapon: claw
 	Buildable:
-		Description: Bipedal with enlarged sickle-shaped claw on each hindfoot
+		Description: actor-rapt.description

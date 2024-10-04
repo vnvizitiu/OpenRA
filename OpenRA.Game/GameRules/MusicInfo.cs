@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,8 +9,6 @@
  */
 #endregion
 
-using System.IO;
-using OpenRA.FileFormats;
 using OpenRA.FileSystem;
 
 namespace OpenRA.GameRules
@@ -20,6 +18,7 @@ namespace OpenRA.GameRules
 		public readonly string Filename;
 		public readonly string Title;
 		public readonly bool Hidden;
+		public readonly float VolumeModifier = 1f;
 
 		public int Length { get; private set; } // seconds
 		public bool Exists { get; private set; }
@@ -29,31 +28,38 @@ namespace OpenRA.GameRules
 			Title = value.Value;
 
 			var nd = value.ToDictionary();
-			if (nd.ContainsKey("Hidden"))
-				bool.TryParse(nd["Hidden"].Value, out Hidden);
+			if (nd.TryGetValue("Hidden", out var yaml))
+				bool.TryParse(yaml.Value, out Hidden);
 
-			var ext = nd.ContainsKey("Extension") ? nd["Extension"].Value : "aud";
-			Filename = (nd.ContainsKey("Filename") ? nd["Filename"].Value : key) + "." + ext;
+			if (nd.TryGetValue("VolumeModifier", out yaml))
+				VolumeModifier = FieldLoader.GetValue<float>("VolumeModifier", yaml.Value);
+
+			var ext = nd.TryGetValue("Extension", out yaml) ? yaml.Value : "aud";
+			Filename = (nd.TryGetValue("Filename", out yaml) ? yaml.Value : key) + "." + ext;
 		}
 
 		public void Load(IReadOnlyFileSystem fileSystem)
 		{
-			Stream stream;
-			if (!fileSystem.TryOpen(Filename, out stream))
+			if (!fileSystem.TryOpen(Filename, out var stream))
 				return;
 
-			Exists = true;
-			ISoundFormat soundFormat;
-			foreach (var loader in Game.ModData.SoundLoaders)
+			try
 			{
-				if (loader.TryParseSound(stream, out soundFormat))
+				Exists = true;
+				foreach (var loader in Game.ModData.SoundLoaders)
 				{
-					Length = (int)soundFormat.LengthInSeconds;
-					break;
+					if (loader.TryParseSound(stream, out var soundFormat))
+					{
+						Length = (int)soundFormat.LengthInSeconds;
+						soundFormat.Dispose();
+						break;
+					}
 				}
 			}
-
-			stream.Dispose();
+			finally
+			{
+				stream.Dispose();
+			}
 		}
 	}
 }

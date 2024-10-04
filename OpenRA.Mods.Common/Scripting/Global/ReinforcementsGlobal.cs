@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,13 +9,12 @@
  */
 #endregion
 
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Eluant;
 using OpenRA.Activities;
-using OpenRA.Effects;
 using OpenRA.Mods.Common.Activities;
+using OpenRA.Mods.Common.Effects;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Primitives;
 using OpenRA.Scripting;
@@ -26,34 +25,45 @@ namespace OpenRA.Mods.Common.Scripting
 	[ScriptGlobal("Reinforcements")]
 	public class ReinforcementsGlobal : ScriptGlobal
 	{
-		public ReinforcementsGlobal(ScriptContext context) : base(context) { }
+		public ReinforcementsGlobal(ScriptContext context)
+			: base(context)
+		{
+		}
 
 		Actor CreateActor(Player owner, string actorType, bool addToWorld, CPos? entryLocation = null, CPos? nextLocation = null)
 		{
-			ActorInfo ai;
-			if (!Context.World.Map.Rules.Actors.TryGetValue(actorType, out ai))
-				throw new LuaException("Unknown actor type '{0}'".F(actorType));
+			if (!Context.World.Map.Rules.Actors.TryGetValue(actorType, out var ai))
+				throw new LuaException($"Unknown actor type '{actorType}'");
 
-			var initDict = new TypeDictionary();
-
-			initDict.Add(new OwnerInit(owner));
+			var initDict = new TypeDictionary
+			{
+				new OwnerInit(owner)
+			};
 
 			if (entryLocation.HasValue)
 			{
-				var pi = ai.TraitInfoOrDefault<AircraftInfo>();
-				initDict.Add(new CenterPositionInit(owner.World.Map.CenterOfCell(entryLocation.Value) + new WVec(0, 0, pi != null ? pi.CruiseAltitude.Length : 0)));
 				initDict.Add(new LocationInit(entryLocation.Value));
+
+				var pi = ai.TraitInfoOrDefault<AircraftInfo>();
+				if (pi != null)
+					initDict.Add(new CenterPositionInit(owner.World.Map.CenterOfCell(entryLocation.Value) + new WVec(0, 0, pi.CruiseAltitude.Length)));
 			}
 
 			if (entryLocation.HasValue && nextLocation.HasValue)
-				initDict.Add(new FacingInit(Context.World.Map.FacingBetween(CPos.Zero, CPos.Zero + (nextLocation.Value - entryLocation.Value), 0)));
+			{
+				var facing = Context.World.Map.FacingBetween(CPos.Zero, CPos.Zero + (nextLocation.Value - entryLocation.Value), WAngle.Zero);
+				initDict.Add(new FacingInit(facing));
+			}
 
-			var actor = Context.World.CreateActor(addToWorld, actorType, initDict);
+			// The actor must be added to the world at the end of the tick.
+			var a = Context.World.CreateActor(false, actorType, initDict);
+			if (addToWorld)
+				Context.World.AddFrameEndTask(w => w.Add(a));
 
-			return actor;
+			return a;
 		}
 
-		void Move(Actor actor, CPos dest)
+		static void Move(Actor actor, CPos dest)
 		{
 			var move = actor.TraitOrDefault<IMove>();
 			if (move == null)
@@ -66,35 +76,34 @@ namespace OpenRA.Mods.Common.Scripting
 			"The first member of the entryPath array will be the units' spawnpoint, " +
 			"while the last one will be their destination. If actionFunc is given, " +
 			"it will be executed once a unit has reached its destination. actionFunc " +
-			"will be called as actionFunc(Actor actor)")]
-		public Actor[] Reinforce(Player owner, string[] actorTypes, CPos[] entryPath, int interval = 25, LuaFunction actionFunc = null)
+			"will be called as actionFunc(a: actor). " +
+			"Returns a table containing the deployed units.")]
+		public Actor[] Reinforce(Player owner, string[] actorTypes, CPos[] entryPath, int interval = 25,
+			[ScriptEmmyTypeOverride("fun(a: actor)")] LuaFunction actionFunc = null)
 		{
 			var actors = new List<Actor>();
 			for (var i = 0; i < actorTypes.Length; i++)
 			{
 				var af = actionFunc != null ? (LuaFunction)actionFunc.CopyReference() : null;
-				var actor = CreateActor(owner, actorTypes[i], false, entryPath[0], entryPath.Length > 1 ? entryPath[1] : (CPos?)null);
+				var actor = CreateActor(owner, actorTypes[i], false, entryPath[0], entryPath.Length > 1 ? entryPath[1] : null);
 				actors.Add(actor);
 
 				var actionDelay = i * interval;
-				Action actorAction = () =>
+				Activity queuedActivity = null;
+				if (af != null)
 				{
-					Context.World.Add(actor);
-					for (var j = 1; j < entryPath.Length; j++)
-						Move(actor, entryPath[j]);
-
-					if (af != null)
+					queuedActivity = new CallFunc(() =>
 					{
-						actor.QueueActivity(new CallFunc(() =>
-						{
-							using (af)
-							using (var a = actor.ToLuaValue(Context))
-								af.Call(a);
-						}));
-					}
-				};
+						using (af)
+						using (var a = actor.ToLuaValue(Context))
+							af.Call(a);
+					});
+				}
 
-				Context.World.AddFrameEndTask(w => w.Add(new DelayedAction(actionDelay, actorAction)));
+				// We need to exclude the spawn location from the movement path
+				var path = entryPath.Skip(1).ToArray();
+
+				Context.World.AddFrameEndTask(w => w.Add(new SpawnActorEffect(actor, actionDelay, path, queuedActivity)));
 			}
 
 			return actors.ToArray();
@@ -107,11 +116,20 @@ namespace OpenRA.Mods.Common.Scripting
 			"has reached the destination, it will unload its cargo unless a custom actionFunc has " +
 			"been supplied. Afterwards, the transport will follow the exitPath and leave the map, " +
 			"unless a custom exitFunc has been supplied. actionFunc will be called as " +
-			"actionFunc(Actor transport, Actor[] cargo). exitFunc will be called as exitFunc(Actor transport).")]
-		public LuaTable ReinforceWithTransport(Player owner, string actorType, string[] cargoTypes, CPos[] entryPath, CPos[] exitPath = null,
-			LuaFunction actionFunc = null, LuaFunction exitFunc = null)
+			"actionFunc(transport: actor, cargo: actor[]). exitFunc will be called as exitFunc(transport: actor). " +
+			"dropRange determines how many cells away the transport will try to land " +
+			"if the actual destination is blocked (if the transport is an aircraft). " +
+			"Returns a table in which the first value is the transport, " +
+			"and the second a table containing the deployed units.")]
+		[return: ScriptEmmyTypeOverride("{ [1]: actor, [2]: actor[] }")]
+		public LuaTable ReinforceWithTransport(Player owner, string actorType,
+			[ScriptEmmyTypeOverride("string[]|nil")] string[] cargoTypes,
+			CPos[] entryPath, CPos[] exitPath = null,
+			[ScriptEmmyTypeOverride("fun(transport: actor, cargo: actor[])")] LuaFunction actionFunc = null,
+			[ScriptEmmyTypeOverride("fun(transport: actor)")] LuaFunction exitFunc = null,
+			int dropRange = 3)
 		{
-			var transport = CreateActor(owner, actorType, true, entryPath[0], entryPath.Length > 1 ? entryPath[1] : (CPos?)null);
+			var transport = CreateActor(owner, actorType, true, entryPath[0], entryPath.Length > 1 ? entryPath[1] : null);
 			var cargo = transport.TraitOrDefault<Cargo>();
 
 			var passengers = new List<Actor>();
@@ -140,29 +158,15 @@ namespace OpenRA.Mods.Common.Scripting
 			}
 			else
 			{
-				var aircraftInfo = transport.TraitOrDefault<Aircraft>();
-				if (aircraftInfo != null)
-				{
-					if (!aircraftInfo.IsPlane)
-					{
-						transport.QueueActivity(new Turn(transport, aircraftInfo.Info.InitialFacing));
-						transport.QueueActivity(new HeliLand(transport, true));
-					}
-					else
-					{
-						transport.QueueActivity(new Land(transport, Target.FromCell(transport.World, entryPath.Last())));
-					}
+				var aircraft = transport.TraitOrDefault<Aircraft>();
 
-					transport.QueueActivity(new Wait(15));
-				}
+				// Scripted cargo aircraft must turn to default position before unloading.
+				// TODO: pass facing through UnloadCargo instead.
+				if (aircraft != null)
+					transport.QueueActivity(new Land(transport, Target.FromCell(transport.World, entryPath.Last()), WDist.FromCells(dropRange)));
 
 				if (cargo != null)
-				{
-					transport.QueueActivity(new UnloadCargo(transport, true));
-					transport.QueueActivity(new WaitFor(() => cargo.IsEmpty(transport)));
-				}
-
-				transport.QueueActivity(new Wait(aircraftInfo != null ? 50 : 25));
+					transport.QueueActivity(new UnloadCargo(transport, WDist.FromCells(dropRange)));
 			}
 
 			if (exitFunc != null)

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -20,7 +20,7 @@ namespace OpenRA.Mods.Common.FileFormats
 {
 	public sealed class MSCabCompression
 	{
-		class CabFolder
+		sealed class CabFolder
 		{
 			public readonly uint BlockOffset;
 			public readonly ushort BlockCount;
@@ -34,7 +34,7 @@ namespace OpenRA.Mods.Common.FileFormats
 			}
 		}
 
-		class CabFile
+		sealed class CabFile
 		{
 			public readonly string FileName;
 			public readonly uint DecompressedLength;
@@ -101,8 +101,7 @@ namespace OpenRA.Mods.Common.FileFormats
 			var decompressedBytes = 0;
 			for (var i = 0; i < folder.BlockCount; i++)
 			{
-				if (onProgress != null)
-					onProgress((int)(100 * output.Position / file.DecompressedLength));
+				onProgress?.Invoke((int)(100 * output.Position / file.DecompressedLength));
 
 				// Ignore checksums
 				stream.Position += 4;

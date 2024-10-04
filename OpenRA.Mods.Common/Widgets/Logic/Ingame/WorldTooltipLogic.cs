@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,7 +10,7 @@
 #endregion
 
 using System;
-using System.Drawing;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 using OpenRA.Widgets;
 
@@ -18,8 +18,11 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 {
 	public class WorldTooltipLogic : ChromeLogic
 	{
+		[FluentReference]
+		const string UnrevealedTerrain = "label-unrevealed-terrain";
+
 		[ObjectCreator.UseCtor]
-		public WorldTooltipLogic(Widget widget, World world, TooltipContainerWidget tooltipContainer, ViewportControllerWidget viewport)
+		public WorldTooltipLogic(Widget widget, ModData modData, World world, TooltipContainerWidget tooltipContainer, ViewportControllerWidget viewport)
 		{
 			widget.IsVisible = () => viewport.TooltipType != WorldTooltipType.None;
 			var label = widget.Get<LabelWidget>("LABEL");
@@ -29,7 +32,6 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 			var font = Game.Renderer.Fonts[label.Font];
 			var ownerFont = Game.Renderer.Fonts[owner.Font];
-			var cachedWidth = 0;
 			var labelText = "";
 			var showOwner = false;
 			var flagFaction = "";
@@ -41,6 +43,8 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			var doubleHeight = widget.Get("DOUBLE_HEIGHT").Bounds.Height;
 			var extraHeightOnDouble = extras.Bounds.Y;
 			var extraHeightOnSingle = extraHeightOnDouble - (doubleHeight - singleHeight);
+
+			var unrevealedTerrain = FluentProvider.GetString(UnrevealedTerrain);
 
 			tooltipContainer.BeforeRender = () =>
 			{
@@ -55,37 +59,43 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				switch (viewport.TooltipType)
 				{
 					case WorldTooltipType.Unexplored:
-						labelText = "Unrevealed Terrain";
+						labelText = unrevealedTerrain;
 						break;
 					case WorldTooltipType.Resource:
-						labelText = viewport.ResourceTooltip.Info.Name;
+						labelText = viewport.ResourceTooltip;
 						break;
 					case WorldTooltipType.Actor:
-						{
-							o = viewport.ActorTooltip.Owner;
-							showOwner = o != null && !o.NonCombatant && viewport.ActorTooltip.TooltipInfo.IsOwnerRowVisible;
+					{
+						o = viewport.ActorTooltip.Owner;
+						showOwner = o != null && !o.NonCombatant && viewport.ActorTooltip.TooltipInfo.IsOwnerRowVisible;
 
-							var stance = o == null || world.RenderPlayer == null ? Stance.None : o.Stances[world.RenderPlayer];
-							labelText = viewport.ActorTooltip.TooltipInfo.TooltipForPlayerStance(stance);
-							break;
-						}
+						if (showOwner)
+							ownerColor = o.Color;
+
+						var stance = o == null || world.RenderPlayer == null ? PlayerRelationship.None : o.RelationshipWith(world.RenderPlayer);
+						labelText = viewport.ActorTooltip.TooltipInfo.TooltipForPlayerStance(stance);
+						break;
+					}
 
 					case WorldTooltipType.FrozenActor:
-						{
-							o = viewport.FrozenActorTooltip.TooltipOwner;
-							showOwner = o != null && !o.NonCombatant && viewport.FrozenActorTooltip.TooltipInfo.IsOwnerRowVisible;
+					{
+						o = viewport.FrozenActorTooltip.TooltipOwner;
+						showOwner = o != null && !o.NonCombatant && viewport.FrozenActorTooltip.TooltipInfo.IsOwnerRowVisible;
 
-							var stance = o == null || world.RenderPlayer == null ? Stance.None : o.Stances[world.RenderPlayer];
-							labelText = viewport.FrozenActorTooltip.TooltipInfo.TooltipForPlayerStance(stance);
-							break;
-						}
+						if (showOwner)
+							ownerColor = o.Color;
+
+						var stance = o == null || world.RenderPlayer == null ? PlayerRelationship.None : o.RelationshipWith(world.RenderPlayer);
+						labelText = viewport.FrozenActorTooltip.TooltipInfo.TooltipForPlayerStance(stance);
+						break;
+					}
 				}
 
 				if (viewport.ActorTooltipExtra != null)
 				{
 					foreach (var info in viewport.ActorTooltipExtra)
 					{
-						if (info.IsTooltipVisible(world.LocalPlayer))
+						if (info.IsTooltipVisible(world.RenderPlayer))
 						{
 							if (index != 0)
 								extraText += "\n";
@@ -96,18 +106,13 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				}
 
 				var textWidth = Math.Max(font.Measure(labelText).X, font.Measure(extraText).X);
-
-				if (textWidth != cachedWidth)
-				{
-					label.Bounds.Width = textWidth;
-					widget.Bounds.Width = 2 * label.Bounds.X + textWidth;
-				}
+				label.Bounds.Width = textWidth;
+				widget.Bounds.Width = 2 * label.Bounds.X + textWidth;
 
 				if (showOwner)
 				{
 					flagFaction = o.Faction.InternalName;
-					ownerName = o.PlayerName;
-					ownerColor = o.Color.RGB;
+					ownerName = o.ResolvedPlayerName;
 					widget.Bounds.Height = doubleHeight;
 					widget.Bounds.Width = Math.Max(widget.Bounds.Width,
 						owner.Bounds.X + ownerFont.Measure(ownerName).X + label.Bounds.X);

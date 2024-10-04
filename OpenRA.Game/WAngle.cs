@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,16 +10,20 @@
 #endregion
 
 using System;
+using Eluant;
+using Eluant.ObjectBinding;
+using OpenRA.Scripting;
 
 namespace OpenRA
 {
 	/// <summary>
 	/// 1D angle - 1024 units = 360 degrees.
 	/// </summary>
-	public struct WAngle : IEquatable<WAngle>
+	public readonly struct WAngle : IEquatable<WAngle>, IScriptBindable,
+		ILuaAdditionBinding, ILuaSubtractionBinding, ILuaEqualityBinding, ILuaTableBinding, ILuaToStringBinding
 	{
 		public readonly int Angle;
-		public int AngleSquared { get { return (int)Angle * Angle; } }
+		public int AngleSquared => Angle * Angle;
 
 		public WAngle(int a)
 		{
@@ -28,7 +32,7 @@ namespace OpenRA
 				Angle += 1024;
 		}
 
-		public static readonly WAngle Zero = new WAngle(0);
+		public static readonly WAngle Zero = new(0);
 		public static WAngle FromFacing(int facing) { return new WAngle(facing * 4); }
 		public static WAngle FromDegrees(int degrees) { return new WAngle(degrees * 1024 / 360); }
 		public static WAngle operator +(WAngle a, WAngle b) { return new WAngle(a.Angle + b.Angle); }
@@ -36,14 +40,14 @@ namespace OpenRA
 		public static WAngle operator -(WAngle a) { return new WAngle(-a.Angle); }
 
 		public static bool operator ==(WAngle me, WAngle other) { return me.Angle == other.Angle; }
-		public static bool operator !=(WAngle me, WAngle other) { return !(me == other); }
+		public static bool operator !=(WAngle me, WAngle other) { return me.Angle != other.Angle; }
 
 		public override int GetHashCode() { return Angle.GetHashCode(); }
 
 		public bool Equals(WAngle other) { return other == this; }
-		public override bool Equals(object obj) { return obj is WAngle && Equals((WAngle)obj); }
+		public override bool Equals(object obj) { return obj is WAngle angle && Equals(angle); }
 
-		public int Facing { get { return Angle / 4; } }
+		public int Facing => Angle / 4;
 
 		public int Sin() { return new WAngle(Angle - 256).Cos(); }
 
@@ -77,6 +81,50 @@ namespace OpenRA
 				bb -= 1024;
 
 			return new WAngle(aa + (bb - aa) * mul / div);
+		}
+
+		public static WAngle ArcSin(int d)
+		{
+			if (d < -1024 || d > 1024)
+				throw new ArgumentException($"ArcSin is only valid for values between -1024 and 1024. Received {d}");
+
+			var a = ClosestCosineIndex(Math.Abs(d));
+			return new WAngle(d < 0 ? 768 + a : 256 - a);
+		}
+
+		public static WAngle ArcCos(int d)
+		{
+			if (d < -1024 || d > 1024)
+				throw new ArgumentException($"ArcCos is only valid for values between -1024 and 1024. Received {d}");
+
+			var a = ClosestCosineIndex(Math.Abs(d));
+			return new WAngle(d < 0 ? 512 - a : a);
+		}
+
+		/// <summary>
+		/// Find the index of CosineTable that has the value closest to the given value.
+		/// The first or last index will be returned for values above or below the valid range.
+		/// </summary>
+		static int ClosestCosineIndex(int value)
+		{
+			var aboveIndex = 0;
+			var belowIndex = 256;
+			while (aboveIndex != belowIndex - 1)
+			{
+				var index = (aboveIndex + belowIndex) / 2;
+				var val = CosineTable[index];
+
+				if (val == value)
+					return index;
+
+				if (val < value)
+					belowIndex = index;
+				else
+					aboveIndex = index;
+			}
+
+			// Take the index with the smallest error
+			return CosineTable[aboveIndex] - value > value - CosineTable[belowIndex] ? belowIndex : aboveIndex;
 		}
 
 		public static WAngle ArcTan(int y, int x) { return ArcTan(y, x, 1); }
@@ -121,7 +169,7 @@ namespace OpenRA
 		public float RendererRadians() { return (float)(Angle * Math.PI / 512f); }
 		public float RendererDegrees() { return Angle * 0.3515625f; }
 
-		public override string ToString() { return Angle.ToString(); }
+		public override string ToString() { return Angle.ToStringInvariant(); }
 
 		static readonly int[] CosineTable =
 		{
@@ -169,5 +217,63 @@ namespace OpenRA
 			9233, 9781, 10396, 11094, 11891, 12810, 13882, 15148, 16667, 18524, 20843,
 			23826, 27801, 33366, 41713, 55622, 83438, 166883, int.MaxValue
 		};
+
+		#region Scripting interface
+
+		public LuaValue Add(LuaRuntime runtime, LuaValue left, LuaValue right)
+		{
+			if (!left.TryGetClrValue(out WAngle a))
+				throw new LuaException(
+					"Attempted to call WAngle.Add(WAngle, WAngle) with invalid arguments " +
+					$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
+
+			if (right.TryGetClrValue(out WAngle b))
+				return new LuaCustomClrObject(a + b);
+
+			throw new LuaException(
+				"Attempted to call WAngle.Add(WAngle, WAngle) with invalid arguments " +
+				$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
+		}
+
+		public LuaValue Subtract(LuaRuntime runtime, LuaValue left, LuaValue right)
+		{
+			if (!left.TryGetClrValue(out WAngle a))
+				throw new LuaException(
+					"Attempted to call WAngle.Subtract(WAngle, WAngle) with invalid arguments " +
+					$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
+
+			if (right.TryGetClrValue(out WAngle b))
+				return new LuaCustomClrObject(a - b);
+
+			throw new LuaException(
+				"Attempted to call WAngle.Subtract(WAngle, WAngle) with invalid arguments " +
+				$"({left.WrappedClrType().Name}, {right.WrappedClrType().Name})");
+		}
+
+		public LuaValue Equals(LuaRuntime runtime, LuaValue left, LuaValue right)
+		{
+			if (!left.TryGetClrValue(out WAngle a) || !right.TryGetClrValue(out WAngle b))
+				return false;
+
+			return a == b;
+		}
+
+		public LuaValue this[LuaRuntime runtime, LuaValue key]
+		{
+			get
+			{
+				switch (key.ToString())
+				{
+					case "Angle": return Angle;
+					default: throw new LuaException($"WAngle does not define a member '{key}'");
+				}
+			}
+
+			set => throw new LuaException("WAngle is read-only. Use Angle.New to create a new value");
+		}
+
+		public LuaValue ToString(LuaRuntime runtime) => ToString();
+
+		#endregion
 	}
 }

@@ -1,10 +1,69 @@
 Player:
 	PlayerResources:
 		DefaultCash: 5000
+	ExternalCondition@luaAI:
+		Condition: ai-active
+	HarvesterBotModule:
+		RequiresCondition: ai-active
+	BuildingRepairBotModule:
+		RequiresCondition: ai-active
+	McvManagerBotModule:
+		RequiresCondition: ai-active
+	BaseBuilderBotModule@campaign:
+		RequiresCondition: ai-active
+		MinimumExcessPower: 60
+		MaximumExcessPower: 160
+		ExcessPowerIncrement: 40
+		ExcessPowerIncreaseThreshold: 4
+		ConstructionYardTypes: fact
+		RefineryTypes: proc
+		PowerTypes: powr
+		BarracksTypes: tent
+		VehiclesFactoryTypes: weap
+		ProductionTypes: tent, weap
+		SiloTypes: silo
+		BuildingLimits:
+			powr: 6
+			tent: 1
+			hbox: 3
+			proc: 3
+			weap: 1
+			gun: 6
+			agun: 2
+			silo: 1
+		BuildingFractions:
+			tent: 50
+			hbox: 50
+			proc: 90
+			weap: 20
+			gun: 30
+			agun: 20
+			silo: 10
+	SquadManagerBotModule@campaign:
+		RequiresCondition: ai-active
+		SquadSize: 10
+		ExcludeFromSquadsTypes: harv, mcv
+		NavalUnitsTypes: dd, ca, lst, pt
+		ConstructionYardTypes: fact
+		IgnoredEnemyTargetTypes: AirborneActor
+	UnitBuilderBotModule@campaign:
+		RequiresCondition: ai-active
+		UnitsToBuild:
+			e1: 60
+			e3: 30
+			jeep: 50
+			1tnk: 50
+			harv: 30
+		UnitLimits:
+			e1: 20
+			e3: 10
+			harv: 6
+			jeep: 10
+			1tnk: 10
 
 World:
 	LuaScript:
-		Scripts: soviet05.lua, soviet05-AI.lua, soviet05-reinforcements_teams.lua
+		Scripts: campaign.lua, utils.lua, soviet05.lua, soviet05-AI.lua, soviet05-reinforcements_teams.lua
 	MissionData:
 		Briefing: Khalkis island contains a large quantity of ore that we need.\n\nThe Allies are well aware of our plans, and intend to establish their own base there. See to it that they fail.\n\nIn addition, capture their radar center so we can track Allied activity in this area.
 		BriefingVideo: soviet5.vqa
@@ -15,12 +74,19 @@ World:
 		TechLevel: medium
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
-		Default: easy
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+		Default: normal
+
+MCV.CAM:
+	Inherits: CAMERA
+	RevealsShroud:
+		Range: 4c0
+		Type: CenterPosition
 
 AFLD:
 	ParatroopersPower@paratroopers:
@@ -54,7 +120,7 @@ E4:
 	Buildable:
 		Prerequisites: ~disabled
 
-HIJACKER:
+THF:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -74,21 +140,15 @@ FTRK:
 	Buildable:
 		Prerequisites: ~disabled
 
-TRUK:
-	Buildable:
-		Prerequisites: ~disabled
-
 APC:
 	Buildable:
 		Prerequisites: ~disabled
 
-DOME.IGNORE:
-	Inherits: DOME
-	RenderSprites:
-		Image: DOME
-	AutoTargetIgnore:
-	Buildable:
-		Prerequisites: ~disabled
+DOME:
+	ExternalCondition@lua:
+		Condition: french
+	WithColoredOverlay@IDISABLE:
+		RequiresCondition: !french && disabled
 
 powerproxy.paratroopers:
 	ParatroopersPower:

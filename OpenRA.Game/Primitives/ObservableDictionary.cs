@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -33,19 +33,16 @@ namespace OpenRA.Primitives
 	{
 		protected IDictionary<TKey, TValue> innerDict;
 
-		public event Action<object> OnAdd = k => { };
-		public event Action<object> OnRemove = k => { };
+		public event Action<IObservableCollection, object> OnAdd = (x, k) => { };
+		public event Action<IObservableCollection, object> OnRemove = (x, k) => { };
 
-		// TODO Workaround for https://github.com/OpenRA/OpenRA/issues/6101
-		#pragma warning disable 67
-		public event Action<int> OnRemoveAt = i => { };
-		public event Action<object, object> OnSet = (o, n) => { };
-		#pragma warning restore
-		public event Action OnRefresh = () => { };
+		public event Action<IObservableCollection, int> OnRemoveAt = (x, i) => { };
+		public event Action<IObservableCollection, object, object> OnSet = (x, o, n) => { };
+		public event Action<IObservableCollection> OnRefresh = x => { };
 
 		protected void FireOnRefresh()
 		{
-			OnRefresh();
+			OnRefresh(this);
 		}
 
 		protected ObservableDictionary() { }
@@ -58,14 +55,14 @@ namespace OpenRA.Primitives
 		public virtual void Add(TKey key, TValue value)
 		{
 			innerDict.Add(key, value);
-			OnAdd(key);
+			OnAdd(this, key);
 		}
 
 		public bool Remove(TKey key)
 		{
 			var found = innerDict.Remove(key);
 			if (found)
-				OnRemove(key);
+				OnRemove(this, key);
 			return found;
 		}
 
@@ -74,8 +71,8 @@ namespace OpenRA.Primitives
 			return innerDict.ContainsKey(key);
 		}
 
-		public ICollection<TKey> Keys { get { return innerDict.Keys; } }
-		public ICollection<TValue> Values { get { return innerDict.Values; } }
+		public ICollection<TKey> Keys => innerDict.Keys;
+		public ICollection<TValue> Values => innerDict.Values;
 
 		public bool TryGetValue(TKey key, out TValue value)
 		{
@@ -84,20 +81,17 @@ namespace OpenRA.Primitives
 
 		public TValue this[TKey key]
 		{
-			get { return innerDict[key]; }
-			set { innerDict[key] = value; }
+			get => innerDict[key];
+			set => innerDict[key] = value;
 		}
 
 		public void Clear()
 		{
 			innerDict.Clear();
-			OnRefresh();
+			OnRefresh(this);
 		}
 
-		public int Count
-		{
-			get { return innerDict.Count; }
-		}
+		public int Count => innerDict.Count;
 
 		public void Add(KeyValuePair<TKey, TValue> item)
 		{
@@ -114,10 +108,7 @@ namespace OpenRA.Primitives
 			innerDict.CopyTo(array, arrayIndex);
 		}
 
-		public bool IsReadOnly
-		{
-			get { return innerDict.IsReadOnly; }
-		}
+		public bool IsReadOnly => innerDict.IsReadOnly;
 
 		public bool Remove(KeyValuePair<TKey, TValue> item)
 		{
@@ -134,9 +125,6 @@ namespace OpenRA.Primitives
 			return innerDict.GetEnumerator();
 		}
 
-		public IEnumerable ObservedItems
-		{
-			get { return innerDict.Keys; }
-		}
+		public IEnumerable ObservedItems => innerDict.Keys;
 	}
 }

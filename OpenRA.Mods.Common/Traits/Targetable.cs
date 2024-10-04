@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,35 +9,38 @@
  */
 #endregion
 
-using System.Collections.Generic;
+using System;
 using System.Linq;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Actor can be targeted.")]
-	public class TargetableInfo : UpgradableTraitInfo, ITargetableInfo
+	public class TargetableInfo : ConditionalTraitInfo, ITargetableInfo
 	{
 		[Desc("Target type. Used for filtering (in)valid targets.")]
-		public readonly HashSet<string> TargetTypes = new HashSet<string>();
-		public HashSet<string> GetTargetTypes() { return TargetTypes; }
+		public readonly BitSet<TargetableType> TargetTypes;
+		public BitSet<TargetableType> GetTargetTypes() { return TargetTypes; }
 
-		public bool RequiresForceFire = false;
+		public readonly bool RequiresForceFire = false;
 
-		public override object Create(ActorInitializer init) { return new Targetable(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new Targetable(this); }
 	}
 
-	public class Targetable : UpgradableTrait<TargetableInfo>, ITargetable, INotifyCreated
+	public class Targetable : ConditionalTrait<TargetableInfo>, ITargetable
 	{
-		protected static readonly string[] None = new string[] { };
+		protected static readonly string[] None = Array.Empty<string>();
 		protected Cloak[] cloaks;
 
-		public Targetable(Actor self, TargetableInfo info)
+		public Targetable(TargetableInfo info)
 			: base(info) { }
 
-		void INotifyCreated.Created(Actor self)
+		protected override void Created(Actor self)
 		{
 			cloaks = self.TraitsImplementing<Cloak>().ToArray();
+
+			base.Created(self);
 		}
 
 		public virtual bool TargetableBy(Actor self, Actor viewer)
@@ -45,14 +48,14 @@ namespace OpenRA.Mods.Common.Traits
 			if (IsTraitDisabled)
 				return false;
 
-			if (!cloaks.Any() || (!viewer.IsDead && viewer.Info.HasTraitInfo<IgnoresCloakInfo>()))
+			if (cloaks.Length == 0 || (!viewer.IsDead && viewer.Info.HasTraitInfo<IgnoresCloakInfo>()))
 				return true;
 
 			return cloaks.All(c => c.IsTraitDisabled || c.IsVisible(self, viewer.Owner));
 		}
 
-		public virtual HashSet<string> TargetTypes { get { return Info.TargetTypes; } }
+		public virtual BitSet<TargetableType> TargetTypes => Info.TargetTypes;
 
-		public bool RequiresForceFire { get { return Info.RequiresForceFire; } }
+		public bool RequiresForceFire => Info.RequiresForceFire;
 	}
 }

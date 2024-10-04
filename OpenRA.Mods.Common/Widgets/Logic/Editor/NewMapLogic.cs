@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,13 +11,14 @@
 
 using System;
 using System.Linq;
+using OpenRA.Mods.Common.Terrain;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
 {
 	public class NewMapLogic : ChromeLogic
 	{
-		Widget panel;
+		readonly Widget panel;
 
 		[ObjectCreator.UseCtor]
 		public NewMapLogic(Action onExit, Action<string> onSelect, Widget widget, World world, ModData modData)
@@ -27,27 +28,28 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			panel.Get<ButtonWidget>("CANCEL_BUTTON").OnClick = () => { Ui.CloseWindow(); onExit(); };
 
 			var tilesetDropDown = panel.Get<DropDownButtonWidget>("TILESET");
-			var tilesets = modData.DefaultTileSets.Select(t => t.Key).ToList();
-			Func<string, ScrollItemWidget, ScrollItemWidget> setupItem = (option, template) =>
+			var tilesets = modData.DefaultTerrainInfo.Keys;
+			ScrollItemWidget SetupItem(string option, ScrollItemWidget template)
 			{
 				var item = ScrollItemWidget.Setup(template,
-					() => tilesetDropDown.Text == option,
-					() => { tilesetDropDown.Text = option; });
+					() => tilesetDropDown.GetText() == option,
+					() => tilesetDropDown.GetText = () => option);
 				item.Get<LabelWidget>("LABEL").GetText = () => option;
 				return item;
-			};
-			tilesetDropDown.Text = tilesets.First();
+			}
+
+			var firstTileset = tilesets.First();
+			tilesetDropDown.GetText = () => firstTileset;
 			tilesetDropDown.OnClick = () =>
-				tilesetDropDown.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 210, tilesets, setupItem);
+				tilesetDropDown.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 210, tilesets, SetupItem);
 
 			var widthTextField = panel.Get<TextFieldWidget>("WIDTH");
 			var heightTextField = panel.Get<TextFieldWidget>("HEIGHT");
 
 			panel.Get<ButtonWidget>("CREATE_BUTTON").OnClick = () =>
 			{
-				int width, height;
-				int.TryParse(widthTextField.Text, out width);
-				int.TryParse(heightTextField.Text, out height);
+				int.TryParse(widthTextField.Text, out var width);
+				int.TryParse(heightTextField.Text, out var height);
 
 				// Require at least a 2x2 playable area so that the
 				// ground is visible through the edge shroud
@@ -55,7 +57,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				height = Math.Max(2, height);
 
 				var maxTerrainHeight = world.Map.Grid.MaximumTerrainHeight;
-				var tileset = modData.DefaultTileSets[tilesetDropDown.Text];
+				var tileset = modData.DefaultTerrainInfo[tilesetDropDown.GetText()];
 				var map = new Map(Game.ModData, tileset, width + 2, height + maxTerrainHeight + 2);
 
 				var tl = new PPos(1, 1 + maxTerrainHeight);
@@ -63,19 +65,14 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				map.SetBounds(tl, br);
 
 				map.PlayerDefinitions = new MapPlayers(map.Rules, 0).ToMiniYaml();
-				map.FixOpenAreas();
+
+				if (map.Rules.TerrainInfo is ITerrainInfoNotifyMapCreated notifyMapCreated)
+					notifyMapCreated.MapCreated(map);
 
 				Action<string> afterSave = uid =>
 				{
-					// HACK: Work around a synced-code change check.
-					// It's not clear why this is needed here, but not in the other places that load maps.
-					Game.RunAfterTick(() =>
-					{
-						ConnectionLogic.Connect(System.Net.IPAddress.Loopback.ToString(),
-							Game.CreateLocalServer(uid), "",
-							() => Game.LoadEditor(uid),
-							() => { Game.CloseServer(); onExit(); });
-					});
+					map.Dispose();
+					Game.LoadEditor(uid);
 
 					Ui.CloseWindow();
 					onSelect(uid);
@@ -86,6 +83,7 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 					{ "onSave", afterSave },
 					{ "onExit", () => { Ui.CloseWindow(); onExit(); } },
 					{ "map", map },
+					{ "world", world },
 					{ "playerDefinitions", map.PlayerDefinitions },
 					{ "actorDefinitions", map.ActorDefinitions }
 				});

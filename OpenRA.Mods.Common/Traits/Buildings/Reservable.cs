@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,18 +10,25 @@
 #endregion
 
 using System;
+using OpenRA.Mods.Common.Activities;
 using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Reserve landing places for aircraft.")]
-	class ReservableInfo : TraitInfo<Reservable> { }
+	sealed class ReservableInfo : TraitInfo<Reservable> { }
 
-	public class Reservable : ITick, INotifyOwnerChanged, INotifySold, INotifyActorDisposing
+	public class Reservable : ITick, INotifyOwnerChanged, INotifySold, INotifyActorDisposing, INotifyCreated
 	{
 		Actor reservedFor;
 		Aircraft reservedForAircraft;
+		RallyPoint rallyPoint;
+
+		void INotifyCreated.Created(Actor self)
+		{
+			rallyPoint = self.TraitOrDefault<RallyPoint>();
+		}
 
 		void ITick.Tick(Actor self)
 		{
@@ -41,7 +48,7 @@ namespace OpenRA.Mods.Common.Traits
 		public IDisposable Reserve(Actor self, Actor forActor, Aircraft forAircraft)
 		{
 			if (reservedForAircraft != null && reservedForAircraft.MayYieldReservation)
-				reservedForAircraft.UnReserve();
+				UnReserve(self);
 
 			reservedFor = forActor;
 			reservedForAircraft = forAircraft;
@@ -54,8 +61,7 @@ namespace OpenRA.Mods.Common.Traits
 				{
 					if (Game.IsCurrentWorld(self.World))
 						throw new InvalidOperationException(
-							"Attempted to finalize an undisposed DisposableAction. {0} ({1}) reserved {2} ({3})".F(
-							forActor.Info.Name, forActor.ActorID, self.Info.Name, self.ActorID));
+							$"Attempted to finalize an undisposed DisposableAction. {forActor.Info.Name} ({forActor.ActorID}) reserved {self.Info.Name} ({self.ActorID})");
 				}));
 		}
 
@@ -65,17 +71,36 @@ namespace OpenRA.Mods.Common.Traits
 			return res != null && res.reservedForAircraft != null && !res.reservedForAircraft.MayYieldReservation;
 		}
 
-		private void UnReserve()
+		public static bool IsAvailableFor(Actor reservable, Actor forActor)
 		{
-			if (reservedForAircraft != null)
-				reservedForAircraft.UnReserve();
+			var res = reservable.TraitOrDefault<Reservable>();
+			return res == null || res.reservedForAircraft == null || res.reservedForAircraft.MayYieldReservation || res.reservedFor == forActor;
 		}
 
-		void INotifyActorDisposing.Disposing(Actor self) { UnReserve(); }
+		void UnReserve(Actor self)
+		{
+			if (reservedForAircraft != null)
+			{
+				if (reservedForAircraft.GetActorBelow() == self)
+				{
+					// HACK: Cache this in a local var, such that the inner activity of AttackMoveActivity can access the trait easily after reservedForAircraft was nulled
+					var aircraft = reservedForAircraft;
+					if (rallyPoint != null && rallyPoint.Path.Count > 0)
+						foreach (var cell in rallyPoint.Path)
+							reservedFor.QueueActivity(new AttackMoveActivity(reservedFor, () => aircraft.MoveTo(cell, 1, targetLineColor: Color.OrangeRed)));
+					else
+						reservedFor.QueueActivity(new TakeOff(reservedFor));
+				}
 
-		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner) { UnReserve(); }
+				reservedForAircraft.UnReserve();
+			}
+		}
 
-		void INotifySold.Selling(Actor self) { UnReserve(); }
-		void INotifySold.Sold(Actor self) { UnReserve(); }
+		void INotifyActorDisposing.Disposing(Actor self) { UnReserve(self); }
+
+		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner) { UnReserve(self); }
+
+		void INotifySold.Selling(Actor self) { UnReserve(self); }
+		void INotifySold.Sold(Actor self) { UnReserve(self); }
 	}
 }

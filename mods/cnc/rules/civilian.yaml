@@ -1,13 +1,19 @@
 V01:
 	Inherits: ^CivBuilding
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: -490,-384,0, 0,0,0, 0,470,0
+		Type: Rectangle
+			TopLeft: -768, -597
+			BottomRight: 896, 683
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
 	Tooltip:
-		Name: Church
+		Name: actor-v01-name
 	SpawnActorOnDeath:
 		Actor: V01.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 
 V01.Husk:
@@ -16,327 +22,333 @@ V01.Husk:
 		Footprint: xx xx
 		Dimensions: 2,2
 	Tooltip:
-		Name: Church (Destroyed)
-	EditorTilesetFilter:
+		Name: actor-v01-husk-name
+	MapEditorData:
 		ExcludeTilesets: DESERT
 
 V02:
 	Inherits: ^CivBuilding
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: -490,-512,0, 0,0,0, 0,512,0
+		Type: Rectangle
+			TopLeft: -1024, -512
+			BottomRight: 1024, 597
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
 	SpawnActorOnDeath:
 		Actor: V02.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Han's and Gretel's
+		Name: actor-v02-name
 
 V02.Husk:
 	Inherits: ^CivBuildingHusk
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Han's and Gretel's (Destroyed)
+		Name: actor-v02-husk-name
 
 V03:
 	Inherits: ^CivBuilding
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: -490,-512,0, 0,0,0, 421,512,0, -210,512,0
+		Type: Rectangle
+			TopLeft: -1024, -597
+			BottomRight: 1024, 597
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
 	SpawnActorOnDeath:
 		Actor: V03.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Hewitt's House
+		Name: actor-v03-name
 
 V03.Husk:
 	Inherits: ^CivBuildingHusk
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Hewitt's House (Destroyed)
+		Name: actor-v03-husk-name
 
 V04:
 	Inherits: ^CivBuilding
+	HitShape:
+		UseTargetableCellsOffsets: false
+		TargetableOffsets: 0,0,0, -421,-256,0, -421,256,0
+		Type: Rectangle
+			TopLeft: -683, -432
+			BottomRight: 683, 683
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
 	SpawnActorOnDeath:
 		Actor: V04.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Ricktor's House
+		Name: actor-v04-name
 
 V04.Husk:
 	Inherits: ^CivBuildingHusk
 	Building:
 		Footprint: xx xx
 		Dimensions: 2,2
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Ricktor's House (Destroyed)
+		Name: actor-v04-husk-name
 
 V05:
 	Inherits: ^CivBuilding
+	Inherits@shape: ^2x1Shape
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
 	SpawnActorOnDeath:
 		Actor: V05.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Gretchkin's house
+		Name: actor-v05-name
 
 V05.Husk:
 	Inherits: ^CivBuildingHusk
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Gretchkin's house (Destroyed)
+		Name: actor-v05-husk-name
 
 V06:
 	Inherits: ^CivBuilding
+	Inherits@shape: ^2x1Shape
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
 	SpawnActorOnDeath:
 		Actor: V06.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: The Barn
+		Name: actor-v06-name
 
 V06.Husk:
 	Inherits: ^CivBuildingHusk
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: The Barn (Destroyed)
+		Name: actor-v06-husk-name
 
 V07:
 	Inherits: ^CivBuilding
+	Inherits@shape: ^2x1Shape
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
 	SpawnActorOnDeath:
 		Actor: V07.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Damon's Pub
+		Name: actor-v07-name
 
 V07.Husk:
 	Inherits: ^CivBuildingHusk
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Damon's Pub (Destroyed)
+		Name: actor-v07-husk-name
 
 V08:
 	Inherits: ^CivBuilding
 	SpawnActorOnDeath:
 		Actor: V08.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Fran's House
+		Name: actor-v08-name
 
 V08.Husk:
 	Inherits: ^CivBuildingHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Fran's House (Destroyed)
+		Name: actor-v08-husk-name
 
 V09:
 	Inherits: ^CivBuilding
 	SpawnActorOnDeath:
 		Actor: V09.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Music Factory
+		Name: actor-v09-name
 
 V09.Husk:
 	Inherits: ^CivBuildingHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Music Factory (Destroyed)
+		Name: actor-v09-husk-name
 
 V10:
 	Inherits: ^CivBuilding
 	SpawnActorOnDeath:
 		Actor: V10.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Toymaker's
+		Name: actor-v10-name
 
 V10.Husk:
 	Inherits: ^CivBuildingHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Toymaker's (Destroyed)
+		Name: actor-v10-husk-name
 
 V11:
 	Inherits: ^CivBuilding
 	SpawnActorOnDeath:
 		Actor: V11.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Ludwig's House
+		Name: actor-v11-name
 
 V11.Husk:
 	Inherits: ^CivBuildingHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Ludwig's House (Destroyed)
+		Name: actor-v11-husk-name
 
 V12:
-	Inherits: ^CivField
+	Inherits: ^CivHaystackOrIgloo
 	SpawnActorOnDeath:
 		Actor: V12.Husk
-	EditorTilesetFilter:
-		ExcludeTilesets: DESERT
-	Tooltip:
-		Name: Haystacks
 
 V12.Husk:
-	Inherits: ^CivBuildingHusk
-	EditorTilesetFilter:
-		ExcludeTilesets: DESERT
-	Tooltip:
-		Name: Haystacks (Destroyed)
+	Inherits: ^CivHaystackOrIglooHusk
 
 V13:
-	Inherits: ^CivField
+	Inherits: ^CivHaystackOrIgloo
 	SpawnActorOnDeath:
 		Actor: V13.Husk
-	EditorTilesetFilter:
-		ExcludeTilesets: DESERT
-	Tooltip:
-		Name: Haystacks
 
 V13.Husk:
-	Inherits: ^CivBuildingHusk
-	EditorTilesetFilter:
-		ExcludeTilesets: DESERT
-	Tooltip:
-		Name: Haystacks (Destroyed)
+	Inherits: ^CivHaystackOrIglooHusk
 
 V14:
 	Inherits: ^CivField
 	SpawnActorOnDeath:
 		Actor: V14.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Wheat Field
+		Name: actor-v14-name
 
 V14.Husk:
 	Inherits: ^CivFieldHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Wheat Field (Destroyed)
+		Name: actor-v14-husk-name
 
 V15:
 	Inherits: ^CivField
 	SpawnActorOnDeath:
 		Actor: V15.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Fallow Field
+		Name: actor-v15-name
 
 V15.Husk:
 	Inherits: ^CivFieldHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Fallow Field (Destroyed)
+		Name: actor-v15-husk-name
 
 V16:
 	Inherits: ^CivField
 	SpawnActorOnDeath:
 		Actor: V16.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Corn Field
+		Name: actor-v16-name
 
 V16.Husk:
 	Inherits: ^CivFieldHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Corn Field (Destroyed)
+		Name: actor-v16-husk-name
 
 V17:
 	Inherits: ^CivField
 	SpawnActorOnDeath:
 		Actor: V17.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Celery Field
+		Name: actor-v17-name
 
 V17.Husk:
 	Inherits: ^CivFieldHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Celery Field (Destroyed)
+		Name: actor-v17-husk-name
 
 V18:
 	Inherits: ^CivField
 	SpawnActorOnDeath:
 		Actor: V18.Husk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Potato Field
+		Name: actor-v18-name
 
 V18.Husk:
 	Inherits: ^CivFieldHusk
-	EditorTilesetFilter:
+	MapEditorData:
 		ExcludeTilesets: DESERT
 	Tooltip:
-		Name: Potato Field (Destroyed)
+		Name: actor-v18-husk-name
 
 ARCO:
 	Inherits: ^CivBuilding
+	Inherits@shape: ^2x1Shape
 	Building:
 		Footprint: xx
 		Dimensions: 2,1
 	SpawnActorOnDeath:
 		Actor: ARCO.Husk
 	Tooltip:
-		Name: Oil Pump
+		Name: actor-arco-name
 		ShowOwnerRow: True
 
 ARCO.Husk:
@@ -345,14 +357,14 @@ ARCO.Husk:
 		Footprint: xx
 		Dimensions: 2,1
 	Tooltip:
-		Name: Oil Pump (Destroyed)
+		Name: actor-arco-husk-name
 
 BARB:
 	Inherits: ^Wall
 	Armor:
 		Type: Light
 	Tooltip:
-		Name: Barbwire Fence
+		Name: actor-barb-name
 	LineBuild:
 		NodeTypes: barbwire
 	LineBuildNode:
@@ -365,7 +377,7 @@ WOOD:
 	Armor:
 		Type: Wood
 	Tooltip:
-		Name: Wooden Fence
+		Name: actor-wood-name
 	LineBuild:
 		NodeTypes: woodfence
 	LineBuildNode:
@@ -381,14 +393,14 @@ BRIDGE1:
 	Building:
 		Footprint: ____ ____ ____ ____
 		Dimensions: 4,4
-	CustomSelectionSize:
-		CustomBounds: 96,96
 	FreeActor@north:
 		Actor: bridgehut
 		SpawnOffset: 2,0
 	FreeActor@south:
 		Actor: bridgehut
 		SpawnOffset: 0,2
+	Interactable:
+		Bounds: 4096, 4096
 
 BRIDGE2:
 	Inherits: ^Bridge
@@ -398,14 +410,14 @@ BRIDGE2:
 	Building:
 		Footprint: _____ _____ _____ _____ _____
 		Dimensions: 5,5
-	CustomSelectionSize:
-		CustomBounds: 120,120
 	FreeActor@north:
 		Actor: bridgehut
 		SpawnOffset: 0,0
 	FreeActor@south:
 		Actor: bridgehut
 		SpawnOffset: 2,2
+	Interactable:
+		Bounds: 5120, 5120
 
 BRIDGE3:
 	Inherits: ^Bridge
@@ -415,14 +427,14 @@ BRIDGE3:
 	Building:
 		Footprint: ______ ______ ______ ______ ______
 		Dimensions: 6,5
-	CustomSelectionSize:
-		CustomBounds: 144,120
 	FreeActor@north:
 		Actor: bridgehut
 		SpawnOffset: 3,0
 	FreeActor@south:
 		Actor: bridgehut
 		SpawnOffset: 1,2
+	Interactable:
+		Bounds: 6144, 5120
 
 BRIDGE4:
 	Inherits: ^Bridge
@@ -432,25 +444,25 @@ BRIDGE4:
 	Building:
 		Footprint: ______ ______ ______ ______
 		Dimensions: 6,4
-	CustomSelectionSize:
-		CustomBounds: 144,96
 	FreeActor@north:
 		Actor: bridgehut
 		SpawnOffset: 1,0
 	FreeActor@south:
 		Actor: bridgehut
 		SpawnOffset: 3,2
+	Interactable:
+		Bounds: 6144, 4096
 
 BRIDGEHUT:
 	AlwaysVisible:
 	Building:
 		Footprint: __ __
 		Dimensions: 2,2
-	CustomSelectionSize:
-		CustomBounds: 48,48
-	BridgeHut:
+	LegacyBridgeHut:
 	Targetable:
 		TargetTypes: BridgeHut, C4
+	Interactable:
+		Bounds: 2048, 2048
 
 C1:
 	Inherits: ^CivInfantry
@@ -503,12 +515,12 @@ DELPHI:
 	Inherits@armed: ^ArmedCivilian
 	-Wanders:
 	Tooltip:
-		Name: Agent Delphi
+		Name: actor-delphi-name
 
 CHAN:
 	Inherits: ^CivInfantry
 	Tooltip:
-		Name: Dr. Chan
+		Name: actor-chan-name
 
 MOEBIUS:
 	Inherits: ^CivInfantry
@@ -516,11 +528,8 @@ MOEBIUS:
 	Voiced:
 		VoiceSet: MoebiusVoice
 	Tooltip:
-		Name: Dr. Moebius
+		Name: actor-moebius-name
 
 VICE:
 	Inherits: ^Viceroid
 	AttackWander:
-		WanderMoveRadius: 2
-		MinMoveDelayInTicks: 25
-		MaxMoveDelayInTicks: 45

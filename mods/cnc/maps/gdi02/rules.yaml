@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: gdi02.lua
+		Scripts: campaign.lua, utils.lua, gdi02.lua
 	MusicPlaylist:
 		StartingMusic: befeared
 	MissionData:
@@ -11,15 +11,22 @@ World:
 
 SBAG:
 	-Crushable:
+	Buildable:
+		Prerequisites: ~disabled
+
+CYCL:
+	-Crushable:
+	Buildable:
+		Prerequisites: ~disabled
 
 HARV:
 	Harvester:
 		SearchFromProcRadius: 32
-		SearchFromOrderRadius: 20
+		SearchFromHarvesterRadius: 20
 
 PROC:
 	Buildable:
-		Prerequisites: ~disabled
+		Queue: Building.Nod
 
 SILO:
 	Buildable:
@@ -83,7 +90,7 @@ E5:
 
 E6:
 	Buildable:
-		Prerequisites: ~disabled
+		Queue: Infantry.Nod
 
 RMBO:
 	Buildable:
@@ -104,13 +111,3 @@ OBLI:
 SAM:
 	Buildable:
 		Prerequisites: ~disabled
-
-OLDLST:
-	Inherits: LST
-	-WithRoof:
-	-Selectable:
-	SelectionDecorations:
-		RenderSelectionBars: False
-	RejectsOrders:
-	Cargo:
-		Types: disabled

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,46 +10,48 @@
 #endregion
 
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using OpenRA.Activities;
 using OpenRA.GameRules;
+using OpenRA.Mods.Common.Effects;
 using OpenRA.Mods.Common.Traits;
 using OpenRA.Mods.D2k.Traits;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.D2k.Activities
 {
 	enum AttackState { Uninitialized, Burrowed, Attacking }
 
-	class SwallowActor : Activity
+	sealed class SwallowActor : Activity
 	{
 		const int NearEnough = 1;
 
 		readonly Target target;
 		readonly Sandworm sandworm;
-		readonly UpgradeManager manager;
 		readonly WeaponInfo weapon;
-		readonly RadarPings radarPings;
+		readonly Armament armament;
 		readonly AttackSwallow swallow;
 		readonly IPositionable positionable;
+		readonly IFacing facing;
 
 		int countdown;
 		CPos burrowLocation;
 		AttackState stance;
+		int attackingToken = Actor.InvalidConditionToken;
 
-		public SwallowActor(Actor self, Target target, WeaponInfo weapon)
+		public SwallowActor(Actor self, in Target target, Armament a, IFacing facing)
 		{
 			this.target = target;
-			this.weapon = weapon;
+			this.facing = facing;
+			armament = a;
+			weapon = a.Weapon;
 			sandworm = self.Trait<Sandworm>();
 			positionable = self.Trait<Mobile>();
 			swallow = self.Trait<AttackSwallow>();
-			manager = self.Trait<UpgradeManager>();
-			radarPings = self.World.WorldActor.TraitOrDefault<RadarPings>();
 		}
 
-		bool AttackTargets(Actor self, IEnumerable<Actor> targets)
+		bool AttackTargets(Actor self, IReadOnlyCollection<Actor> targets)
 		{
 			var targetLocation = target.Actor.Location;
 			foreach (var t in targets)
@@ -66,7 +68,7 @@ namespace OpenRA.Mods.D2k.Activities
 					{
 						var insurance = targetClose.Owner.PlayerActor.TraitOrDefault<HarvesterInsurance>();
 						if (insurance != null)
-							self.World.AddFrameEndTask(__ => insurance.TryActivate());
+							self.World.AddFrameEndTask(w => insurance.TryActivate());
 					}
 				});
 			}
@@ -74,69 +76,59 @@ namespace OpenRA.Mods.D2k.Activities
 			positionable.SetPosition(self, targetLocation);
 
 			var attackPosition = self.CenterPosition;
-			var affectedPlayers = targets.Select(x => x.Owner).Distinct().ToList();
-			Game.Sound.Play(swallow.Info.WormAttackSound, self.CenterPosition);
+			var affectedPlayers = targets.Select(x => x.Owner).ToHashSet();
+			Game.Sound.Play(SoundType.World, swallow.Info.WormAttackSound, self.CenterPosition);
 
-			Game.RunAfterDelay(1000, () =>
-			{
-				if (!Game.IsCurrentWorld(self.World))
-					return;
+			foreach (var player in affectedPlayers)
+				self.World.AddFrameEndTask(w => w.Add(
+					new MapNotificationEffect(player, "Speech", swallow.Info.WormAttackNotification, 25, true, attackPosition, Color.Red)));
 
-				foreach (var player in affectedPlayers)
-				{
-					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", swallow.Info.WormAttackNotification, player.Faction.InternalName);
+			if (affectedPlayers.Contains(self.World.LocalPlayer))
+				TextNotificationsManager.AddTransientLine(self.World.LocalPlayer, swallow.Info.WormAttackTextNotification);
 
-					if (player == player.World.RenderPlayer)
-						radarPings.Add(() => true, attackPosition, Color.Red, 50);
-				}
-			});
-
-			foreach (var notify in self.TraitsImplementing<INotifyAttack>())
-			{
-				notify.PreparingAttack(self, target, null, null);
-				notify.Attacking(self, target, null, null);
-			}
-
-			return true;
+			return armament.CheckFire(self, facing, target);
 		}
 
-		public override Activity Tick(Actor self)
+		public override bool Tick(Actor self)
 		{
 			switch (stance)
 			{
 				case AttackState.Uninitialized:
-					GrantUpgrades(self);
 					stance = AttackState.Burrowed;
 					countdown = swallow.Info.AttackDelay;
 					burrowLocation = self.Location;
+					if (attackingToken == Actor.InvalidConditionToken)
+						attackingToken = self.GrantCondition(swallow.Info.AttackingCondition);
+
 					break;
 				case AttackState.Burrowed:
 					if (--countdown > 0)
-						return this;
+						return false;
 
 					var targetLocation = target.Actor.Location;
 
 					// The target has moved too far away
 					if ((burrowLocation - targetLocation).Length > NearEnough)
 					{
-						RevokeUpgrades(self);
-						return NextActivity;
+						RevokeCondition(self);
+						return true;
 					}
 
 					// The target reached solid ground
-					if (!positionable.CanEnterCell(targetLocation, null, false))
+					if (!positionable.CanEnterCell(targetLocation, null, BlockedByActor.None))
 					{
-						RevokeUpgrades(self);
-						return NextActivity;
+						RevokeCondition(self);
+						return true;
 					}
 
 					var targets = self.World.ActorMap.GetActorsAt(targetLocation)
-						.Where(t => !t.Equals(self) && weapon.IsValidAgainst(t, self));
+						.Where(t => !t.Equals(self) && weapon.IsValidAgainst(t, self))
+						.ToList();
 
-					if (!targets.Any())
+					if (targets.Count == 0)
 					{
-						RevokeUpgrades(self);
-						return NextActivity;
+						RevokeCondition(self);
+						return true;
 					}
 
 					stance = AttackState.Attacking;
@@ -147,7 +139,7 @@ namespace OpenRA.Mods.D2k.Activities
 					break;
 				case AttackState.Attacking:
 					if (--countdown > 0)
-						return this;
+						return false;
 
 					sandworm.IsAttacking = false;
 
@@ -158,23 +150,17 @@ namespace OpenRA.Mods.D2k.Activities
 						self.World.AddFrameEndTask(w => self.Dispose());
 					}
 
-					RevokeUpgrades(self);
-					return NextActivity;
+					RevokeCondition(self);
+					return true;
 			}
 
-			return this;
+			return false;
 		}
 
-		void GrantUpgrades(Actor self)
+		void RevokeCondition(Actor self)
 		{
-			foreach (var up in swallow.Info.AttackingUpgrades)
-				manager.GrantUpgrade(self, up, this);
-		}
-
-		void RevokeUpgrades(Actor self)
-		{
-			foreach (var up in swallow.Info.AttackingUpgrades)
-				manager.RevokeUpgrade(self, up, this);
+			if (attackingToken != Actor.InvalidConditionToken)
+				attackingToken = self.RevokeCondition(attackingToken);
 		}
 	}
 }

@@ -11,10 +11,11 @@ apc:
 
 art2:
 	idle:
-
-gaarty:
 	turret: art2tur
 	barrel: art2barl
+
+jugg:
+	barrel: djuggbar
 
 subtank:
 	idle:
@@ -48,7 +49,7 @@ hvr:
 
 stnk:
 	idle:
-	
+
 orca:
 	idle:
 
@@ -119,6 +120,9 @@ sonic:
 	idle:
 	turret: sonictur
 
+mobilemp:
+	idle: m_emp
+
 #truk: # TODO: unused
 #	idle:
 
@@ -172,4 +176,7 @@ sonic:
 #	idle:
 
 dpod:
+	idle:
+
+sgen:
 	idle:

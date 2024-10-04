@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,31 +9,42 @@
  */
 #endregion
 
-using System.Drawing;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
+	[TraitLocation(SystemActors.Player)]
 	[Desc("Plays an audio notification and shows a radar ping when a building is attacked.",
 		"Attach this to the player actor.")]
-	public class BaseAttackNotifierInfo : ITraitInfo
+	public class BaseAttackNotifierInfo : TraitInfo
 	{
-		[Desc("Minimum duration (in seconds) between notification events.")]
-		public readonly int NotifyInterval = 30;
+		[Desc("Minimum duration (in milliseconds) between notification events.")]
+		public readonly int NotifyInterval = 30000;
 
 		public readonly Color RadarPingColor = Color.Red;
 
 		[Desc("Length of time (in ticks) to display a location ping in the minimap.")]
-		public readonly int RadarPingDuration = 10 * 25;
+		public readonly int RadarPingDuration = 250;
 
-		[Desc("The audio notification type to play.")]
-		public string Notification = "BaseAttack";
+		[NotificationReference("Speech")]
+		[Desc("Speech notification type to play.")]
+		public readonly string Notification = "BaseAttack";
 
-		[Desc("The audio notification to play to allies when under attack.",
+		[FluentReference(optional: true)]
+		[Desc("Text notification to display.")]
+		public readonly string TextNotification = null;
+
+		[NotificationReference("Speech")]
+		[Desc("Speech notification to play to allies when under attack.",
 			"Won't play a notification to allies if this is null.")]
-		public string AllyNotification = null;
+		public readonly string AllyNotification = null;
 
-		public object Create(ActorInitializer init) { return new BaseAttackNotifier(init.Self, this); }
+		[FluentReference(optional: true)]
+		[Desc("Text notification to display to allies when under attack.")]
+		public readonly string AllyTextNotification = null;
+
+		public override object Create(ActorInitializer init) { return new BaseAttackNotifier(init.Self, this); }
 	}
 
 	public class BaseAttackNotifier : INotifyDamage
@@ -41,17 +52,22 @@ namespace OpenRA.Mods.Common.Traits
 		readonly RadarPings radarPings;
 		readonly BaseAttackNotifierInfo info;
 
-		int lastAttackTime;
+		long lastAttackTime;
 
 		public BaseAttackNotifier(Actor self, BaseAttackNotifierInfo info)
 		{
 			radarPings = self.World.WorldActor.TraitOrDefault<RadarPings>();
 			this.info = info;
-			lastAttackTime = -info.NotifyInterval * 25;
+			lastAttackTime = -info.NotifyInterval;
 		}
 
-		public void Damaged(Actor self, AttackInfo e)
+		void INotifyDamage.Damaged(Actor self, AttackInfo e)
 		{
+			var localPlayer = self.World.LocalPlayer;
+
+			if (localPlayer == null || localPlayer.Spectating)
+				return;
+
 			if (e.Attacker == null)
 				return;
 
@@ -68,21 +84,25 @@ namespace OpenRA.Mods.Common.Traits
 			if (e.Attacker.Owner.IsAlliedWith(self.Owner) && e.Damage.Value <= 0)
 				return;
 
-			if (self.World.WorldTick - lastAttackTime > info.NotifyInterval * 25)
+			if (Game.RunTime > lastAttackTime + info.NotifyInterval)
 			{
 				var rules = self.World.Map.Rules;
-				Game.Sound.PlayNotification(rules, self.Owner, "Speech", info.Notification, self.Owner.Faction.InternalName);
 
-				if (info.AllyNotification != null)
-					foreach (Player p in self.World.Players)
-						if (p != self.Owner && p.IsAlliedWith(self.Owner) && p != e.Attacker.Owner)
-							Game.Sound.PlayNotification(rules, p, "Speech", info.AllyNotification, p.Faction.InternalName);
+				if (self.Owner == localPlayer)
+				{
+					Game.Sound.PlayNotification(rules, self.Owner, "Speech", info.Notification, self.Owner.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(self.Owner, info.TextNotification);
+				}
+				else if (localPlayer.IsAlliedWith(self.Owner) && localPlayer != e.Attacker.Owner)
+				{
+					Game.Sound.PlayNotification(rules, localPlayer, "Speech", info.AllyNotification, localPlayer.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(localPlayer, info.AllyTextNotification);
+				}
 
-				if (radarPings != null)
-					radarPings.Add(() => self.Owner.IsAlliedWith(self.World.RenderPlayer), self.CenterPosition, info.RadarPingColor, info.RadarPingDuration);
+				radarPings?.Add(() => self.Owner.IsAlliedWith(self.World.RenderPlayer), self.CenterPosition, info.RadarPingColor, info.RadarPingDuration);
+
+				lastAttackTime = Game.RunTime;
 			}
-
-			lastAttackTime = self.World.WorldTick;
 		}
 	}
 }

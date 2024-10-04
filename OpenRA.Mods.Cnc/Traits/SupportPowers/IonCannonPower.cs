@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,24 +18,27 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Cnc.Traits
 {
-	class IonCannonPowerInfo : SupportPowerInfo, IRulesetLoaded
+	sealed class IonCannonPowerInfo : SupportPowerInfo, IRulesetLoaded
 	{
 		[ActorReference]
 		[Desc("Actor to spawn when the attack starts")]
 		public readonly string CameraActor = null;
 
-		[Desc("Amount of time to keep the camera alive")]
+		[Desc("Number of ticks to keep the camera alive")]
 		public readonly int CameraRemoveDelay = 25;
 
 		[Desc("Effect sequence sprite image")]
 		public readonly string Effect = "ionsfx";
 
+		[SequenceReference(nameof(Effect))]
 		[Desc("Effect sequence to display")]
-		[SequenceReference("Effect")] public readonly string EffectSequence = "idle";
+		public readonly string EffectSequence = "idle";
 
-		[PaletteReference] public readonly string EffectPalette = "effect";
+		[PaletteReference]
+		public readonly string EffectPalette = "effect";
 
-		[Desc("Which weapon to fire"), WeaponReference]
+		[WeaponReference]
+		[Desc("Which weapon to fire")]
 		public readonly string Weapon = "IonCannon";
 
 		public WeaponInfo WeaponInfo { get; private set; }
@@ -47,10 +50,19 @@ namespace OpenRA.Mods.Cnc.Traits
 		public readonly string OnFireSound = null;
 
 		public override object Create(ActorInitializer init) { return new IonCannonPower(init.Self, this); }
-		public void RulesetLoaded(Ruleset rules, ActorInfo ai) { WeaponInfo = rules.Weapons[Weapon.ToLowerInvariant()]; }
+		public override void RulesetLoaded(Ruleset rules, ActorInfo ai)
+		{
+			var weaponToLower = (Weapon ?? string.Empty).ToLowerInvariant();
+			if (!rules.Weapons.TryGetValue(weaponToLower, out var weapon))
+				throw new YamlException($"Weapons Ruleset does not contain an entry '{weaponToLower}'");
+
+			WeaponInfo = weapon;
+
+			base.RulesetLoaded(rules, ai);
+		}
 	}
 
-	class IonCannonPower : SupportPower
+	sealed class IonCannonPower : SupportPower
 	{
 		readonly IonCannonPowerInfo info;
 
@@ -64,11 +76,16 @@ namespace OpenRA.Mods.Cnc.Traits
 		{
 			base.Activate(self, order, manager);
 
+			Activate(self, order.Target);
+		}
+
+		public void Activate(Actor self, Target target)
+		{
 			self.World.AddFrameEndTask(w =>
 			{
 				PlayLaunchSounds();
-				Game.Sound.Play(info.OnFireSound, self.World.Map.CenterOfCell(order.TargetLocation));
-				w.Add(new IonCannon(self.Owner, info.WeaponInfo, w, self.CenterPosition, order.TargetLocation,
+				Game.Sound.Play(SoundType.World, info.OnFireSound, target.CenterPosition);
+				w.Add(new IonCannon(self.Owner, info.WeaponInfo, w, self.CenterPosition, target,
 					info.Effect, info.EffectSequence, info.EffectPalette, info.WeaponDelay));
 
 				if (info.CameraActor == null)
@@ -76,7 +93,7 @@ namespace OpenRA.Mods.Cnc.Traits
 
 				var camera = w.CreateActor(info.CameraActor, new TypeDictionary
 				{
-					new LocationInit(order.TargetLocation),
+					new LocationInit(self.World.Map.CellContaining(target.CenterPosition)),
 					new OwnerInit(self.Owner),
 				});
 

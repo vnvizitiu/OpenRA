@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: nod07c.lua
+		Scripts: campaign.lua, utils.lua, nod07c.lua
 	MusicPlaylist:
 		StartingMusic: justdoit
 		VictoryMusic: nod_win1
@@ -70,7 +70,8 @@ E5:
 
 HARV:
 	Harvester:
-		SearchFromOrderRadius: 30
+		SearchFromProcRadius: 30
+		SearchFromHarvesterRadius: 30
 
 HTNK:
 	Buildable:
@@ -104,6 +105,10 @@ HELI:
 	Buildable:
 		Prerequisites: ~disabled
 
+ORCA:
+	Buildable:
+		Prerequisites: ~disabled
+
 TRAN:
 	Buildable:
 		Prerequisites: ~disabled
@@ -114,7 +119,10 @@ HQ:
 
 BOAT:
 	Health:
-		HP: 1500
+		HP: 150000
+	RevealsShroud:
+		ValidRelationships: Ally, Neutral, Enemy
+		Range: 4c0
 
 TRAN.IN:
 	Inherits: TRAN
@@ -124,14 +132,7 @@ TRAN.IN:
 		Image: TRAN
 	Buildable:
 		Prerequisites: ~disabled
-
-Camera.Boat:
-	AlwaysVisible:
-	Mobile:
-		TerrainSpeeds:
-	RevealsShroud:
-		Range: 4c0
-	ScriptTriggers:
+	Interactable:
 
 HPAD.IN:
 	Inherits: HPAD
@@ -142,14 +143,23 @@ HPAD.IN:
 	ProvidesPrerequisite:
 		Prerequisite: hpad
 	Capturable:
-		CaptureThreshold: 100
+		Types: building
 	Building:
 		Footprint: x_ xx
+		BuildSounds: placbldg.aud, build5.aud
+		UndeploySounds: cashturn.aud
 	-Sellable:
+	Demolishable:
+		-Condition:
 	-Power:
 
 ORCA.IN:
 	Inherits: ORCA
+	Buildable:
+		Prerequisites: ~hpad
 	RenderSprites:
 		Image: ORCA
 	-AutoTarget:
+	-AutoTargetPriority@DEFAULT:
+	-AutoTargetPriority@ATTACKANYTHING:
+	-AttackMove:

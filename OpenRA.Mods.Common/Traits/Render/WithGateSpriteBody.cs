@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,25 +18,30 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Render
 {
-	class WithGateSpriteBodyInfo : WithSpriteBodyInfo, IWallConnectorInfo, Requires<GateInfo>
+	[Desc("This actor visually connects to walls and changes appearance when actors walk through it.")]
+	sealed class WithGateSpriteBodyInfo : WithSpriteBodyInfo, IWallConnectorInfo, Requires<GateInfo>
 	{
 		[Desc("Cells (outside the gate footprint) that contain wall cells that can connect to the gate")]
-		public readonly CVec[] WallConnections = { };
+		public readonly CVec[] WallConnections = Array.Empty<CVec>();
 
 		[Desc("Wall type for connections")]
 		public readonly string Type = "wall";
 
+		[SequenceReference]
 		[Desc("Override sequence to use when fully open.")]
 		public readonly string OpenSequence = null;
 
 		public override object Create(ActorInitializer init) { return new WithGateSpriteBody(init, this); }
 
-		public override IEnumerable<IActorPreview> RenderPreviewSprites(ActorPreviewInitializer init, RenderSpritesInfo rs, string image, int facings, PaletteReference p)
+		public override IEnumerable<IActorPreview> RenderPreviewSprites(ActorPreviewInitializer init, string image, int facings, PaletteReference p)
 		{
+			if (!EnabledByDefault)
+				yield break;
+
 			var anim = new Animation(init.World, image);
 			anim.PlayFetchIndex(RenderSprites.NormalizeSequence(anim, init.GetDamageState(), Sequence), () => 0);
 
-			yield return new SpriteActorPreview(anim, () => WVec.Zero, () => 0, p, rs.Scale);
+			yield return new SpriteActorPreview(anim, () => WVec.Zero, () => 0, p);
 		}
 
 		string IWallConnectorInfo.GetWallConnectionType()
@@ -45,30 +50,30 @@ namespace OpenRA.Mods.Common.Traits.Render
 		}
 	}
 
-	class WithGateSpriteBody : WithSpriteBody, INotifyRemovedFromWorld, IWallConnector, ITick
+	sealed class WithGateSpriteBody : WithSpriteBody, INotifyRemovedFromWorld, IWallConnector, ITick
 	{
-		readonly WithGateSpriteBodyInfo gateInfo;
+		readonly WithGateSpriteBodyInfo gateBodyInfo;
 		readonly Gate gate;
 		bool renderOpen;
 
 		public WithGateSpriteBody(ActorInitializer init, WithGateSpriteBodyInfo info)
-			: base(init, info, () => 0)
+			: base(init, info)
 		{
-			gateInfo = info;
+			gateBodyInfo = info;
 			gate = init.Self.Trait<Gate>();
 		}
 
 		void UpdateState(Actor self)
 		{
-			if (renderOpen)
-				DefaultAnimation.PlayRepeating(NormalizeSequence(self, gateInfo.OpenSequence));
+			if (renderOpen || IsTraitPaused)
+				DefaultAnimation.PlayRepeating(NormalizeSequence(self, gateBodyInfo.OpenSequence));
 			else
 				DefaultAnimation.PlayFetchIndex(NormalizeSequence(self, Info.Sequence), GetGateFrame);
 		}
 
 		void ITick.Tick(Actor self)
 		{
-			if (gateInfo.OpenSequence == null)
+			if (gateBodyInfo.OpenSequence == null)
 				return;
 
 			if (gate.Position == gate.OpenPosition ^ renderOpen)
@@ -88,15 +93,17 @@ namespace OpenRA.Mods.Common.Traits.Render
 			UpdateState(self);
 		}
 
-		protected override void OnBuildComplete(Actor self)
+		protected override void TraitEnabled(Actor self)
 		{
+			base.TraitEnabled(self);
+
 			UpdateState(self);
 			UpdateNeighbours(self);
 		}
 
 		void UpdateNeighbours(Actor self)
 		{
-			var footprint = FootprintUtils.Tiles(self).ToArray();
+			var footprint = gate.Footprint.ToArray();
 			var adjacent = Util.ExpandFootprint(footprint, true).Except(footprint)
 				.Where(self.World.Map.Contains).ToList();
 
@@ -115,7 +122,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 		bool IWallConnector.AdjacentWallCanConnect(Actor self, CPos wallLocation, string wallType, out CVec facing)
 		{
 			facing = wallLocation - self.Location;
-			return wallType == gateInfo.Type && gateInfo.WallConnections.Contains(facing);
+			return wallType == gateBodyInfo.Type && gateBodyInfo.WallConnections.Contains(facing);
 		}
 
 		void IWallConnector.SetDirty() { }

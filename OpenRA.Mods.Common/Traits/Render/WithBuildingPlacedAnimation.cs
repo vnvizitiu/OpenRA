@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,55 +9,43 @@
  */
 #endregion
 
+using System.Linq;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Render
 {
 	[Desc("Changes the animation when the actor constructed a building.")]
-	public class WithBuildingPlacedAnimationInfo : ITraitInfo, Requires<WithSpriteBodyInfo>
+	public class WithBuildingPlacedAnimationInfo : ConditionalTraitInfo, Requires<WithSpriteBodyInfo>
 	{
-		[Desc("Sequence name to use"), SequenceReference]
+		[SequenceReference]
+		[Desc("Sequence name to use")]
 		public readonly string Sequence = "build";
 
-		public object Create(ActorInitializer init) { return new WithBuildingPlacedAnimation(init.Self, this); }
+		[Desc("Which sprite body to play the animation on.")]
+		public readonly string Body = "body";
+
+		public override object Create(ActorInitializer init) { return new WithBuildingPlacedAnimation(init.Self, this); }
 	}
 
-	public class WithBuildingPlacedAnimation : INotifyBuildingPlaced, INotifyBuildComplete, INotifySold, INotifyTransform
+	public class WithBuildingPlacedAnimation : ConditionalTrait<WithBuildingPlacedAnimationInfo>, INotifyBuildingPlaced
 	{
-		readonly WithBuildingPlacedAnimationInfo info;
 		readonly WithSpriteBody wsb;
-		bool buildComplete;
 
 		public WithBuildingPlacedAnimation(Actor self, WithBuildingPlacedAnimationInfo info)
+			: base(info)
 		{
-			this.info = info;
-			wsb = self.Trait<WithSpriteBody>();
-			buildComplete = !self.Info.HasTraitInfo<BuildingInfo>();
+			wsb = self.TraitsImplementing<WithSpriteBody>().Single(w => w.Info.Name == info.Body);
 		}
-
-		void INotifyBuildComplete.BuildingComplete(Actor self)
-		{
-			buildComplete = true;
-		}
-
-		void INotifySold.Sold(Actor self) { }
-		void INotifySold.Selling(Actor self)
-		{
-			buildComplete = false;
-		}
-
-		void INotifyTransform.BeforeTransform(Actor self)
-		{
-			buildComplete = false;
-		}
-
-		void INotifyTransform.OnTransform(Actor self) { }
-		void INotifyTransform.AfterTransform(Actor self) { }
 
 		void INotifyBuildingPlaced.BuildingPlaced(Actor self)
 		{
-			if (buildComplete)
-				wsb.PlayCustomAnimation(self, info.Sequence, () => wsb.CancelCustomAnimation(self));
+			if (!IsTraitDisabled)
+				wsb.PlayCustomAnimation(self, Info.Sequence);
+		}
+
+		protected override void TraitDisabled(Actor self)
+		{
+			wsb.CancelCustomAnimation(self);
 		}
 	}
 }

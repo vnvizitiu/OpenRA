@@ -1,4 +1,14 @@
-if DateTime.IsHalloween then
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
+
+-- Halloween easter egg
+if DateTime.CurrentMonth == 10 and DateTime.CurrentDay == 31 then
 	UnitTypes = { "ant", "ant", "ant" }
 	BeachUnitTypes = { "ant", "ant" }
 	ProxyType = "powerproxy.parazombies"
@@ -33,9 +43,12 @@ HelicopterUnitTypes = { "e1", "e1", "e1", "e1", "e3", "e3" };
 
 ParadropWaypoints = { Paradrop1, Paradrop2, Paradrop3, Paradrop4, Paradrop5, Paradrop6, Paradrop7, Paradrop8 }
 
+Mig1Waypoints = { Mig11, Mig12, Mig13, Mig14 }
+Mig2Waypoints = { Mig21, Mig22, Mig23, Mig24 }
+
 BindActorTriggers = function(a)
 	if a.HasProperty("Hunt") then
-		if a.Owner == allies then
+		if a.Owner == Allies then
 			Trigger.OnIdle(a, function(a)
 				if a.IsInWorld then
 					a.Hunt()
@@ -51,6 +64,10 @@ BindActorTriggers = function(a)
 	end
 
 	if a.HasProperty("HasPassengers") then
+		Trigger.OnPassengerExited(a, function(t, p)
+			BindActorTriggers(p)
+		end)
+
 		Trigger.OnDamaged(a, function()
 			if a.HasPassengers then
 				a.Stop()
@@ -61,15 +78,27 @@ BindActorTriggers = function(a)
 end
 
 SendSovietUnits = function(entryCell, unitTypes, interval)
-	local units = Reinforcements.Reinforce(soviets, unitTypes, { entryCell }, interval)
+	local units = Reinforcements.Reinforce(Soviets, unitTypes, { entryCell }, interval)
 	Utils.Do(units, function(unit)
 		BindActorTriggers(unit)
 	end)
 	Trigger.OnAllKilled(units, function() SendSovietUnits(entryCell, unitTypes, interval) end)
 end
 
+SendMigs = function(waypoints)
+	local migEntryPath = { waypoints[1].Location, waypoints[2].Location }
+	local migs = Reinforcements.Reinforce(Soviets, { "mig" }, migEntryPath, 4)
+	Utils.Do(migs, function(mig)
+		mig.Move(waypoints[3].Location)
+		mig.Move(waypoints[4].Location)
+		mig.Destroy()
+	end)
+
+	Trigger.AfterDelay(DateTime.Seconds(40), function() SendMigs(waypoints) end)
+end
+
 ShipAlliedUnits = function()
-	local units = Reinforcements.ReinforceWithTransport(allies, "lst",
+	local units = Reinforcements.ReinforceWithTransport(Allies, "lst",
 		ShipUnitTypes, { LstEntry.Location, LstUnload.Location }, { LstEntry.Location })[2]
 
 	Utils.Do(units, function(unit)
@@ -79,8 +108,9 @@ ShipAlliedUnits = function()
 	Trigger.AfterDelay(DateTime.Seconds(60), ShipAlliedUnits)
 end
 
+--- @param hpad actor
 InsertAlliedChinookReinforcements = function(entry, hpad)
-	local units = Reinforcements.ReinforceWithTransport(allies, "tran",
+	local units = Reinforcements.ReinforceWithTransport(Allies, "tran",
 		HelicopterUnitTypes, { entry.Location, hpad.Location + CVec.New(1, 2) }, { entry.Location })[2]
 
 	Utils.Do(units, function(unit)
@@ -92,10 +122,12 @@ end
 
 ParadropSovietUnits = function()
 	local lz = Utils.Random(ParadropWaypoints)
-	local units = powerproxy.SendParatroopers(lz.CenterPosition)
+	local aircraft = PowerProxy.TargetParatroopers(lz.CenterPosition)
 
-	Utils.Do(units, function(a)
-		BindActorTriggers(a)
+	Utils.Do(aircraft, function(a)
+		Trigger.OnPassengerExited(a, function(t, p)
+			BindActorTriggers(p)
+		end)
 	end)
 
 	Trigger.AfterDelay(DateTime.Seconds(35), ParadropSovietUnits)
@@ -113,8 +145,8 @@ end
 
 SetupAlliedUnits = function()
 	Utils.Do(Map.NamedActors, function(a)
-		if a.Owner == allies and a.HasProperty("AcceptsUpgrade") and a.AcceptsUpgrade("unkillable") then
-			a.GrantUpgrade("unkillable")
+		if a.Owner == Allies and a.HasProperty("AcceptsCondition") and a.AcceptsCondition("unkillable") then
+			a.GrantCondition("unkillable")
 			a.Stance = "Defend"
 		end
 	end)
@@ -130,7 +162,7 @@ ChronoshiftAlliedUnits = function()
 	local cells = Utils.ExpandFootprint({ ChronoshiftLocation.Location }, false)
 	local units = { }
 	for i = 1, #cells do
-		local unit = Actor.Create("2tnk", true, { Owner = allies, Facing = 0 })
+		local unit = Actor.Create("2tnk", true, { Owner = Allies, Facing = Angle.North })
 		BindActorTriggers(unit)
 		units[unit] = cells[i]
 	end
@@ -138,30 +170,33 @@ ChronoshiftAlliedUnits = function()
 	Trigger.AfterDelay(DateTime.Seconds(60), ChronoshiftAlliedUnits)
 end
 
-ticks = 0
-speed = 5
+Ticks = 0
+Speed = 5
 
 Tick = function()
-	ticks = ticks + 1
+	Ticks = Ticks + 1
 
-	local t = (ticks + 45) % (360 * speed) * (math.pi / 180) / speed;
-	Camera.Position = viewportOrigin + WVec.New(19200 * math.sin(t), 20480 * math.cos(t), 0)
+	local t = (Ticks + 45) % (360 * Speed) * (math.pi / 180) / Speed;
+	Camera.Position = ViewportOrigin + WVec.New(19200 * math.sin(t), 20480 * math.cos(t), 0)
 end
 
 WorldLoaded = function()
-	allies = Player.GetPlayer("Allies")
-	soviets = Player.GetPlayer("Soviets")
-	viewportOrigin = Camera.Position
+	Allies = Player.GetPlayer("Allies")
+	Soviets = Player.GetPlayer("Soviets")
+	ViewportOrigin = Camera.Position
 
 	SetupAlliedUnits()
 	SetupFactories()
 	ShipAlliedUnits()
 	InsertAlliedChinookReinforcements(Chinook1Entry, HeliPad1)
 	InsertAlliedChinookReinforcements(Chinook2Entry, HeliPad2)
-	powerproxy = Actor.Create(ProxyType, false, { Owner = soviets })
+	PowerProxy = Actor.Create(ProxyType, false, { Owner = Soviets })
 	ParadropSovietUnits()
 	Trigger.AfterDelay(DateTime.Seconds(5), ChronoshiftAlliedUnits)
 	Utils.Do(ProducedUnitTypes, ProduceUnits)
+
+	Trigger.AfterDelay(DateTime.Seconds(30), function() SendMigs(Mig1Waypoints) end)
+	Trigger.AfterDelay(DateTime.Seconds(30), function() SendMigs(Mig2Waypoints) end)
 
 	SendSovietUnits(Entry1.Location, UnitTypes, 50)
 	SendSovietUnits(Entry2.Location, UnitTypes, 50)

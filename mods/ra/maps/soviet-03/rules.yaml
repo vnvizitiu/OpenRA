@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: soviet03.lua
+		Scripts: campaign.lua, utils.lua, soviet03.lua
 	MissionData:
 		Briefing: A spy who has compromised the security of one of the northern sarin gas sites has been traced back to Lund, Sweden, by Nadia's intelligence groups.\n\nHe has been marked for death and a squad of Soviet troops was dispatched to the location to hunt him down.
 		BriefingVideo: soviet3.vqa
@@ -9,55 +9,45 @@ World:
 		LossVideo: take_off.vqa
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
-		Default: easy
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+		Default: normal
 
-^TechBuilding:
-	AutoTargetIgnore:
-
-^Infantry:
-	-GivesBounty:
-
-^Ship:
-	-GivesBounty:
+Player:
+	LobbyPrerequisiteCheckbox@GLOBALBOUNTY:
+		Enabled: False
+		Locked: True
 
 ^Helicopter:
-	-GivesBounty:
 	Health:
-		HP: 9000
-
-BARL:
-	Health:
-		HP: 1
-	Explodes:
-		Weapon: MissionBarrelExplode
-
-BRL3:
-	Health:
-		HP: 1
-	Explodes:
-		Weapon: MissionBarrelExplode
+		HP: 900000
 
 FENC:
 	Health:
-		HP: 9000
+		HP: 900000
 
 V01:
+	Inherits@CARGOPIPS: ^CargoPips
 	Cargo:
 		Types: Infantry
 		MaxWeight: 1
-		PipCount: 1
 
 V05:
 	SpawnActorOnDeath:
 		Actor: healcrate
 
 DOG:
+	# HACK: Disable experience without killing the linter
 	-GainsExperience:
+	ExternalCondition@RANK-VETERAN:
+		Condition: rank-veteran
+	ExternalCondition@RANK-ELITE:
+		Condition: rank-elite
+	-GrantCondition@RANK-ELITE:
 
 SPY:
 	Mobile:

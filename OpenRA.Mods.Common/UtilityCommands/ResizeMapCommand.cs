@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,7 +18,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 {
 	public class ResizeMapCommand : IUtilityCommand
 	{
-		string IUtilityCommand.Name { get { return "--resize-map"; } }
+		string IUtilityCommand.Name => "--resize-map";
 
 		int width;
 		int height;
@@ -49,7 +49,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 		void IUtilityCommand.Run(Utility utility, string[] args)
 		{
 			var modData = Game.ModData = utility.ModData;
-			map = new Map(modData, modData.ModFiles.OpenPackage(args[1], new Folder(".")));
+			map = new Map(modData, new Folder(Platform.EngineDir).OpenPackage(args[1], modData.ModFiles));
 			Console.WriteLine("Resizing map {0} from {1} to {2},{3}", map.Title, map.MapSize, width, height);
 			map.Resize(width, height);
 
@@ -58,16 +58,18 @@ namespace OpenRA.Mods.Common.UtilityCommands
 			foreach (var kv in map.ActorDefinitions)
 			{
 				var actor = new ActorReference(kv.Value.Value, kv.Value.ToDictionary());
-				var location = actor.InitDict.Get<LocationInit>().Value(null);
-				if (!map.Contains(location))
+				var locationInit = actor.GetOrDefault<LocationInit>();
+				if (locationInit == null)
+					continue;
+
+				if (!map.Contains(locationInit.Value))
 				{
-					Console.WriteLine("Removing actor {0} located at {1} due being outside of the new map boundaries.".F(actor.Type, location));
+					Console.WriteLine($"Removing actor {actor.Type} located at {locationInit.Value} due being outside of the new map boundaries.");
 					forRemoval.Add(kv);
 				}
 			}
 
-			foreach (var kv in forRemoval)
-				map.ActorDefinitions.Remove(kv);
+			map.ActorDefinitions = map.ActorDefinitions.Except(forRemoval).ToArray();
 
 			map.Save((IReadWritePackage)map.Package);
 		}

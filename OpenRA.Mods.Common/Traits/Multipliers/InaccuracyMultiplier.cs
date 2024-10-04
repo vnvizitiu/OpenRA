@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,17 +11,21 @@
 
 namespace OpenRA.Mods.Common.Traits
 {
-	[Desc("The inaccuracy of this actor is multiplied based on upgrade level if specified.")]
-	public class InaccuracyMultiplierInfo : UpgradeMultiplierTraitInfo
+	[Desc("Modifies the inaccuracy of weapons fired by this actor.")]
+	public class InaccuracyMultiplierInfo : ConditionalTraitInfo
 	{
-		public override object Create(ActorInitializer init) { return new InaccuracyMultiplier(this, init.Self.Info.Name); }
+		[FieldLoader.Require]
+		[Desc("Percentage modifier to apply.")]
+		public readonly int Modifier = 100;
+
+		public override object Create(ActorInitializer init) { return new InaccuracyMultiplier(this); }
 	}
 
-	public class InaccuracyMultiplier : UpgradeMultiplierTrait, IInaccuracyModifier
+	public class InaccuracyMultiplier : ConditionalTrait<InaccuracyMultiplierInfo>, IInaccuracyModifier
 	{
-		public InaccuracyMultiplier(InaccuracyMultiplierInfo info, string actorType)
-			: base(info, "InaccuracyMultiplier", actorType) { }
+		public InaccuracyMultiplier(InaccuracyMultiplierInfo info)
+			: base(info) { }
 
-		int IInaccuracyModifier.GetInaccuracyModifier() { return GetModifier(); }
+		int IInaccuracyModifier.GetInaccuracyModifier() { return IsTraitDisabled ? 100 : Info.Modifier; }
 	}
 }

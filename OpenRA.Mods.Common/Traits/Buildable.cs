@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,6 +9,7 @@
  */
 #endregion
 
+using System;
 using System.Collections.Generic;
 using OpenRA.Traits;
 
@@ -20,10 +21,10 @@ namespace OpenRA.Mods.Common.Traits
 			"This can be prefixed with ! to invert the prerequisite (disabling production if the prerequisite is available)",
 			"and/or ~ to hide the actor from the production palette if the prerequisite is not available.",
 			"Prerequisites are granted by actors with the ProvidesPrerequisite trait.")]
-		public readonly string[] Prerequisites = { };
+		public readonly string[] Prerequisites = Array.Empty<string>();
 
 		[Desc("Production queue(s) that can produce this.")]
-		public readonly HashSet<string> Queue = new HashSet<string>();
+		public readonly HashSet<string> Queue = new();
 
 		[Desc("Override the production structure type (from the Production Produces list) that this unit should be built at.")]
 		public readonly string BuildAtProductionType = null;
@@ -34,11 +35,16 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Force a specific faction variant, overriding the faction of the producing actor.")]
 		public readonly string ForceFaction = null;
 
+		[SequenceReference]
 		[Desc("Sequence of the actor that contains the icon.")]
-		[SequenceReference] public readonly string Icon = "icon";
+		public readonly string Icon = "icon";
 
+		[PaletteReference(nameof(IconPaletteIsPlayerPalette))]
 		[Desc("Palette used for the production icon.")]
-		[PaletteReference] public readonly string IconPalette = "chrome";
+		public readonly string IconPalette = "chrome";
+
+		[Desc("Custom palette is a player palette BaseName")]
+		public readonly bool IconPaletteIsPlayerPalette = false;
 
 		[Desc("Base build time in frames (-1 indicates to use the unit's Value).")]
 		public readonly int BuildDuration = -1;
@@ -46,11 +52,17 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Percentage modifier to apply to the build duration.")]
 		public readonly int BuildDurationModifier = 60;
 
-		// TODO: UI fluff; doesn't belong here
+		[Desc("Sort order for the production palette. Smaller numbers are presented earlier.")]
 		public readonly int BuildPaletteOrder = 9999;
 
 		[Desc("Text shown in the production tooltip.")]
-		[Translate] public readonly string Description = "";
+		[FluentReference(optional: true)]
+		public readonly string Description;
+
+		public static string GetInitialFaction(ActorInfo ai, string defaultFaction)
+		{
+			return ai.TraitInfoOrDefault<BuildableInfo>()?.ForceFaction ?? defaultFaction;
+		}
 	}
 
 	public class Buildable { }

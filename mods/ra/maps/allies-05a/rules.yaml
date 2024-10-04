@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: allies05a.lua, allies05a-AI.lua
+		Scripts: campaign.lua, utils.lua, allies05a.lua, allies05a-AI.lua
 	MissionData:
 		Briefing: Rescue Tanya.\n\nOnce disguised, your spy can move past any enemy unit, except dogs, without being detected. Direct him into the weapons factory located at a nearby Soviet Base where he will hijack a truck and free Tanya.\n\nWith Tanya's help, take out the air defenses on the island and a Chinook will arrive to rescue her.\n\nThen destroy all remaining Soviet buildings and units.
 		BriefingVideo: ally5.vqa
@@ -11,42 +11,33 @@ World:
 		TechLevel: medium
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
-			tough: Real tough guy
-		Default: easy
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+			tough: options-difficulty.tough
+		Default: normal
 
-Camera.Truk:
-	AlwaysVisible:
-	Mobile:
-		TerrainSpeeds:
+Camera.Small:
+	Inherits: CAMERA
 	RevealsShroud:
 		Range: 4c0
-	ScriptTriggers:
-
-FTUR:
-	DetectCloaked:
-		Range: 0
 
 TSLA:
-	DetectCloaked:
-		Range: 0
 	Buildable:
 		Prerequisites: ~disabled
 
 SAM:
-	DetectCloaked:
-		Range: 0
 	Buildable:
 		Prerequisites: ~disabled
 
 LST:
 	-Selectable:
 	Targetable:
-		TargetTypes: Ground, Water
+		TargetTypes: GroundActor, WaterActor
+	Interactable:
 
 LST.IN:
 	Inherits: LST
@@ -60,7 +51,8 @@ TRAN:
 	RevealsShroud:
 		Range: 4c0
 	Targetable@GROUND:
-		TargetTypes: Ground
+		TargetTypes: GroundActor
+	Interactable:
 
 TRAN.IN:
 	Inherits: TRAN
@@ -71,11 +63,14 @@ TRAN.IN:
 
 TRUK.mission:
 	Inherits: TRUK
-	Buildable:
-		Prerequisites: ~disabled
 	WithFacingSpriteBody:
 	-SpawnActorOnDeath:
-	-EjectOnDeath:
+	RevealsShroud:
+		Range: 4c0
+		ValidRelationships: Ally, Enemy
+		RequiresCondition: hijacked
+	ExternalCondition@hijacked:
+		Condition: hijacked
 	RenderSprites:
 		Image: TRUK
 
@@ -86,41 +81,27 @@ SPY:
 WEAP:
 	-InfiltrateForSupportPower:
 	Targetable:
-		TargetTypes: Ground, C4, DetonateAttack, Structure, Mission Objectives
+		TargetTypes: GroundActor, C4, DetonateAttack, Structure
+
+WEAP.infiltratable:
+	Inherits: WEAP
+	Buildable:
+		Prerequisites: ~disabled
+	Targetable@Spy:
+		TargetTypes: GroundActor, C4, DetonateAttack, Structure, Mission Objectives
+	RenderSprites:
+		Image: WEAP
+	ProvidesPrerequisite:
+		Prerequisite: weap
 
 MISS:
 	Tooltip:
-		Name: Prison
+		Name: actor-prison-name
 	Targetable:
-		TargetTypes: Ground, C4, DetonateAttack, Structure, Mission Objectives
-
-Colt:
-	Inherits: ^Defense
-	AutoTargetIgnore:
-	Valued:
-		Cost: 800
-	Building:
-		Footprint: _ x
-		Dimensions: 1,2
-	Health:
-		HP: 400
-	Armor:
-		Type: Heavy
-	RevealsShroud:
-		Range: 0c0
-	Turreted:
-		TurnSpeed: 15
-		InitialFacing: 224
-	RenderSprites:
-		Image: AGUN
+		TargetTypes: GroundActor, C4, DetonateAttack, Structure, Mission Objectives
+	AttackOmni:
 	Armament:
-		Weapon: MissionColt
-		LocalOffset: 432,150,-30, 432,-150,-30
-	AttackTurreted:
-	AutoTarget:
-	-Selectable:
-	-SelectionDecorations:
-	-Huntable:
+		Weapon: PrisonColt
 
 E1.Autotarget:
 	Inherits: E1
@@ -161,7 +142,7 @@ MCV:
 	Buildable:
 		Prerequisites: ~disabled
 
-MNLY.AP:
+MNLY:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -201,7 +182,7 @@ E6:
 	Buildable:
 		Prerequisites: ~disabled
 
-HIJACKER:
+THF:
 	Buildable:
 		Prerequisites: ~disabled
 

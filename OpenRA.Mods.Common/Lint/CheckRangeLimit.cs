@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,25 +10,31 @@
 #endregion
 
 using System;
-using System.Linq;
 using OpenRA.Mods.Common.Projectiles;
-using OpenRA.Mods.Common.Traits;
-using OpenRA.Traits;
+using OpenRA.Server;
 
 namespace OpenRA.Mods.Common.Lint
 {
-	class CheckRangeLimit : ILintRulesPass
+	sealed class CheckRangeLimit : ILintRulesPass, ILintServerMapPass
 	{
-		public void Run(Action<string> emitError, Action<string> emitWarning, Ruleset rules)
+		void ILintRulesPass.Run(Action<string> emitError, Action<string> emitWarning, ModData modData, Ruleset rules)
+		{
+			Run(emitError, rules);
+		}
+
+		void ILintServerMapPass.Run(Action<string> emitError, Action<string> emitWarning, ModData modData, MapPreview map, Ruleset mapRules)
+		{
+			Run(emitError, mapRules);
+		}
+
+		static void Run(Action<string> emitError, Ruleset rules)
 		{
 			foreach (var weaponInfo in rules.Weapons)
 			{
 				var range = weaponInfo.Value.Range;
-				var missile = weaponInfo.Value.Projectile as MissileInfo;
 
-				if (missile != null && missile.RangeLimit > WDist.Zero && missile.RangeLimit < range)
-					emitError("Weapon `{0}`: projectile RangeLimit lower than weapon range!"
-						.F(weaponInfo.Key));
+				if (weaponInfo.Value.Projectile is MissileInfo missile && missile.RangeLimit > WDist.Zero && missile.RangeLimit < range)
+					emitError($"Weapon `{weaponInfo.Key}`: projectile RangeLimit lower than weapon range.");
 			}
 		}
 	}

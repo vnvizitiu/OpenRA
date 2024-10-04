@@ -5,22 +5,22 @@ Container@MISSION_OBJECTIVES:
 	Children:
 		Label@MISSION:
 			X: 15
-			Y: 15
+			Y: 17
 			Width: 80
 			Height: 20
 			Font: MediumBold
-			Text: Mission:
+			Text: label-mission-objectives
 		Label@MISSION_STATUS:
 			X: 95
-			Y: 15
+			Y: 17
 			Width: PARENT_RIGHT - 110
 			Height: 20
 			Font: MediumBold
 		ScrollPanel@OBJECTIVES_PANEL:
 			X: 15
 			Y: 50
-			Width: 482
-			Height: 310
+			Width: PARENT_RIGHT - 30
+			Height: PARENT_BOTTOM - 65
 			TopBottomSpacing: 15
 			ItemSpacing: 15
 			Children:
@@ -30,7 +30,7 @@ Container@MISSION_OBJECTIVES:
 					Children:
 						Label@OBJECTIVE_TYPE:
 							X: 10
-							Y: 0
+							Y: 1
 							Width: 70
 							Height: PARENT_BOTTOM
 							Align: Center

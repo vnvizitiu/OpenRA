@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,35 +18,57 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("This actor's experience increases when it has killed a GivesExperience actor.")]
-	public class GainsExperienceInfo : ITraitInfo, Requires<ValuedInfo>, Requires<UpgradeManagerInfo>
+	public class GainsExperienceInfo : TraitInfo
 	{
 		[FieldLoader.Require]
-		[Desc("Upgrades to grant at each level.",
+		[Desc("Condition to grant at each level.",
 			"Key is the XP requirements for each level as a percentage of our own value.",
-			"Value is a list of the upgrade types to grant")]
-		public readonly Dictionary<int, string[]> Upgrades = null;
+			"Value is the condition to grant.")]
+		public readonly Dictionary<int, string> Conditions = null;
 
+		[GrantedConditionReference]
+		public IEnumerable<string> LinterConditions => Conditions.Values;
+
+		[Desc("Image for the level up sprite.")]
+		public readonly string LevelUpImage = null;
+
+		[SequenceReference(nameof(LevelUpImage), allowNullImage: true)]
+		[Desc("Sequence for the level up sprite. Needs to be present on LevelUpImage.")]
+		public readonly string LevelUpSequence = "levelup";
+
+		[PaletteReference]
 		[Desc("Palette for the level up sprite.")]
-		[PaletteReference] public readonly string LevelUpPalette = "effect";
+		public readonly string LevelUpPalette = "effect";
+
+		[Desc("Multiplier to apply to the Conditions keys. Defaults to the actor's value.")]
+		public readonly int ExperienceModifier = -1;
 
 		[Desc("Should the level-up animation be suppressed when actor is created?")]
 		public readonly bool SuppressLevelupAnimation = true;
 
-		public object Create(ActorInitializer init) { return new GainsExperience(init, this); }
+		[NotificationReference("Sounds")]
+		public readonly string LevelUpNotification = null;
+
+		[FluentReference(optional: true)]
+		public readonly string LevelUpTextNotification = null;
+
+		public override object Create(ActorInitializer init) { return new GainsExperience(init, this); }
 	}
 
-	public class GainsExperience : ISync, IResolveOrder
+	public class GainsExperience : INotifyCreated, ISync, IResolveOrder, ITransformActorInitModifier
 	{
 		readonly Actor self;
 		readonly GainsExperienceInfo info;
-		readonly UpgradeManager um;
+		readonly int initialExperience;
 
-		readonly List<Pair<int, string[]>> nextLevel = new List<Pair<int, string[]>>();
+		readonly List<(int RequiredExperience, string Condition)> nextLevel = new();
 
 		// Stored as a percentage of our value
-		[Sync] int experience = 0;
+		[Sync]
+		public int Experience { get; private set; }
 
-		[Sync] public int Level { get; private set; }
+		[Sync]
+		public int Level { get; private set; }
 		public readonly int MaxLevel;
 
 		public GainsExperience(ActorInitializer init, GainsExperienceInfo info)
@@ -54,43 +76,56 @@ namespace OpenRA.Mods.Common.Traits
 			self = init.Self;
 			this.info = info;
 
-			MaxLevel = info.Upgrades.Count;
-
-			var cost = self.Info.TraitInfo<ValuedInfo>().Cost;
-			foreach (var kv in info.Upgrades)
-				nextLevel.Add(Pair.New(kv.Key * cost, kv.Value));
-
-			if (init.Contains<ExperienceInit>())
-				GiveExperience(init.Get<ExperienceInit, int>(), info.SuppressLevelupAnimation);
-
-			um = self.Trait<UpgradeManager>();
+			Experience = 0;
+			MaxLevel = info.Conditions.Count;
+			initialExperience = init.GetValue<ExperienceInit, int>(info, 0);
 		}
 
-		public bool CanGainLevel { get { return Level < MaxLevel; } }
+		void INotifyCreated.Created(Actor self)
+		{
+			var valued = self.Info.TraitInfoOrDefault<ValuedInfo>();
+			var requiredExperience = info.ExperienceModifier < 0 ? (valued != null ? valued.Cost : 1) : info.ExperienceModifier;
+			foreach (var kv in info.Conditions)
+				nextLevel.Add((kv.Key * requiredExperience, kv.Value));
+
+			if (initialExperience > 0)
+				GiveExperience(initialExperience, info.SuppressLevelupAnimation);
+		}
+
+		public bool CanGainLevel => Level < MaxLevel;
 
 		public void GiveLevels(int numLevels, bool silent = false)
 		{
+			if (MaxLevel == 0)
+				return;
+
 			var newLevel = Math.Min(Level + numLevels, MaxLevel);
-			GiveExperience(nextLevel[newLevel - 1].First - experience, silent);
+			GiveExperience(nextLevel[newLevel - 1].RequiredExperience - Experience, silent);
 		}
 
 		public void GiveExperience(int amount, bool silent = false)
 		{
-			experience += amount;
+			if (amount < 0)
+				throw new ArgumentException("Revoking experience is not implemented.", nameof(amount));
 
-			while (Level < MaxLevel && experience >= nextLevel[Level].First)
+			if (MaxLevel == 0)
+				return;
+
+			Experience = (Experience + amount).Clamp(0, nextLevel[MaxLevel - 1].RequiredExperience);
+
+			while (Level < MaxLevel && Experience >= nextLevel[Level].RequiredExperience)
 			{
-				var upgrades = nextLevel[Level].Second;
+				self.GrantCondition(nextLevel[Level].Condition);
 
 				Level++;
 
-				foreach (var u in upgrades)
-					um.GrantUpgrade(self, u, this);
-
 				if (!silent)
 				{
-					Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Sounds", "LevelUp", self.Owner.Faction.InternalName);
-					self.World.AddFrameEndTask(w => w.Add(new CrateEffect(self, "levelup", info.LevelUpPalette)));
+					Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Sounds", info.LevelUpNotification, self.Owner.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(self.Owner, info.LevelUpTextNotification);
+
+					if (info.LevelUpImage != null && info.LevelUpSequence != null)
+						self.World.AddFrameEndTask(w => w.Add(new SpriteEffect(self, w, info.LevelUpImage, info.LevelUpSequence, info.LevelUpPalette)));
 				}
 			}
 		}
@@ -109,13 +144,16 @@ namespace OpenRA.Mods.Common.Traits
 					GiveLevels(1);
 			}
 		}
+
+		void ITransformActorInitModifier.ModifyTransformActorInit(Actor self, TypeDictionary init)
+		{
+			init.Add(new ExperienceInit(info, Experience));
+		}
 	}
 
-	class ExperienceInit : IActorInit<int>
+	sealed class ExperienceInit : ValueActorInit<int>
 	{
-		[FieldFromYamlKey] readonly int value;
-		public ExperienceInit() { }
-		public ExperienceInit(int init) { value = init; }
-		public int Value(World world) { return value; }
+		public ExperienceInit(TraitInfo info, int value)
+			: base(info, value) { }
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,31 +14,31 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("This actor has a voice.")]
-	public class VoicedInfo : ITraitInfo
+	public class VoicedInfo : ConditionalTraitInfo
 	{
+		[VoiceSetReference]
 		[FieldLoader.Require]
 		[Desc("Which voice set to use.")]
-		[VoiceSetReference] public readonly string VoiceSet = null;
+		public readonly string VoiceSet = null;
 
 		[Desc("Multiply volume with this factor.")]
 		public readonly float Volume = 1f;
 
-		public object Create(ActorInitializer init) { return new Voiced(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new Voiced(this); }
 	}
 
-	public class Voiced : IVoiced
+	public class Voiced : ConditionalTrait<VoicedInfo>, IVoiced
 	{
-		public readonly VoicedInfo Info;
+		public Voiced(VoicedInfo info)
+			: base(info) { }
 
-		public Voiced(Actor self, VoicedInfo info)
+		string IVoiced.VoiceSet => Info.VoiceSet;
+
+		bool IVoiced.PlayVoice(Actor self, string phrase, string variant)
 		{
-			Info = info;
-		}
+			if (IsTraitDisabled)
+				return false;
 
-		public string VoiceSet { get { return Info.VoiceSet; } }
-
-		public bool PlayVoice(Actor self, string phrase, string variant)
-		{
 			if (phrase == null)
 				return false;
 
@@ -47,11 +47,14 @@ namespace OpenRA.Mods.Common.Traits
 
 			var type = Info.VoiceSet.ToLowerInvariant();
 			var volume = Info.Volume;
-			return Game.Sound.PlayPredefined(self.World.Map.Rules, null, self, type, phrase, variant, true, WPos.Zero, volume, true);
+			return Game.Sound.PlayPredefined(SoundType.World, self.World.Map.Rules, null, self, type, phrase, variant, true, WPos.Zero, volume, true);
 		}
 
-		public bool PlayVoiceLocal(Actor self, string phrase, string variant, float volume)
+		bool IVoiced.PlayVoiceLocal(Actor self, string phrase, string variant, float volume)
 		{
+			if (IsTraitDisabled)
+				return false;
+
 			if (phrase == null)
 				return false;
 
@@ -59,11 +62,14 @@ namespace OpenRA.Mods.Common.Traits
 				return false;
 
 			var type = Info.VoiceSet.ToLowerInvariant();
-			return Game.Sound.PlayPredefined(self.World.Map.Rules, null, self, type, phrase, variant, false, self.CenterPosition, volume, true);
+			return Game.Sound.PlayPredefined(SoundType.World, self.World.Map.Rules, null, self, type, phrase, variant, false, self.CenterPosition, volume, true);
 		}
 
-		public bool HasVoice(Actor self, string voice)
+		bool IVoiced.HasVoice(Actor self, string voice)
 		{
+			if (IsTraitDisabled)
+				return false;
+
 			if (string.IsNullOrEmpty(Info.VoiceSet))
 				return false;
 

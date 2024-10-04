@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -20,5 +20,9 @@ namespace OpenRA.Effects
 		IEnumerable<IRenderable> Render(WorldRenderer r);
 	}
 
+	// Identifier interface for effects that are added to ScreenMap
+	public interface ISpatiallyPartitionable { }
+
 	public interface IEffectAboveShroud { IEnumerable<IRenderable> RenderAboveShroud(WorldRenderer wr); }
+	public interface IEffectAnnotation { IEnumerable<IRenderable> RenderAnnotation(WorldRenderer wr); }
 }

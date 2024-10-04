@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,7 +9,9 @@
  */
 #endregion
 
+using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 
@@ -17,18 +19,17 @@ namespace OpenRA
 {
 	public class ModContent : IGlobalModData
 	{
-		public enum SourceType { Disc, Install }
 		public class ModPackage
 		{
 			public readonly string Title;
-			public readonly string[] TestFiles = { };
-			public readonly string[] Sources = { };
+			public readonly string Identifier;
+			public readonly string[] TestFiles = Array.Empty<string>();
+			public readonly string[] Sources = Array.Empty<string>();
 			public readonly bool Required;
 			public readonly string Download;
 
 			public ModPackage(MiniYaml yaml)
 			{
-				Title = yaml.Value;
 				FieldLoader.Load(this, yaml);
 			}
 
@@ -40,21 +41,40 @@ namespace OpenRA
 
 		public class ModSource
 		{
-			public readonly SourceType Type = SourceType.Disc;
+			public readonly ObjectCreator ObjectCreator;
+
+			[FieldLoader.Ignore]
+			public readonly MiniYaml Type;
 
 			// Used to find installation locations for SourceType.Install
+			public readonly string[] RegistryPrefixes = { string.Empty };
 			public readonly string RegistryKey;
 			public readonly string RegistryValue;
 
 			public readonly string Title;
-			public readonly Dictionary<string, string> IDFiles;
 
-			[FieldLoader.Ignore] public readonly List<MiniYamlNode> Install;
+			[FieldLoader.Ignore]
+			public readonly MiniYaml IDFiles;
 
-			public ModSource(MiniYaml yaml)
+			[FieldLoader.Ignore]
+			public readonly ImmutableArray<MiniYamlNode> Install;
+
+			public readonly string TooltipText;
+
+			public ModSource(MiniYaml yaml, ObjectCreator objectCreator)
 			{
+				ObjectCreator = objectCreator;
 				Title = yaml.Value;
-				var installNode = yaml.Nodes.FirstOrDefault(n => n.Key == "Install");
+
+				var type = yaml.NodeWithKeyOrDefault("Type");
+				if (type != null)
+					Type = type.Value;
+
+				var idFiles = yaml.NodeWithKeyOrDefault("IDFiles");
+				if (idFiles != null)
+					IDFiles = idFiles.Value;
+
+				var installNode = yaml.NodeWithKeyOrDefault("Install");
 				if (installNode != null)
 					Install = installNode.Value.Nodes;
 
@@ -64,13 +84,17 @@ namespace OpenRA
 
 		public class ModDownload
 		{
+			public readonly ObjectCreator ObjectCreator;
 			public readonly string Title;
 			public readonly string URL;
 			public readonly string MirrorList;
+			public readonly string SHA1;
+			public readonly string Type;
 			public readonly Dictionary<string, string> Extract;
 
-			public ModDownload(MiniYaml yaml)
+			public ModDownload(MiniYaml yaml, ObjectCreator objectCreator)
 			{
+				ObjectCreator = objectCreator;
 				Title = yaml.Value;
 				FieldLoader.Load(this, yaml);
 			}
@@ -79,14 +103,15 @@ namespace OpenRA
 		public readonly string InstallPromptMessage;
 		public readonly string QuickDownload;
 		public readonly string HeaderMessage;
+		public readonly string ContentInstallerMod = "modcontent";
 
-		[FieldLoader.LoadUsing("LoadPackages")]
-		public readonly Dictionary<string, ModPackage> Packages = new Dictionary<string, ModPackage>();
+		[FieldLoader.LoadUsing(nameof(LoadPackages))]
+		public readonly Dictionary<string, ModPackage> Packages = new();
 
 		static object LoadPackages(MiniYaml yaml)
 		{
 			var packages = new Dictionary<string, ModPackage>();
-			var packageNode = yaml.Nodes.FirstOrDefault(n => n.Key == "Packages");
+			var packageNode = yaml.NodeWithKeyOrDefault("Packages");
 			if (packageNode != null)
 				foreach (var node in packageNode.Value.Nodes)
 					packages.Add(node.Key, new ModPackage(node.Value));
@@ -94,22 +119,22 @@ namespace OpenRA
 			return packages;
 		}
 
-		[FieldLoader.LoadUsing("LoadDownloads")]
-		public readonly string[] Downloads = { };
+		[FieldLoader.LoadUsing(nameof(LoadDownloads))]
+		public readonly string[] Downloads = Array.Empty<string>();
 
 		static object LoadDownloads(MiniYaml yaml)
 		{
-			var downloadNode = yaml.Nodes.FirstOrDefault(n => n.Key == "Downloads");
-			return downloadNode != null ? downloadNode.Value.Nodes.Select(n => n.Key).ToArray() : new string[0];
+			var downloadNode = yaml.NodeWithKeyOrDefault("Downloads");
+			return downloadNode != null ? downloadNode.Value.Nodes.Select(n => n.Key).ToArray() : Array.Empty<string>();
 		}
 
-		[FieldLoader.LoadUsing("LoadSources")]
-		public readonly string[] Sources = { };
+		[FieldLoader.LoadUsing(nameof(LoadSources))]
+		public readonly string[] Sources = Array.Empty<string>();
 
 		static object LoadSources(MiniYaml yaml)
 		{
-			var sourceNode = yaml.Nodes.FirstOrDefault(n => n.Key == "Sources");
-			return sourceNode != null ? sourceNode.Value.Nodes.Select(n => n.Key).ToArray() : new string[0];
+			var sourceNode = yaml.NodeWithKeyOrDefault("Sources");
+			return sourceNode != null ? sourceNode.Value.Nodes.Select(n => n.Key).ToArray() : Array.Empty<string>();
 		}
 	}
 }

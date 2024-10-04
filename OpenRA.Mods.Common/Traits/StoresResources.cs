@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,68 +9,100 @@
  */
 #endregion
 
+using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	[Desc("Used for silos.")]
-	class StoresResourcesInfo : ITraitInfo
+	[Desc("Allows the storage of resources.")]
+	public class StoresResourcesInfo : TraitInfo, IStoresResourcesInfo
 	{
 		[FieldLoader.Require]
-		[Desc("Number of little squares used to display how filled unit is.")]
-		public readonly int PipCount = 0;
-		public readonly PipType PipColor = PipType.Yellow;
-		[FieldLoader.Require]
-		public readonly int Capacity = 0;
-		public object Create(ActorInitializer init) { return new StoresResources(init.Self, this); }
+		[Desc("The amounts of resources that can be stored.")]
+		public readonly int Capacity = 28;
+
+		[Desc("Which resources can be stored.")]
+		public readonly string[] Resources = Array.Empty<string>();
+
+		string[] IStoresResourcesInfo.ResourceTypes => Resources;
+
+		public override object Create(ActorInitializer init) { return new StoresResources(init.Self, this); }
 	}
 
-	class StoresResources : IPips, INotifyOwnerChanged, INotifyCapture, IExplodeModifier, IStoreResources, ISync, INotifyActorDisposing
+	public class StoresResources : IStoresResources, ISync
 	{
+		readonly Dictionary<string, int> contents = new();
 		readonly StoresResourcesInfo info;
 
-		[Sync] public int Stored { get { return player.ResourceCapacity == 0 ? 0 : (int)((long)info.Capacity * player.Resources / player.ResourceCapacity); } }
+		[Sync]
+		public int ContentHash
+		{
+			get
+			{
+				var value = 0;
+				foreach (var c in contents)
+					value += c.Value << c.Key.Length;
 
-		PlayerResources player;
+				return value;
+			}
+		}
+
+		public int ContentsSum { get; private set; } = 0;
+		public IReadOnlyDictionary<string, int> Contents { get; }
+		int IStoresResources.Capacity => info.Capacity;
+
 		public StoresResources(Actor self, StoresResourcesInfo info)
 		{
-			player = self.Owner.PlayerActor.Trait<PlayerResources>();
 			this.info = info;
+
+			foreach (var r in info.Resources)
+				contents[r] = 0;
+
+			Contents = new ReadOnlyDictionary<string, int>(contents);
 		}
 
-		public int Capacity { get { return info.Capacity; } }
-
-		public void OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
+		public bool HasType(string resourceType)
 		{
-			player = newOwner.PlayerActor.Trait<PlayerResources>();
+			return info.Resources.Contains(resourceType);
 		}
 
-		public void OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner)
+		int IStoresResources.AddResource(string resourceType, int value)
 		{
-			var resources = Stored;
-			oldOwner.PlayerActor.Trait<PlayerResources>().TakeResources(resources);
-			newOwner.PlayerActor.Trait<PlayerResources>().GiveResources(resources);
+			if (!HasType(resourceType))
+				return value;
+
+			if (ContentsSum + value > info.Capacity)
+			{
+				var added = info.Capacity - ContentsSum;
+				contents[resourceType] += added;
+				ContentsSum = info.Capacity;
+				return value - added;
+			}
+
+			contents[resourceType] += value;
+			ContentsSum += value;
+			return 0;
 		}
 
-		bool disposed;
-		public void Disposing(Actor self)
+		int IStoresResources.RemoveResource(string resourceType, int value)
 		{
-			if (disposed)
-				return;
+			if (!HasType(resourceType))
+				return value;
 
-			player.TakeResources(Stored); // lose the stored resources
-			disposed = true;
+			if (contents[resourceType] < value)
+			{
+				var leftover = value - contents[resourceType];
+				ContentsSum -= contents[resourceType];
+				contents[resourceType] = 0;
+				return leftover;
+			}
+
+			contents[resourceType] -= value;
+			ContentsSum -= value;
+			return 0;
 		}
-
-		public IEnumerable<PipType> GetPips(Actor self)
-		{
-			return Enumerable.Range(0, info.PipCount).Select(i =>
-				player.Resources * info.PipCount > i * player.ResourceCapacity
-				? info.PipColor : PipType.Transparent);
-		}
-
-		public bool ShouldExplode(Actor self) { return Stored > 0; }
 	}
 }

@@ -1,24 +1,22 @@
 World:
 	LuaScript:
-		Scripts: gdi06.lua
+		Scripts: campaign.lua, utils.lua, gdi06.lua
 	MusicPlaylist:
 		BackgroundMusic: rain-ambient
 		StartingMusic: rain
 	WeatherOverlay:
 		ChangingWindLevel: true
-		WindLevels: -5, -3, -2, 0, 2, 3, 5
-		WindTick: 150, 550
 		InstantWindChanges: false
 		UseSquares: false
 		ScatterDirection: 0, 0
-		Gravity: 8.00, 12.00
+		Gravity: 15, 25
 		SwingOffset: 0, 0
 		SwingSpeed: 0, 0
 		SwingAmplitude: 0, 0
 		ParticleColors: 304074, 28386C, 202C60, 182C54
 		LineTailAlphaValue: 150
 		ParticleSize: 1, 1
-	GlobalLightingPaletteEffect:
+	TintPostProcessEffect:
 		Red: 0.75
 		Green: 0.85
 		Blue: 1.5
@@ -30,16 +28,17 @@ World:
 		WinVideo: sabotage.vqa
 		LossVideo: gdilose.vqa
 	MapOptions:
-		ShortGameLocked: True
-		ShortGameEnabled: True
+		ShortGameCheckboxLocked: True
+		ShortGameCheckboxEnabled: True
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
-		Default: easy
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+		Default: normal
 
 Player:
 	PlayerResources:
@@ -56,16 +55,6 @@ FLARE:
 	RevealsShroud:
 		Range: 5c0
 
-OLDLST:
-	Inherits: LST
-	-WithRoof:
-	-Selectable:
-	SelectionDecorations:
-		RenderSelectionBars: False
-	RejectsOrders:
-	Cargo:
-		Types: disabled
-
 SAM:
 	SpawnActorOnDeath:
 		Actor: e1
@@ -74,18 +63,19 @@ RMBO:
 	MustBeDestroyed:
 		RequiredForShortGame: true
 	AutoTarget:
-		TargetWhenIdle: false
-		TargetWhenDamaged: true
+		EnableStances: false
+		InitialStance: ReturnFire
 	Health:
-		HP: 150
+		HP: 15000
 
 RMBO.easy:
 	Inherits: RMBO
 	Health:
-		HP: 300
-	SelfHealing:
+		HP: 30000
+	ChangesHealth:
+		Step: 500
 		Delay: 10
-		HealIfBelow: 50
+		StartIfBelow: 50
 		DamageCooldown: 200
 	RenderSprites:
 		Image: RMBO
@@ -93,6 +83,8 @@ RMBO.easy:
 RMBO.hard:
 	Inherits: RMBO
 	-AutoTarget:
+	-AutoTargetPriority@DEFAULT:
+	-AutoTargetPriority@ATTACKANYTHING:
 	-AttackMove:
 	RenderSprites:
 		Image: RMBO

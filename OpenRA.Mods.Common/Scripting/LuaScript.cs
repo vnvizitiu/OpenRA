@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,48 +18,49 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Scripting
 {
+	[TraitLocation(SystemActors.World)]
 	[Desc("Part of the new Lua API.")]
-	public class LuaScriptInfo : ITraitInfo, Requires<SpawnMapActorsInfo>
+	public class LuaScriptInfo : TraitInfo, Requires<SpawnMapActorsInfo>, NotBefore<SpawnStartingUnitsInfo>
 	{
-		public readonly HashSet<string> Scripts = new HashSet<string>();
+		[Desc("File names with location relative to the map.")]
+		public readonly HashSet<string> Scripts = new();
 
-		public object Create(ActorInitializer init) { return new LuaScript(this); }
+		public override object Create(ActorInitializer init) { return new LuaScript(this); }
 	}
 
 	public class LuaScript : ITick, IWorldLoaded, INotifyActorDisposing
 	{
 		readonly LuaScriptInfo info;
-		ScriptContext context;
+		public ScriptContext Context;
+		bool disposed;
 
 		public LuaScript(LuaScriptInfo info)
 		{
 			this.info = info;
 		}
 
-		public void WorldLoaded(World world, WorldRenderer worldRenderer)
+		void IWorldLoaded.WorldLoaded(World world, WorldRenderer worldRenderer)
 		{
 			var scripts = info.Scripts ?? Enumerable.Empty<string>();
-			context = new ScriptContext(world, worldRenderer, scripts);
-			context.WorldLoaded();
+			Context = new ScriptContext(world, worldRenderer, scripts);
+			Context.WorldLoaded();
 		}
 
-		public void Tick(Actor self)
+		void ITick.Tick(Actor self)
 		{
-			context.Tick(self);
+			Context.Tick();
 		}
 
-		bool disposed;
-		public void Disposing(Actor self)
+		void INotifyActorDisposing.Disposing(Actor self)
 		{
 			if (disposed)
 				return;
 
-			if (context != null)
-				context.Dispose();
+			Context?.Dispose();
 
 			disposed = true;
 		}
 
-		public bool FatalErrorOccurred { get { return context.FatalErrorOccurred; } }
+		public bool FatalErrorOccurred => Context.FatalErrorOccurred;
 	}
 }

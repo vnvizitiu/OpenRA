@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,25 +9,36 @@
  */
 #endregion
 
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Sound
 {
-	public class CaptureNotificationInfo : ITraitInfo
+	public class CaptureNotificationInfo : TraitInfo
 	{
-		[Desc("The speech notification to play to the new owner.")]
+		[NotificationReference("Speech")]
+		[Desc("Speech notification to play to the new owner.")]
 		public readonly string Notification = "BuildingCaptured";
+
+		[FluentReference(optional: true)]
+		[Desc("Text notification to display to the new owner.")]
+		public readonly string TextNotification = null;
 
 		[Desc("Specifies if Notification is played with the voice of the new owners faction.")]
 		public readonly bool NewOwnerVoice = true;
 
-		[Desc("The speech notification to play to the old owner.")]
+		[NotificationReference("Speech")]
+		[Desc("Speech notification to play to the old owner.")]
 		public readonly string LoseNotification = null;
+
+		[FluentReference(optional: true)]
+		[Desc("Text notification to display to the old owner.")]
+		public readonly string LoseTextNotification = null;
 
 		[Desc("Specifies if LoseNotification is played with the voice of the new owners faction.")]
 		public readonly bool LoseNewOwnerVoice = false;
 
-		public object Create(ActorInitializer init) { return new CaptureNotification(this); }
+		public override object Create(ActorInitializer init) { return new CaptureNotification(this); }
 	}
 
 	public class CaptureNotification : INotifyCapture
@@ -38,13 +49,15 @@ namespace OpenRA.Mods.Common.Traits.Sound
 			this.info = info;
 		}
 
-		public void OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner)
+		void INotifyCapture.OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner, BitSet<CaptureType> captureTypes)
 		{
 			var faction = info.NewOwnerVoice ? newOwner.Faction.InternalName : oldOwner.Faction.InternalName;
 			Game.Sound.PlayNotification(self.World.Map.Rules, newOwner, "Speech", info.Notification, faction);
+			TextNotificationsManager.AddTransientLine(newOwner, info.TextNotification);
 
 			var loseFaction = info.LoseNewOwnerVoice ? newOwner.Faction.InternalName : oldOwner.Faction.InternalName;
 			Game.Sound.PlayNotification(self.World.Map.Rules, oldOwner, "Speech", info.LoseNotification, loseFaction);
+			TextNotificationsManager.AddTransientLine(oldOwner, info.LoseTextNotification);
 		}
 	}
 }

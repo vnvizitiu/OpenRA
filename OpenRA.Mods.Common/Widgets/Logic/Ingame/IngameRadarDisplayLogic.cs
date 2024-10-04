@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,10 +9,10 @@
  */
 #endregion
 
-using System.Drawing;
 using System.Linq;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Mods.Common.Traits.Radar;
-using OpenRA.Traits;
+using OpenRA.Primitives;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets.Logic
@@ -32,11 +32,11 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			var ticker = widget.Get<LogicTickerWidget>("RADAR_TICKER");
 			ticker.OnTick = () =>
 			{
-				radarEnabled = devMode.DisableShroud || world.ActorsHavingTrait<ProvidesRadar>(r => r.IsActive)
+				radarEnabled = devMode.DisableShroud || world.ActorsHavingTrait<ProvidesRadar>(r => !r.IsTraitDisabled)
 					.Any(a => a.Owner == world.LocalPlayer);
 
 				if (radarEnabled != cachedRadarEnabled)
-					Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", radarEnabled ? "RadarUp" : "RadarDown", null);
+					Game.Sound.PlayNotification(world.Map.Rules, null, "Sounds", radarEnabled ? radar.SoundUp : radar.SoundDown, null);
 				cachedRadarEnabled = radarEnabled;
 			};
 

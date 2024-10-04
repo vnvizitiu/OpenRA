@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,79 +10,126 @@
 #endregion
 
 using System.Linq;
+using OpenRA.Network;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public class ConquestVictoryConditionsInfo : ITraitInfo, Requires<MissionObjectivesInfo>
+	[TraitLocation(SystemActors.Player)]
+	public class ConquestVictoryConditionsInfo : TraitInfo, Requires<MissionObjectivesInfo>
 	{
 		[Desc("Delay for the end game notification in milliseconds.")]
 		public readonly int NotificationDelay = 1500;
 
 		[Desc("Description of the objective.")]
-		[Translate] public readonly string Objective = "Destroy all opposition!";
+		public readonly string Objective = "Destroy all opposition!";
 
-		public object Create(ActorInitializer init) { return new ConquestVictoryConditions(init.Self, this); }
+		[Desc("Disable the win/loss messages and audio notifications?")]
+		public readonly bool SuppressNotifications = false;
+
+		public override object Create(ActorInitializer init) { return new ConquestVictoryConditions(init.Self, this); }
 	}
 
-	public class ConquestVictoryConditions : ITick, INotifyObjectivesUpdated
+	public class ConquestVictoryConditions : ITick, INotifyWinStateChanged, INotifyTimeLimit
 	{
+		[FluentReference("player")]
+		const string PlayerIsVictorious = "notification-player-is-victorious";
+
+		[FluentReference("player")]
+		const string PlayerIsDefeated = "notification-player-is-defeated";
+
 		readonly ConquestVictoryConditionsInfo info;
 		readonly MissionObjectives mo;
+		readonly bool shortGame;
+		Player[] otherPlayers;
 		int objectiveID = -1;
 
 		public ConquestVictoryConditions(Actor self, ConquestVictoryConditionsInfo cvcInfo)
 		{
 			info = cvcInfo;
 			mo = self.Trait<MissionObjectives>();
+			shortGame = self.Owner.World.WorldActor.Trait<MapOptions>().ShortGame;
 		}
 
-		public void Tick(Actor self)
+		void ITick.Tick(Actor self)
 		{
-			if (self.Owner.WinState != WinState.Undefined || self.Owner.NonCombatant) return;
+			if (self.Owner.WinState != WinState.Undefined || self.Owner.NonCombatant)
+				return;
 
 			if (objectiveID < 0)
-				objectiveID = mo.Add(self.Owner, info.Objective, ObjectiveType.Primary, true);
+				objectiveID = mo.Add(self.Owner, info.Objective, "Primary", inhibitAnnouncement: true);
 
-			if (!self.Owner.NonCombatant && self.Owner.HasNoRequiredUnits())
+			if (!self.Owner.NonCombatant && self.Owner.HasNoRequiredUnits(shortGame))
 				mo.MarkFailed(self.Owner, objectiveID);
 
-			var others = self.World.Players.Where(p => !p.NonCombatant
-				&& !p.IsAlliedWith(self.Owner));
+			// Players, NonCombatants, and IsAlliedWith are all fixed once the game starts, so we can cache the result.
+			otherPlayers ??= self.World.Players.Where(p => !p.NonCombatant && !p.IsAlliedWith(self.Owner)).ToArray();
 
-			if (!others.Any()) return;
+			if (otherPlayers.Length == 0) return;
 
-			if (others.All(p => p.WinState == WinState.Lost))
+			// PERF: Avoid LINQ.
+			foreach (var otherPlayer in otherPlayers)
+				if (otherPlayer.WinState != WinState.Lost)
+					return;
+
+			mo.MarkCompleted(self.Owner, objectiveID);
+		}
+
+		void INotifyTimeLimit.NotifyTimerExpired(Actor self)
+		{
+			if (objectiveID < 0)
+				return;
+
+			var myTeam = self.World.LobbyInfo.ClientWithIndex(self.Owner.ClientIndex).Team;
+			var victoriousTeam = self.World.Players.Where(p => !p.NonCombatant && p.Playable)
+				.Select(p => (Player: p, PlayerStatistics: p.PlayerActor.TraitOrDefault<PlayerStatistics>()))
+				.OrderByDescending(p => p.PlayerStatistics?.Experience ?? 0)
+				.GroupBy(p => (self.World.LobbyInfo.ClientWithIndex(p.Player.ClientIndex) ?? new Session.Client()).Team)
+				.OrderByDescending(g => g.Sum(gg => gg.PlayerStatistics?.Experience ?? 0))
+				.First();
+
+			if (victoriousTeam.Key == myTeam && (myTeam != 0 || victoriousTeam.First().Player == self.Owner))
+			{
 				mo.MarkCompleted(self.Owner, objectiveID);
+				return;
+			}
+
+			mo.MarkFailed(self.Owner, objectiveID);
 		}
 
-		public void OnPlayerLost(Player player)
+		void INotifyWinStateChanged.OnPlayerLost(Player player)
 		{
-			Game.Debug("{0} is defeated.", player.PlayerName);
+			foreach (var a in player.World.ActorsWithTrait<INotifyOwnerLost>().Where(a => a.Actor.Owner == player))
+				a.Trait.OnOwnerLost(a.Actor);
 
-			foreach (var a in player.World.Actors.Where(a => a.Owner == player))
-				a.Kill(a);
+			if (info.SuppressNotifications)
+				return;
 
+			TextNotificationsManager.AddSystemLine(PlayerIsDefeated, "player", player.ResolvedPlayerName);
 			Game.RunAfterDelay(info.NotificationDelay, () =>
 			{
 				if (Game.IsCurrentWorld(player.World) && player == player.World.LocalPlayer)
-					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", "Lose", player.Faction.InternalName);
+				{
+					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", mo.Info.LoseNotification, player.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(player, mo.Info.LoseTextNotification);
+				}
 			});
 		}
 
-		public void OnPlayerWon(Player player)
+		void INotifyWinStateChanged.OnPlayerWon(Player player)
 		{
-			Game.Debug("{0} is victorious.", player.PlayerName);
+			if (info.SuppressNotifications)
+				return;
 
+			TextNotificationsManager.AddSystemLine(PlayerIsVictorious, "player", player.ResolvedPlayerName);
 			Game.RunAfterDelay(info.NotificationDelay, () =>
 			{
 				if (Game.IsCurrentWorld(player.World) && player == player.World.LocalPlayer)
-					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", "Win", player.Faction.InternalName);
+				{
+					Game.Sound.PlayNotification(player.World.Map.Rules, player, "Speech", mo.Info.WinNotification, player.Faction.InternalName);
+					TextNotificationsManager.AddTransientLine(player, mo.Info.WinTextNotification);
+				}
 			});
 		}
-
-		public void OnObjectiveAdded(Player player, int id) { }
-		public void OnObjectiveCompleted(Player player, int id) { }
-		public void OnObjectiveFailed(Player player, int id) { }
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,80 +9,114 @@
  */
 #endregion
 
-using System;
 using System.Collections.Generic;
-using System.Drawing;
 using OpenRA.Mods.Common.Activities;
 using OpenRA.Mods.Common.Orders;
+using OpenRA.Primitives;
+using OpenRA.Support;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public enum AlternateTransportsMode { None, Force, Default, Always }
-
 	[Desc("This actor can enter Cargo actors.")]
-	public class PassengerInfo : ITraitInfo
+	public class PassengerInfo : TraitInfo, IObservesVariablesInfo
 	{
 		public readonly string CargoType = null;
-		public readonly PipType PipType = PipType.Green;
+
+		[Desc("If defined, use a custom pip type defined on the transport's WithCargoPipsDecoration.CustomPipSequences list.")]
+		public readonly string CustomPipType = null;
+
 		public readonly int Weight = 1;
 
-		[Desc("Use to set when to use alternate transports (Never, Force, Default, Always).",
-			"Force - use force move modifier (Alt) to enable.",
-			"Default - use force move modifier (Alt) to disable.")]
-		public readonly AlternateTransportsMode AlternateTransportsMode = AlternateTransportsMode.Force;
+		[GrantedConditionReference]
+		[Desc("The condition to grant to when this actor is loaded inside any transport.")]
+		public readonly string CargoCondition = null;
 
-		[Desc("Number of retries using alternate transports.")]
-		public readonly int MaxAlternateTransportAttempts = 1;
+		[ActorReference(dictionaryReference: LintDictionaryReference.Keys)]
+		[Desc("Conditions to grant when this actor is loaded inside specified transport.",
+			"A dictionary of [actor name]: [condition].")]
+		public readonly Dictionary<string, string> CargoConditions = new();
 
-		[Desc("Range from self for looking for an alternate transport (default: 5.5 cells).")]
-		public readonly WDist AlternateTransportScanRange = WDist.FromCells(11) / 2;
+		[GrantedConditionReference]
+		public IEnumerable<string> LinterCargoConditions => CargoConditions.Values;
 
-		[Desc("Upgrade types to grant to transport.")]
-		[UpgradeGrantedReference] public readonly string[] GrantUpgrades = { };
+		[VoiceReference]
+		public readonly string Voice = "Action";
 
-		[VoiceReference] public readonly string Voice = "Action";
+		[Desc("Color to use for the target line.")]
+		public readonly Color TargetLineColor = Color.Green;
 
-		public object Create(ActorInitializer init) { return new Passenger(this); }
+		[ConsumedConditionReference]
+		[Desc("Boolean expression defining the condition under which the regular (non-force) enter cursor is disabled.")]
+		public readonly BooleanExpression RequireForceMoveCondition = null;
+
+		[CursorReference]
+		[Desc("Cursor to display when able to enter target actor.")]
+		public readonly string EnterCursor = "enter";
+
+		[CursorReference]
+		[Desc("Cursor to display when unable to enter target actor.")]
+		public readonly string EnterBlockedCursor = "enter-blocked";
+
+		public override object Create(ActorInitializer init) { return new Passenger(this); }
 	}
 
-	public class Passenger : IIssueOrder, IResolveOrder, IOrderVoice, INotifyRemovedFromWorld
+	public class Passenger : IIssueOrder, IResolveOrder, IOrderVoice,
+		INotifyRemovedFromWorld, INotifyEnteredCargo, INotifyExitedCargo, INotifyKilled, IObservesVariables
 	{
 		public readonly PassengerInfo Info;
+		public Actor Transport;
+		bool requireForceMove;
+
+		int anyCargoToken = Actor.InvalidConditionToken;
+		int specificCargoToken = Actor.InvalidConditionToken;
+
 		public Passenger(PassengerInfo info)
 		{
 			Info = info;
-			Func<Actor, bool> canTarget = IsCorrectCargoType;
-			Func<Actor, bool> useEnterCursor = CanEnter;
-			Orders = new EnterAlliedActorTargeter<CargoInfo>[]
-			{
-				new EnterTransportTargeter("EnterTransport", 5, canTarget, useEnterCursor, Info.AlternateTransportsMode),
-				new EnterTransportsTargeter("EnterTransports", 5, canTarget, useEnterCursor, Info.AlternateTransportsMode)
-			};
 		}
 
-		public Actor Transport;
 		public Cargo ReservedCargo { get; private set; }
 
-		public IEnumerable<IOrderTargeter> Orders { get; private set; }
-
-		public Order IssueOrder(Actor self, IOrderTargeter order, Target target, bool queued)
+		IEnumerable<IOrderTargeter> IIssueOrder.Orders
 		{
-			if (order.OrderID == "EnterTransport" || order.OrderID == "EnterTransports")
-				return new Order(order.OrderID, self, queued) { TargetActor = target.Actor };
+			get
+			{
+				yield return new EnterAlliedActorTargeter<CargoInfo>(
+					"EnterTransport",
+					5,
+					Info.EnterCursor,
+					Info.EnterBlockedCursor,
+					IsCorrectCargoType,
+					CanEnter);
+			}
+		}
+
+		public Order IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
+		{
+			if (order.OrderID == "EnterTransport")
+				return new Order(order.OrderID, self, target, queued);
 
 			return null;
 		}
 
+		bool IsCorrectCargoType(Actor target, TargetModifiers modifiers)
+		{
+			if (requireForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove))
+				return false;
+
+			return IsCorrectCargoType(target);
+		}
+
 		bool IsCorrectCargoType(Actor target)
 		{
-			var ci = target.Info.TraitInfo<CargoInfo>();
-			return ci.Types.Contains(Info.CargoType);
+			var cargo = target.Trait<Cargo>();
+			return !cargo.IsTraitDisabled && cargo.Info.Types.Contains(Info.CargoType);
 		}
 
 		bool CanEnter(Cargo cargo)
 		{
-			return cargo != null && cargo.HasSpace(Info.Weight);
+			return cargo != null && !cargo.IsTraitDisabled && cargo.HasSpace(Info.Weight);
 		}
 
 		bool CanEnter(Actor target)
@@ -92,44 +126,120 @@ namespace OpenRA.Mods.Common.Traits
 
 		public string VoicePhraseForOrder(Actor self, Order order)
 		{
-			if ((order.OrderString != "EnterTransport" && order.OrderString != "EnterTransports") ||
-				!CanEnter(order.TargetActor)) return null;
+			if (order.OrderString != "EnterTransport")
+				return null;
+
+			if (order.Target.Type != TargetType.Actor || !CanEnter(order.Target.Actor))
+				return null;
+
 			return Info.Voice;
 		}
 
-		public void ResolveOrder(Actor self, Order order)
+		void INotifyEnteredCargo.OnEnteredCargo(Actor self, Actor cargo)
 		{
-			if (order.OrderString == "EnterTransport" || order.OrderString == "EnterTransports")
+			if (anyCargoToken == Actor.InvalidConditionToken)
+				anyCargoToken = self.GrantCondition(Info.CargoCondition);
+
+			if (specificCargoToken == Actor.InvalidConditionToken && Info.CargoConditions.TryGetValue(cargo.Info.Name, out var specificCargoCondition))
+				specificCargoToken = self.GrantCondition(specificCargoCondition);
+
+			// Allow scripted / initial actors to move from the unload point back into the cell grid on unload
+			// This is handled by the RideTransport activity for player-loaded cargo
+			if (self.IsIdle)
 			{
-				if (order.TargetActor == null) return;
-				if (!CanEnter(order.TargetActor)) return;
-				if (!IsCorrectCargoType(order.TargetActor)) return;
-
-				var target = Target.FromOrder(self.World, order);
-				self.SetTargetLine(target, Color.Green);
-
-				self.CancelActivity();
-				var transports = order.OrderString == "EnterTransports";
-				self.QueueActivity(new EnterTransport(self, order.TargetActor, transports ? Info.MaxAlternateTransportAttempts : 0, transports));
+				// IMove is not used anywhere else in this trait, there is no benefit to caching it from Created.
+				var move = self.TraitOrDefault<IMove>();
+				if (move != null)
+					self.QueueActivity(move.ReturnToCell(self));
 			}
+		}
+
+		void INotifyExitedCargo.OnExitedCargo(Actor self, Actor cargo)
+		{
+			if (anyCargoToken != Actor.InvalidConditionToken)
+				anyCargoToken = self.RevokeCondition(anyCargoToken);
+
+			if (specificCargoToken != Actor.InvalidConditionToken)
+				specificCargoToken = self.RevokeCondition(specificCargoToken);
+		}
+
+		void IResolveOrder.ResolveOrder(Actor self, Order order)
+		{
+			if (order.OrderString != "EnterTransport")
+				return;
+
+			// Enter orders are only valid for own/allied actors,
+			// which are guaranteed to never be frozen.
+			if (order.Target.Type != TargetType.Actor)
+				return;
+
+			var targetActor = order.Target.Actor;
+			if (!CanEnter(targetActor))
+				return;
+
+			if (!IsCorrectCargoType(targetActor))
+				return;
+
+			self.QueueActivity(order.Queued, new RideTransport(self, order.Target, Info.TargetLineColor));
+			self.ShowTargetLines();
 		}
 
 		public bool Reserve(Actor self, Cargo cargo)
 		{
+			if (cargo == ReservedCargo)
+				return true;
+
 			Unreserve(self);
 			if (!cargo.ReserveSpace(self))
 				return false;
+
 			ReservedCargo = cargo;
 			return true;
 		}
 
-		public void RemovedFromWorld(Actor self) { Unreserve(self); }
+		void INotifyRemovedFromWorld.RemovedFromWorld(Actor self) { Unreserve(self); }
+
 		public void Unreserve(Actor self)
 		{
 			if (ReservedCargo == null)
 				return;
+
 			ReservedCargo.UnreserveSpace(self);
 			ReservedCargo = null;
+		}
+
+		public virtual void OnBeforeAddedToWorld(Actor actor)
+		{
+			actor.CancelActivity();
+		}
+
+		public virtual void OnEjectedFromKilledCargo(Actor self)
+		{
+			// Cancel all other activities to keep consistent behavior with the one in UnloadCargo.
+			self.CurrentActivity?.Cancel(self);
+
+			self.QueueActivity(new Nudge(self));
+		}
+
+		void INotifyKilled.Killed(Actor self, AttackInfo e)
+		{
+			if (Transport == null)
+				return;
+
+			// Something killed us, but it wasn't our transport blowing up. Remove us from the cargo.
+			if (!Transport.IsDead)
+				Transport.Trait<Cargo>().Unload(Transport, self);
+		}
+
+		IEnumerable<VariableObserver> IObservesVariables.GetVariableObservers()
+		{
+			if (Info.RequireForceMoveCondition != null)
+				yield return new VariableObserver(RequireForceMoveConditionChanged, Info.RequireForceMoveCondition.Variables);
+		}
+
+		void RequireForceMoveConditionChanged(Actor self, IReadOnlyDictionary<string, int> conditions)
+		{
+			requireForceMove = Info.RequireForceMoveCondition.Evaluate(conditions);
 		}
 	}
 }

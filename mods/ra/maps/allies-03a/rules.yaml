@@ -1,6 +1,6 @@
 World:
 	LuaScript:
-		Scripts: allies03a.lua
+		Scripts: campaign.lua, utils.lua, allies03a.lua
 	MissionData:
 		Briefing: LANDCOM 16 HQS.\nTOP SECRET.\nTO: FIELD COMMANDER A9\n\nINTELLIGENCE RECON SHOWS HEAVY\nSOVIET MOVEMENT IN YOUR AREA.\nNEARBY BRIDGES ARE KEY TO SOVIET\nADVANCEMENT. DESTROY ALL BRIDGES\nASAP. TANYA WILL ASSIST. KEEP HER\nALIVE AT ALL COSTS.\n\nCONFIRMATION CODE 1612.\n\nTRANSMISSION ENDS.\n
 		StartVideo: brdgtilt.vqa
@@ -8,52 +8,44 @@ World:
 		LossVideo: sovtstar.vqa
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-		Default: easy
-
-^Building:
-	Capturable:
-		CaptureThreshold: 25
-
-^TechBuilding:
-	Capturable:
-		Type: ~disabled
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
+		Default: normal
 
 powerproxy.paratroopers:
 	ParatroopersPower:
 		DropItems: E1,E1,E1,E2,E2
 
-HACKE6:
-	Inherits: E6
+E6:
+	Buildable:
+		Prerequisites: ~disabled
 	-RepairsBridges:
-	-ExternalCaptures:
-	Captures:
-		CaptureTypes: building
 	Targetable:
-		UpgradeTypes: jail
-		UpgradeMaxEnabledLevel: 0
+		RequiresCondition: !jail
 	Targetable@PRISONER:
 		TargetTypes: Prisoner
-	RenderSprites:
-		Image: E6
+	ExternalCondition@JAIL:
+		Condition: jail
 
 MEDI:
 	Targetable:
-		UpgradeTypes: jail
-		UpgradeMaxEnabledLevel: 0
+		RequiresCondition: !jail
 	Targetable@PRISONER:
 		TargetTypes: Prisoner
+	ExternalCondition@JAIL:
+		Condition: jail
 
 PRISON:
 	HiddenUnderShroud:
 		Type: CenterPosition
 	Immobile:
 		OccupiesSpace: false
-	UpgradeActorsNear:
-		Upgrades: jail
+	ProximityExternalCondition:
+		Condition: jail
 		Range: 1c0
 
 CAMERA:
@@ -64,13 +56,6 @@ CAMERA.VeryLarge:
 	Inherits: CAMERA
 	RevealsShroud:
 		Range: 40c0
-
-MONEYCRATE:
-	Tooltip:
-		Name: Crate
-	WithCrateBody:
-	RenderSprites:
-		Image: scrate
 
 E1.Autotarget:
 	Inherits: E1
@@ -136,7 +121,7 @@ MCV:
 	Buildable:
 		Prerequisites: ~disabled
 
-MNLY.AP:
+MNLY:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -200,15 +185,7 @@ E4:
 	Buildable:
 		Prerequisites: ~disabled
 
-E6:
-	Buildable:
-		Prerequisites: ~disabled
-
-SNIPER:
-	Buildable:
-		Prerequisites: ~disabled
-
-HIJACKER:
+THF:
 	Buildable:
 		Prerequisites: ~disabled
 

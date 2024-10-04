@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,10 +11,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using System.Globalization;
 using System.Linq;
-using System.Net;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Network;
 using OpenRA.Primitives;
 using OpenRA.Traits;
@@ -24,11 +24,26 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 {
 	public static class LobbyUtils
 	{
-		class SlotDropDownOption
+		[FluentReference]
+		const string Open = "options-lobby-slot.open";
+
+		[FluentReference]
+		const string Closed = "options-lobby-slot.closed";
+
+		[FluentReference]
+		const string Bots = "options-lobby-slot.bots";
+
+		[FluentReference]
+		const string BotsDisabled = "options-lobby-slot.bots-disabled";
+
+		[FluentReference]
+		const string Slot = "options-lobby-slot.slot";
+
+		sealed class SlotDropDownOption
 		{
-			public string Title;
-			public string Order;
-			public Func<bool> Selected;
+			public readonly string Title;
+			public readonly string Order;
+			public readonly Func<bool> Selected;
 
 			public SlotDropDownOption(string title, string order, Func<bool> selected)
 			{
@@ -38,227 +53,337 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			}
 		}
 
-		public static void ShowSlotDropDown(LobbyLogic logic, DropDownButtonWidget dropdown, Session.Slot slot,
-			Session.Client client, OrderManager orderManager)
+		public static void ShowSlotDropDown(DropDownButtonWidget dropdown, Session.Slot slot,
+			Session.Client client, OrderManager orderManager, MapPreview map, ModData modData)
 		{
-			var options = new Dictionary<string, IEnumerable<SlotDropDownOption>>() { { "Slot", new List<SlotDropDownOption>()
+			var open = FluentProvider.GetString(Open);
+			var closed = FluentProvider.GetString(Closed);
+			var options = new Dictionary<string, IEnumerable<SlotDropDownOption>>
 			{
-				new SlotDropDownOption("Open", "slot_open " + slot.PlayerReference, () => (!slot.Closed && client == null)),
-				new SlotDropDownOption("Closed", "slot_close " + slot.PlayerReference, () => slot.Closed)
-			} } };
+				{
+					FluentProvider.GetString(Slot), new List<SlotDropDownOption>
+					{
+						new(open, "slot_open " + slot.PlayerReference, () => !slot.Closed && client == null),
+						new(closed, "slot_close " + slot.PlayerReference, () => slot.Closed)
+					}
+				}
+			};
 
 			var bots = new List<SlotDropDownOption>();
 			if (slot.AllowBots)
 			{
-				foreach (var b in logic.Map.Rules.Actors["player"].TraitInfos<IBotInfo>().Select(t => t.Name))
+				foreach (var b in map.PlayerActorInfo.TraitInfos<IBotInfo>())
 				{
-					var bot = b;
 					var botController = orderManager.LobbyInfo.Clients.FirstOrDefault(c => c.IsAdmin);
-					bots.Add(new SlotDropDownOption(bot,
-						"slot_bot {0} {1} {2}".F(slot.PlayerReference, botController.Index, bot),
-						() => client != null && client.Bot == bot));
+					bots.Add(new SlotDropDownOption(FluentProvider.GetString(b.Name),
+						$"slot_bot {slot.PlayerReference} {botController.Index} {b.Type}",
+						() => client != null && client.Bot == b.Type));
 				}
 			}
 
-			options.Add(bots.Any() ? "Bots" : "Bots Disabled", bots);
+			options.Add(bots.Count > 0 ? FluentProvider.GetString(Bots) : FluentProvider.GetString(BotsDisabled), bots);
 
-			Func<SlotDropDownOption, ScrollItemWidget, ScrollItemWidget> setupItem = (o, itemTemplate) =>
+			ScrollItemWidget SetupItem(SlotDropDownOption o, ScrollItemWidget itemTemplate)
 			{
 				var item = ScrollItemWidget.Setup(itemTemplate,
 					o.Selected,
 					() => orderManager.IssueOrder(Order.Command(o.Order)));
 				item.Get<LabelWidget>("LABEL").GetText = () => o.Title;
 				return item;
+			}
+
+			dropdown.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 180, options, SetupItem);
+		}
+
+		public static void ShowPlayerActionDropDown(DropDownButtonWidget dropdown,
+			Session.Client c, OrderManager orderManager, Widget lobby, Action before, Action after)
+		{
+			Action<bool> okPressed = tempBan => { orderManager.IssueOrder(Order.Command($"kick {c.Index} {tempBan}")); after(); };
+			var onClick = new Action(() =>
+			{
+				before();
+
+				Game.LoadWidget(null, "KICK_CLIENT_DIALOG", lobby.Get("TOP_PANELS_ROOT"), new WidgetArgs
+				{
+					{ "clientName", c.Name },
+					{ "okPressed", okPressed },
+					{ "cancelPressed", after }
+				});
+			});
+
+			var options = new List<DropDownOption>
+			{
+				new()
+				{
+					Title = "Kick",
+					OnClick = onClick
+				},
 			};
 
-			dropdown.ShowDropDown("LABEL_DROPDOWN_TEMPLATE", 167, options, setupItem);
+			if (orderManager.LobbyInfo.GlobalSettings.Dedicated)
+			{
+				options.Add(new DropDownOption
+				{
+					Title = "Transfer Admin",
+					OnClick = () => orderManager.IssueOrder(Order.Command($"make_admin {c.Index}"))
+				});
+			}
+
+			if (!c.IsObserver && orderManager.LobbyInfo.GlobalSettings.AllowSpectators)
+			{
+				options.Add(new DropDownOption
+				{
+					Title = "Move to Spectator",
+					OnClick = () => orderManager.IssueOrder(Order.Command($"make_spectator {c.Index}"))
+				});
+			}
+
+			ScrollItemWidget SetupItem(DropDownOption o, ScrollItemWidget itemTemplate)
+			{
+				var item = ScrollItemWidget.Setup(itemTemplate, o.IsSelected, o.OnClick);
+				var labelWidget = item.Get<LabelWidget>("LABEL");
+				labelWidget.GetText = () => o.Title;
+				return item;
+			}
+
+			dropdown.ShowDropDown("PLAYERACTION_DROPDOWN_TEMPLATE", 167, options, SetupItem);
 		}
 
 		public static void ShowTeamDropDown(DropDownButtonWidget dropdown, Session.Client client,
 			OrderManager orderManager, int teamCount)
 		{
-			Func<int, ScrollItemWidget, ScrollItemWidget> setupItem = (ii, itemTemplate) =>
+			ScrollItemWidget SetupItem(int ii, ScrollItemWidget itemTemplate)
 			{
 				var item = ScrollItemWidget.Setup(itemTemplate,
 					() => client.Team == ii,
-					() => orderManager.IssueOrder(Order.Command("team {0} {1}".F(client.Index, ii))));
-				item.Get<LabelWidget>("LABEL").GetText = () => ii == 0 ? "-" : ii.ToString();
+					() => orderManager.IssueOrder(Order.Command($"team {client.Index} {ii}")));
+				item.Get<LabelWidget>("LABEL").GetText = () => ii == 0 ? "-" : ii.ToString(NumberFormatInfo.CurrentInfo);
 				return item;
-			};
+			}
 
 			var options = Enumerable.Range(0, teamCount + 1);
-			dropdown.ShowDropDown("TEAM_DROPDOWN_TEMPLATE", 150, options, setupItem);
+			dropdown.ShowDropDown("TEAM_DROPDOWN_TEMPLATE", 150, options, SetupItem);
+		}
+
+		public static void ShowHandicapDropDown(DropDownButtonWidget dropdown, Session.Client client,
+			OrderManager orderManager)
+		{
+			ScrollItemWidget SetupItem(int ii, ScrollItemWidget itemTemplate)
+			{
+				var item = ScrollItemWidget.Setup(itemTemplate,
+					() => client.Handicap == ii,
+					() => orderManager.IssueOrder(Order.Command($"handicap {client.Index} {ii}")));
+
+				var label = $"{ii}%";
+				item.Get<LabelWidget>("LABEL").GetText = () => label;
+				return item;
+			}
+
+			// Handicaps may be set between 0 - 95% in steps of 5%
+			var options = Enumerable.Range(0, 20).Select(i => 5 * i);
+			dropdown.ShowDropDown("TEAM_DROPDOWN_TEMPLATE", 150, options, SetupItem);
 		}
 
 		public static void ShowSpawnDropDown(DropDownButtonWidget dropdown, Session.Client client,
 			OrderManager orderManager, IEnumerable<int> spawnPoints)
 		{
-			Func<int, ScrollItemWidget, ScrollItemWidget> setupItem = (ii, itemTemplate) =>
+			ScrollItemWidget SetupItem(int ii, ScrollItemWidget itemTemplate)
 			{
 				var item = ScrollItemWidget.Setup(itemTemplate,
 					() => client.SpawnPoint == ii,
 					() => SetSpawnPoint(orderManager, client, ii));
 				item.Get<LabelWidget>("LABEL").GetText = () => ii == 0 ? "-" : Convert.ToChar('A' - 1 + ii).ToString();
 				return item;
-			};
+			}
 
-			dropdown.ShowDropDown("SPAWN_DROPDOWN_TEMPLATE", 150, spawnPoints, setupItem);
+			dropdown.ShowDropDown("SPAWN_DROPDOWN_TEMPLATE", 150, spawnPoints, SetupItem);
+		}
+
+		/// <summary>Splits a string into two parts on the first instance of a given token.</summary>
+		public static (string First, string Second) SplitOnFirstToken(string input, string token = "\n")
+		{
+			if (string.IsNullOrEmpty(input))
+				return (null, null);
+
+			var split = input.IndexOf(token, StringComparison.Ordinal);
+			var first = split > 0 ? input[..split] : input;
+			var second = split > 0 ? input[(split + token.Length)..] : null;
+			return (first, second);
 		}
 
 		public static void ShowFactionDropDown(DropDownButtonWidget dropdown, Session.Client client,
 			OrderManager orderManager, Dictionary<string, LobbyFaction> factions)
 		{
-			Func<string, ScrollItemWidget, ScrollItemWidget> setupItem = (factionId, itemTemplate) =>
+			ScrollItemWidget SetupItem(string factionId, ScrollItemWidget itemTemplate)
 			{
 				var item = ScrollItemWidget.Setup(itemTemplate,
 					() => client.Faction == factionId,
-					() => orderManager.IssueOrder(Order.Command("faction {0} {1}".F(client.Index, factionId))));
+					() => orderManager.IssueOrder(Order.Command($"faction {client.Index} {factionId}")));
 				var faction = factions[factionId];
-				item.Get<LabelWidget>("LABEL").GetText = () => faction.Name;
+
+				var label = item.Get<LabelWidget>("LABEL");
+				var labelText = WidgetUtils.TruncateText(FluentProvider.GetString(faction.Name), label.Bounds.Width, Game.Renderer.Fonts[label.Font]);
+				label.GetText = () => labelText;
+
 				var flag = item.Get<ImageWidget>("FLAG");
 				flag.GetImageCollection = () => "flags";
 				flag.GetImageName = () => factionId;
-				item.GetTooltipText = () => faction.Description;
+
+				var description = faction.Description != null ? FluentProvider.GetString(faction.Description) : null;
+				var (text, desc) = SplitOnFirstToken(description);
+				item.GetTooltipText = () => text;
+				item.GetTooltipDesc = () => desc;
+
 				return item;
-			};
+			}
 
 			var options = factions.Where(f => f.Value.Selectable).GroupBy(f => f.Value.Side)
-				.ToDictionary(g => g.Key ?? "", g => g.Select(f => f.Key));
+				.ToDictionary(g => g.Key != null ? FluentProvider.GetString(g.Key) : "", g => g.Select(f => FluentProvider.GetString(f.Key)));
 
-			dropdown.ShowDropDown("FACTION_DROPDOWN_TEMPLATE", 150, options, setupItem);
-		}
-
-		public static void ShowColorDropDown(DropDownButtonWidget color, Session.Client client,
-			OrderManager orderManager, World world, ColorPreviewManagerWidget preview)
-		{
-			Action onExit = () =>
-			{
-				if (client.Bot == null)
-				{
-					Game.Settings.Player.Color = preview.Color;
-					Game.Settings.Save();
-				}
-
-				color.RemovePanel();
-				orderManager.IssueOrder(Order.Command("color {0} {1}".F(client.Index, preview.Color)));
-			};
-
-			Action<HSLColor> onChange = c => preview.Color = c;
-
-			var colorChooser = Game.LoadWidget(world, "COLOR_CHOOSER", null, new WidgetArgs()
-			{
-				{ "onChange", onChange },
-				{ "initialColor", client.Color }
-			});
-
-			color.AttachPanel(colorChooser, onExit);
-		}
-
-		public static Dictionary<CPos, SpawnOccupant> GetSpawnOccupants(Session lobbyInfo, MapPreview preview)
-		{
-			var spawns = preview.SpawnPoints;
-			return lobbyInfo.Clients
-				.Where(c => (c.SpawnPoint - 1 >= 0) && (c.SpawnPoint - 1 < spawns.Length))
-				.ToDictionary(c => spawns[c.SpawnPoint - 1], c => new SpawnOccupant(c));
-		}
-
-		public static Dictionary<CPos, SpawnOccupant> GetSpawnOccupants(IEnumerable<GameInformation.Player> players, MapPreview preview)
-		{
-			var spawns = preview.SpawnPoints;
-			return players
-					.Where(c => (c.SpawnPoint - 1 >= 0) && (c.SpawnPoint - 1 < spawns.Length))
-					.ToDictionary(c => spawns[c.SpawnPoint - 1], c => new SpawnOccupant(c));
+			dropdown.ShowDropDown("FACTION_DROPDOWN_TEMPLATE", 154, options, SetupItem);
 		}
 
 		public static void SelectSpawnPoint(OrderManager orderManager, MapPreviewWidget mapPreview, MapPreview preview, MouseInput mi)
 		{
-			if (mi.Button != MouseButton.Left)
+			if (orderManager.LocalClient.State == Session.ClientState.Ready)
 				return;
 
-			if (!orderManager.LocalClient.IsObserver && orderManager.LocalClient.State == Session.ClientState.Ready)
-				return;
+			if (mi.Button == MouseButton.Left)
+				SelectPlayerSpawnPoint(orderManager, mapPreview, preview, mi);
 
-			var spawnSize = new float2(ChromeProvider.GetImage("lobby-bits", "spawn-unclaimed").Bounds.Size);
-			var selectedSpawn = preview.SpawnPoints
-				.Select((sp, i) => Pair.New(mapPreview.ConvertToPreview(sp, preview.GridType), i))
-				.Where(a => ((a.First - mi.Location).ToFloat2() / spawnSize * 2).LengthSquared <= 1)
-				.Select(a => a.Second + 1)
-				.FirstOrDefault();
+			if (mi.Button == MouseButton.Right)
+				ClearPlayerSpawnPoint(orderManager, mapPreview, preview, mi);
+		}
+
+		static void SelectPlayerSpawnPoint(OrderManager orderManager, MapPreviewWidget mapPreview, MapPreview preview, MouseInput mi)
+		{
+			var selectedSpawn = DetermineSelectedSpawnPoint(mapPreview, preview, mi);
 
 			var locals = orderManager.LobbyInfo.Clients.Where(c => c.Index == orderManager.LocalClient.Index || (Game.IsHost && c.Bot != null));
-			var playerToMove = locals.FirstOrDefault(c => ((selectedSpawn == 0) ^ (c.SpawnPoint == 0) && !c.IsObserver));
+			var playerToMove = locals.FirstOrDefault(c => (selectedSpawn == 0) ^ (c.SpawnPoint == 0) && !c.IsObserver);
 			SetSpawnPoint(orderManager, playerToMove, selectedSpawn);
 		}
 
-		private static void SetSpawnPoint(OrderManager orderManager, Session.Client playerToMove, int selectedSpawn)
+		static void ClearPlayerSpawnPoint(OrderManager orderManager, MapPreviewWidget mapPreview, MapPreview preview, MouseInput mi)
 		{
-			var owned = orderManager.LobbyInfo.Clients.Any(c => c.SpawnPoint == selectedSpawn);
-			if (selectedSpawn == 0 || !owned)
-				orderManager.IssueOrder(Order.Command("spawn {0} {1}".F((playerToMove ?? orderManager.LocalClient).Index, selectedSpawn)));
+			var selectedSpawn = DetermineSelectedSpawnPoint(mapPreview, preview, mi);
+			if (Game.IsHost || orderManager.LobbyInfo.Clients.FirstOrDefault(cc => cc.SpawnPoint == selectedSpawn) == orderManager.LocalClient)
+				orderManager.IssueOrder(Order.Command($"clear_spawn {selectedSpawn}"));
 		}
 
-		public static Color LatencyColor(Session.ClientPing ping)
+		static int DetermineSelectedSpawnPoint(MapPreviewWidget mapPreview, MapPreview preview, MouseInput mi)
 		{
-			if (ping == null)
+			var spawnSize = ChromeProvider.GetImage("lobby-bits", "spawn-unclaimed").Size.XY;
+			var selectedSpawn = preview.SpawnPoints
+				.Select((sp, i) => (SpawnLocation: mapPreview.ConvertToPreview(sp, preview.GridType), Index: i))
+				.Where(a => ((a.SpawnLocation - mi.Location).ToFloat2() / spawnSize * 2).LengthSquared <= 1)
+				.Select(a => a.Index + 1)
+				.FirstOrDefault();
+			return selectedSpawn;
+		}
+
+		static void SetSpawnPoint(OrderManager orderManager, Session.Client playerToMove, int selectedSpawnPoint)
+		{
+			var owned =
+				orderManager.LobbyInfo.Clients.Any(c => c.SpawnPoint == selectedSpawnPoint) ||
+				orderManager.LobbyInfo.DisabledSpawnPoints.Contains(selectedSpawnPoint);
+			if (selectedSpawnPoint == 0 || !owned)
+				orderManager.IssueOrder(Order.Command($"spawn {(playerToMove ?? orderManager.LocalClient).Index} {selectedSpawnPoint}"));
+		}
+
+		public static List<int> AvailableSpawnPoints(int spawnPoints, Session lobbyInfo)
+		{
+			return Enumerable.Range(1, spawnPoints).Except(lobbyInfo.DisabledSpawnPoints).ToList();
+		}
+
+		public static bool InsufficientEnabledSpawnPoints(MapPreview map, Session lobbyInfo)
+		{
+			// If a map doesn't define spawn points we always have enough space
+			var spawnPoints = map.SpawnPoints.Length;
+			if (spawnPoints == 0)
+				return false;
+
+			return AvailableSpawnPoints(spawnPoints, lobbyInfo).Count < lobbyInfo.Clients.Count(c => !c.IsObserver);
+		}
+
+		public static Color LatencyColor(Session.Client client)
+		{
+			if (client == null)
 				return Color.Gray;
 
-			// Levels set relative to the default order lag of 3 net ticks (360ms)
-			// TODO: Adjust this once dynamic lag is implemented
-			if (ping.Latency < 0)
-				return Color.Gray;
-			if (ping.Latency < 300)
-				return Color.LimeGreen;
-			if (ping.Latency < 600)
-				return Color.Orange;
-			return Color.Red;
+			switch (client.ConnectionQuality)
+			{
+				case Session.ConnectionQuality.Good: return Color.LimeGreen;
+				case Session.ConnectionQuality.Moderate: return Color.Orange;
+				case Session.ConnectionQuality.Poor: return Color.Red;
+				default: return Color.Gray;
+			}
 		}
 
-		public static string LatencyDescription(Session.ClientPing ping)
+		public static string LatencyDescription(Session.Client client)
 		{
-			if (ping == null)
+			if (client == null)
 				return "Unknown";
 
-			if (ping.Latency < 0)
-				return "Unknown";
-			if (ping.Latency < 300)
-				return "Good";
-			if (ping.Latency < 600)
-				return "Moderate";
-			return "Poor";
+			switch (client.ConnectionQuality)
+			{
+				case Session.ConnectionQuality.Good: return "Good";
+				case Session.ConnectionQuality.Moderate: return "Moderate";
+				case Session.ConnectionQuality.Poor: return "Poor";
+				default: return "Unknown";
+			}
 		}
 
-		public static string DescriptiveIpAddress(string ip)
+		public static void SetupLatencyWidget(Widget parent, Session.Client c, OrderManager orderManager)
 		{
-			if (ip == null)
-				return "Unknown Host";
-			if (ip == IPAddress.Loopback.ToString())
-				return "Local Host";
-			return ip;
-		}
-
-		public static void SetupClientWidget(Widget parent, Session.Client c, OrderManager orderManager, bool visible)
-		{
-			var adminIndicator = parent.GetOrNull("ADMIN_INDICATOR");
-			if (adminIndicator != null)
-				adminIndicator.IsVisible = () => c != null && c.IsAdmin;
-
+			var visible = c != null && c.Bot == null;
 			var block = parent.GetOrNull("LATENCY");
 			if (block != null)
 			{
 				block.IsVisible = () => visible;
 
 				if (visible)
-					block.Get<ColorBlockWidget>("LATENCY_COLOR").GetColor = () => LatencyColor(
-						orderManager.LobbyInfo.PingFromClient(c));
+					block.Get<ColorBlockWidget>("LATENCY_COLOR").GetColor = () => LatencyColor(c);
 			}
 
-			var tooltip = parent.Get<ClientTooltipRegionWidget>("CLIENT_REGION");
-			tooltip.IsVisible = () => c != null && visible;
-			if (c != null)
-				tooltip.Bind(orderManager, c.Index);
+			var tooltip = parent.Get<ClientTooltipRegionWidget>("LATENCY_REGION");
+			tooltip.IsVisible = () => visible;
+			if (visible)
+				tooltip.Bind(orderManager, null, c);
 		}
 
-		public static void SetupEditableNameWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager)
+		public static void SetupProfileWidget(Widget parent, Session.Client c, OrderManager orderManager, WorldRenderer worldRenderer)
+		{
+			var profile = parent.GetOrNull<ImageWidget>("PROFILE");
+			if (profile != null)
+			{
+				var imageName = c.IsBot ? "bot" :
+					c.IsAdmin ? "admin-" :
+						"player-";
+
+				if (!c.IsBot)
+					imageName += c.Fingerprint != null ? "registered" : "anonymous";
+
+				profile.GetImageName = () => imageName;
+				profile.IsVisible = () => true;
+			}
+
+			var profileTooltip = parent.GetOrNull<ClientTooltipRegionWidget>("PROFILE_TOOLTIP");
+			if (profileTooltip != null)
+			{
+				if (c.Fingerprint != null)
+					profileTooltip.Template = "REGISTERED_PLAYER_TOOLTIP";
+
+				if (c.IsBot)
+					profileTooltip.Template = "BOT_TOOLTIP";
+
+				profileTooltip.Bind(orderManager, worldRenderer, c);
+
+				profileTooltip.IsVisible = () => true;
+			}
+		}
+
+		public static void SetupEditableNameWidget(Widget parent, Session.Client c, OrderManager orderManager, WorldRenderer worldRenderer)
 		{
 			var name = parent.Get<TextFieldWidget>("NAME");
 			name.IsVisible = () => true;
@@ -286,67 +411,85 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				}
 			};
 
-			name.OnEnterKey = () => { name.YieldKeyboardFocus(); return true; };
-			name.OnEscKey = () =>
+			name.OnEnterKey = _ => { name.YieldKeyboardFocus(); return true; };
+			name.OnEscKey = _ =>
 			{
 				name.Text = c.Name;
 				escPressed = true;
 				name.YieldKeyboardFocus();
 				return true;
 			};
+
+			SetupProfileWidget(name, c, orderManager, worldRenderer);
+
+			HideChildWidget(parent, "SLOT_OPTIONS");
 		}
 
-		public static void SetupNameWidget(Widget parent, Session.Slot s, Session.Client c)
+		public static void SetupNameWidget(Widget parent, Session.Client c, OrderManager orderManager, WorldRenderer worldRenderer)
 		{
-			var name = parent.Get<LabelWidget>("NAME");
-			var font = Game.Renderer.Fonts[name.Font];
-			var label = WidgetUtils.TruncateText(c.Name, name.Bounds.Width, font);
-			name.GetText = () => label;
+			var label = parent.Get<LabelWidget>("NAME");
+			label.IsVisible = () => true;
+			var font = Game.Renderer.Fonts[label.Font];
+			var name = c.IsBot ? FluentProvider.GetString(c.Name) : c.Name;
+			var text = WidgetUtils.TruncateText(name, label.Bounds.Width, font);
+			label.GetText = () => text;
+
+			SetupProfileWidget(parent, c, orderManager, worldRenderer);
 		}
 
-		public static void SetupEditableSlotWidget(LobbyLogic logic, Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager)
+		public static void SetupEditableSlotWidget(Widget parent, Session.Slot s, Session.Client c,
+			OrderManager orderManager, MapPreview map, ModData modData)
 		{
 			var slot = parent.Get<DropDownButtonWidget>("SLOT_OPTIONS");
 			slot.IsVisible = () => true;
 			slot.IsDisabled = () => orderManager.LocalClient.IsReady;
-			slot.GetText = () => c != null ? c.Name : s.Closed ? "Closed" : "Open";
-			slot.OnMouseDown = _ => ShowSlotDropDown(logic, slot, s, c, orderManager);
+
+			var truncated = new CachedTransform<string, string>(name =>
+				WidgetUtils.TruncateText(name, slot.Bounds.Width - slot.Bounds.Height - slot.LeftMargin - slot.RightMargin,
+				Game.Renderer.Fonts[slot.Font]));
+
+			var closed = FluentProvider.GetString(Closed);
+			var open = FluentProvider.GetString(Open);
+			slot.GetText = () => truncated.Update(c != null ?
+				c.IsBot ? FluentProvider.GetString(c.Name) : c.Name
+					: s.Closed ? closed : open);
+
+			slot.OnMouseDown = _ => ShowSlotDropDown(slot, s, c, orderManager, map, modData);
 
 			// Ensure Name selector (if present) is hidden
-			var name = parent.GetOrNull("NAME");
-			if (name != null)
-				name.IsVisible = () => false;
+			HideChildWidget(parent, "NAME");
 		}
 
-		public static void SetupSlotWidget(Widget parent, Session.Slot s, Session.Client c)
+		public static void SetupSlotWidget(Widget parent, ModData modData, Session.Slot s, Session.Client c)
 		{
 			var name = parent.Get<LabelWidget>("NAME");
 			name.IsVisible = () => true;
-			name.GetText = () => c != null ? c.Name : s.Closed ? "Closed" : "Open";
+			name.GetText = () => c != null ? c.Name : s.Closed
+				? FluentProvider.GetString(Closed)
+				: FluentProvider.GetString(Open);
 
 			// Ensure Slot selector (if present) is hidden
-			var slot = parent.GetOrNull("SLOT_OPTIONS");
-			if (slot != null)
-				slot.IsVisible = () => false;
+			HideChildWidget(parent, "SLOT_OPTIONS");
 		}
 
-		public static void SetupKickWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager, Widget lobby, Action before, Action after)
+		public static void SetupPlayerActionWidget(Widget parent, Session.Client c, OrderManager orderManager,
+			WorldRenderer worldRenderer, Widget lobby, Action before, Action after)
 		{
-			var button = parent.Get<ButtonWidget>("KICK");
-			button.IsVisible = () => Game.IsHost && c.Index != orderManager.LocalClient.Index;
-			button.IsDisabled = () => orderManager.LocalClient.IsReady;
-			Action<bool> okPressed = tempBan => { orderManager.IssueOrder(Order.Command("kick {0} {1}".F(c.Index, tempBan))); after(); };
-			button.OnClick = () =>
-			{
-				before();
+			var slot = parent.Get<DropDownButtonWidget>("PLAYER_ACTION");
+			slot.IsVisible = () => Game.IsHost && c.Index != orderManager.LocalClient.Index;
+			slot.IsDisabled = () => orderManager.LocalClient.IsReady;
 
-				Game.LoadWidget(null, "KICK_CLIENT_DIALOG", lobby.Get("TOP_PANELS_ROOT"), new WidgetArgs
-				{
-					{ "clientName", c.Name },
-					{ "okPressed", okPressed },
-					{ "cancelPressed", after }
-				});
-			};
+			var truncated = new CachedTransform<string, string>(name =>
+				WidgetUtils.TruncateText(name, slot.Bounds.Width - slot.Bounds.Height - slot.LeftMargin - slot.RightMargin,
+				Game.Renderer.Fonts[slot.Font]));
+
+			slot.GetText = () => truncated.Update(c != null ? c.Name : string.Empty);
+			slot.OnMouseDown = _ => ShowPlayerActionDropDown(slot, c, orderManager, lobby, before, after);
+
+			SetupProfileWidget(slot, c, orderManager, worldRenderer);
+
+			// Ensure Name selector (if present) is hidden
+			HideChildWidget(parent, "NAME");
 		}
 
 		public static void SetupKickSpectatorsWidget(Widget parent, OrderManager orderManager, Widget lobby, Action before, Action after, bool skirmishMode)
@@ -356,16 +499,16 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			checkBox.IsVisible = () => orderManager.LocalClient.IsAdmin && !skirmishMode;
 			checkBox.IsDisabled = () => false;
 
-			Action okPressed = () =>
+			void OkPressed()
 			{
-				orderManager.IssueOrder(Order.Command("allow_spectators {0}".F(!orderManager.LobbyInfo.GlobalSettings.AllowSpectators)));
+				orderManager.IssueOrder(Order.Command($"allow_spectators {!orderManager.LobbyInfo.GlobalSettings.AllowSpectators}"));
 				orderManager.IssueOrders(
 					orderManager.LobbyInfo.Clients.Where(
 						c => c.IsObserver && !c.IsAdmin).Select(
-							client => Order.Command("kick {0} {1}".F(client.Index, client.Name))).ToArray());
+							client => Order.Command($"kick {client.Index} {client.Name}")).ToArray());
 
 				after();
-			};
+			}
 
 			checkBox.OnClick = () =>
 			{
@@ -376,32 +519,42 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 				{
 					Game.LoadWidget(null, "KICK_SPECTATORS_DIALOG", lobby.Get("TOP_PANELS_ROOT"), new WidgetArgs
 					{
-						{ "clientCount", "{0}".F(spectatorCount) },
-						{ "okPressed", okPressed },
+						{ "clientCount", spectatorCount },
+						{ "okPressed", OkPressed },
 						{ "cancelPressed", after }
 					});
 				}
 				else
 				{
-					orderManager.IssueOrder(Order.Command("allow_spectators {0}".F(!orderManager.LobbyInfo.GlobalSettings.AllowSpectators)));
+					orderManager.IssueOrder(Order.Command($"allow_spectators {!orderManager.LobbyInfo.GlobalSettings.AllowSpectators}"));
 					after();
 				}
 			};
 		}
 
-		public static void SetupEditableColorWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager, World world, ColorPreviewManagerWidget colorPreview)
+		public static void SetupEditableColorWidget(Widget parent, Session.Slot s, Session.Client c,
+			OrderManager orderManager, WorldRenderer worldRenderer, IColorPickerManagerInfo colorManager)
 		{
-			var color = parent.Get<DropDownButtonWidget>("COLOR");
-			color.IsDisabled = () => (s != null && s.LockColor) || orderManager.LocalClient.IsReady;
-			color.OnMouseDown = _ => ShowColorDropDown(color, c, orderManager, world, colorPreview);
+			var colorDropdown = parent.Get<DropDownButtonWidget>("COLOR");
+			colorDropdown.IsDisabled = () => (s != null && s.LockColor) || orderManager.LocalClient.IsReady;
+			colorDropdown.OnMouseDown = _ => colorManager.ShowColorDropDown(colorDropdown, c.Color, c.Faction, worldRenderer, color =>
+			{
+				if (c == orderManager.LocalClient)
+				{
+					Game.Settings.Player.Color = color;
+					Game.Settings.Save();
+				}
 
-			SetupColorWidget(color, s, c);
+				orderManager.IssueOrder(Order.Command($"color {c.Index} {color}"));
+			});
+
+			SetupColorWidget(colorDropdown, c);
 		}
 
-		public static void SetupColorWidget(Widget parent, Session.Slot s, Session.Client c)
+		public static void SetupColorWidget(Widget parent, Session.Client c)
 		{
 			var color = parent.Get<ColorBlockWidget>("COLORBLOCK");
-			color.GetColor = () => c.Color.RGB;
+			color.GetColor = () => c.Color;
 		}
 
 		public static void SetupEditableFactionWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager,
@@ -410,16 +563,23 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 			var dropdown = parent.Get<DropDownButtonWidget>("FACTION");
 			dropdown.IsDisabled = () => s.LockFaction || orderManager.LocalClient.IsReady;
 			dropdown.OnMouseDown = _ => ShowFactionDropDown(dropdown, c, orderManager, factions);
-			var factionDescription = factions[c.Faction].Description;
-			dropdown.GetTooltipText = () => factionDescription;
-			SetupFactionWidget(dropdown, s, c, factions);
+
+			var description = factions[c.Faction].Description != null ? FluentProvider.GetString(factions[c.Faction].Description) : null;
+			var (text, desc) = SplitOnFirstToken(description);
+			dropdown.GetTooltipText = () => text;
+			dropdown.GetTooltipDesc = () => desc;
+
+			SetupFactionWidget(dropdown, c, factions);
 		}
 
-		public static void SetupFactionWidget(Widget parent, Session.Slot s, Session.Client c,
-			Dictionary<string, LobbyFaction> factions)
+		public static void SetupFactionWidget(Widget parent, Session.Client c, Dictionary<string, LobbyFaction> factions)
 		{
 			var factionName = parent.Get<LabelWidget>("FACTIONNAME");
-			factionName.GetText = () => factions[c.Faction].Name;
+			var font = Game.Renderer.Fonts[factionName.Font];
+			var truncated = new CachedTransform<string, string>(clientFaction =>
+				WidgetUtils.TruncateText(FluentProvider.GetString(factions[clientFaction].Name), factionName.Bounds.Width, font));
+			factionName.GetText = () => truncated.Update(c.Faction);
+
 			var factionFlag = parent.Get<ImageWidget>("FACTIONFLAG");
 			factionFlag.GetImageName = () => c.Faction;
 			factionFlag.GetImageCollection = () => "flags";
@@ -427,95 +587,121 @@ namespace OpenRA.Mods.Common.Widgets.Logic
 
 		public static void SetupEditableTeamWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager, MapPreview map)
 		{
-			var dropdown = parent.Get<DropDownButtonWidget>("TEAM");
+			var dropdown = parent.Get<DropDownButtonWidget>("TEAM_DROPDOWN");
+			dropdown.IsVisible = () => true;
 			dropdown.IsDisabled = () => s.LockTeam || orderManager.LocalClient.IsReady;
 			dropdown.OnMouseDown = _ => ShowTeamDropDown(dropdown, c, orderManager, map.PlayerCount);
-			dropdown.GetText = () => (c.Team == 0) ? "-" : c.Team.ToString();
+			dropdown.GetText = () => (c.Team == 0) ? "-" : c.Team.ToString(NumberFormatInfo.CurrentInfo);
+
+			HideChildWidget(parent, "TEAM");
 		}
 
-		public static void SetupTeamWidget(Widget parent, Session.Slot s, Session.Client c)
+		public static void SetupTeamWidget(Widget parent, Session.Client c)
 		{
-			parent.Get<LabelWidget>("TEAM").GetText = () => (c.Team == 0) ? "-" : c.Team.ToString();
+			var team = parent.Get<LabelWidget>("TEAM");
+			team.IsVisible = () => true;
+			team.GetText = () => (c.Team == 0) ? "-" : c.Team.ToString(NumberFormatInfo.CurrentInfo);
+			HideChildWidget(parent, "TEAM_DROPDOWN");
+		}
+
+		public static void SetupEditableHandicapWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager)
+		{
+			var dropdown = parent.Get<DropDownButtonWidget>("HANDICAP_DROPDOWN");
+			dropdown.IsVisible = () => true;
+			dropdown.IsDisabled = () => s.LockHandicap || orderManager.LocalClient.IsReady;
+			dropdown.OnMouseDown = _ => ShowHandicapDropDown(dropdown, c, orderManager);
+
+			var handicapLabel = new CachedTransform<int, string>(h => $"{h}%");
+			dropdown.GetText = () => handicapLabel.Update(c.Handicap);
+
+			HideChildWidget(parent, "HANDICAP");
+		}
+
+		public static void SetupHandicapWidget(Widget parent, Session.Client c)
+		{
+			var team = parent.Get<LabelWidget>("HANDICAP");
+			team.IsVisible = () => true;
+
+			var handicapLabel = new CachedTransform<int, string>(h => $"{h}%");
+			team.GetText = () => handicapLabel.Update(c.Handicap);
+			HideChildWidget(parent, "HANDICAP_DROPDOWN");
 		}
 
 		public static void SetupEditableSpawnWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager, MapPreview map)
 		{
-			var dropdown = parent.Get<DropDownButtonWidget>("SPAWN");
+			var dropdown = parent.Get<DropDownButtonWidget>("SPAWN_DROPDOWN");
+			dropdown.IsVisible = () => true;
 			dropdown.IsDisabled = () => s.LockSpawn || orderManager.LocalClient.IsReady;
 			dropdown.OnMouseDown = _ =>
 			{
 				var spawnPoints = Enumerable.Range(0, map.SpawnPoints.Length + 1).Except(
 					orderManager.LobbyInfo.Clients.Where(
-					client => client != c && client.SpawnPoint != 0).Select(client => client.SpawnPoint));
+					client => client != c && client.SpawnPoint != 0).Select(client => client.SpawnPoint))
+					.Except(orderManager.LobbyInfo.DisabledSpawnPoints);
 				ShowSpawnDropDown(dropdown, c, orderManager, spawnPoints);
 			};
 			dropdown.GetText = () => (c.SpawnPoint == 0) ? "-" : Convert.ToChar('A' - 1 + c.SpawnPoint).ToString();
+
+			HideChildWidget(parent, "SPAWN");
 		}
 
-		public static void SetupSpawnWidget(Widget parent, Session.Slot s, Session.Client c)
+		public static void SetupSpawnWidget(Widget parent, Session.Client c)
 		{
-			parent.Get<LabelWidget>("SPAWN").GetText = () => (c.SpawnPoint == 0) ? "-" : Convert.ToChar('A' - 1 + c.SpawnPoint).ToString();
+			var spawn = parent.Get<LabelWidget>("SPAWN");
+			spawn.IsVisible = () => true;
+			spawn.GetText = () => (c.SpawnPoint == 0) ? "-" : Convert.ToChar('A' - 1 + c.SpawnPoint).ToString();
+			HideChildWidget(parent, "SPAWN_DROPDOWN");
 		}
 
-		public static void SetupEditableReadyWidget(Widget parent, Session.Slot s, Session.Client c, OrderManager orderManager, MapPreview map)
+		public static void SetupEditableReadyWidget(Widget parent, Session.Client c, OrderManager orderManager, MapPreview map, bool isEnabled)
 		{
 			var status = parent.Get<CheckboxWidget>("STATUS_CHECKBOX");
-			status.IsChecked = () => orderManager.LocalClient.IsReady || c.Bot != null;
 			status.IsVisible = () => true;
-			status.IsDisabled = () => c.Bot != null || map.Status != MapStatus.Available ||
-				!map.RulesLoaded || map.InvalidCustomRules;
-
-			var state = orderManager.LocalClient.IsReady ? Session.ClientState.NotReady : Session.ClientState.Ready;
-			status.OnClick = () => orderManager.IssueOrder(Order.Command("state {0}".F(state)));
+			status.IsDisabled = () => c.Bot != null || map.Status != MapStatus.Available || !isEnabled;
+			if (c.Bot == null)
+			{
+				var isChecked = new PredictedCachedTransform<Session.Client, bool>(cc => cc.IsReady);
+				status.IsChecked = () => isChecked.Update(c);
+				status.OnClick = () =>
+				{
+					var state = isChecked.Update(c) ? Session.ClientState.NotReady : Session.ClientState.Ready;
+					orderManager.IssueOrder(Order.Command($"state {state}"));
+					isChecked.Predict(!c.IsReady);
+				};
+			}
+			else
+				status.IsChecked = () => true;
 		}
 
-		public static void SetupReadyWidget(Widget parent, Session.Slot s, Session.Client c)
+		public static void SetupReadyWidget(Widget parent, Session.Client c)
 		{
 			parent.Get<ImageWidget>("STATUS_IMAGE").IsVisible = () => c.IsReady || c.Bot != null;
 		}
 
-		public static void AddPlayerFlagAndName(ScrollItemWidget template, Player player)
+		public static void HideReadyWidgets(Widget parent)
 		{
-			var flag = template.Get<ImageWidget>("FLAG");
-			flag.GetImageCollection = () => "flags";
-			if (player.World.RenderPlayer != null && player.World.RenderPlayer.Stances[player] != Stance.Ally)
-				flag.GetImageName = () => player.DisplayFaction.InternalName;
-			else
-				flag.GetImageName = () => player.Faction.InternalName;
-
-			var client = player.World.LobbyInfo.ClientWithIndex(player.ClientIndex);
-			var playerName = template.Get<LabelWidget>("PLAYER");
-			var playerNameFont = Game.Renderer.Fonts[playerName.Font];
-			var suffixLength = new CachedTransform<string, int>(s => playerNameFont.Measure(s).X);
-			var name = new CachedTransform<Pair<string, int>, string>(c =>
-				WidgetUtils.TruncateText(c.First, playerName.Bounds.Width - c.Second, playerNameFont));
-
-			playerName.GetText = () =>
-			{
-				var suffix = player.WinState == WinState.Undefined ? "" : " (" + player.WinState + ")";
-				if (client != null && client.State == Session.ClientState.Disconnected)
-					suffix = " (Gone)";
-
-				var sl = suffixLength.Update(suffix);
-				return name.Update(Pair.New(player.PlayerName, sl)) + suffix;
-			};
-
-			playerName.GetColor = () => player.Color.RGB;
+			HideChildWidget(parent, "STATUS_CHECKBOX");
+			HideChildWidget(parent, "STATUS_IMAGE");
 		}
 
-		public static string GetExternalIP(int clientIndex, OrderManager orderManager)
+		static void HideChildWidget(Widget parent, string widgetId)
 		{
-			var client = orderManager.LobbyInfo.ClientWithIndex(clientIndex);
-			var address = client != null ? client.IpAddress : "";
-			var lc = orderManager.LocalClient;
-			if (lc != null && lc.Index == clientIndex && address == IPAddress.Loopback.ToString())
-			{
-				var externalIP = UPnP.ExternalIP;
-				if (externalIP != null)
-					address = externalIP.ToString();
-			}
+			var widget = parent.GetOrNull(widgetId);
+			if (widget != null)
+				widget.IsVisible = () => false;
+		}
+	}
 
-			return address;
+	sealed class ShowPlayerActionDropDownOption
+	{
+		public Action Click { get; set; }
+		public string Title;
+		public Func<bool> Selected = () => false;
+
+		public ShowPlayerActionDropDownOption(string title, Action click)
+		{
+			Click = click;
+			Title = title;
 		}
 	}
 }

@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,7 +18,7 @@ namespace OpenRA.Mods.Common.UtilityCommands
 {
 	public class CheckExplicitInterfacesCommand : IUtilityCommand
 	{
-		string IUtilityCommand.Name { get { return "--check-explicit-interfaces"; } }
+		string IUtilityCommand.Name => "--check-explicit-interfaces";
 
 		bool IUtilityCommand.ValidateArguments(string[] args)
 		{
@@ -40,13 +40,16 @@ namespace OpenRA.Mods.Common.UtilityCommands
 				var interfaces = implementingType.GetInterfaces();
 				foreach (var interfaceType in interfaces)
 				{
-					if (!interfaceType.HasAttribute<RequireExplicitImplementationAttribute>())
+					if (!Utility.HasAttribute<RequireExplicitImplementationAttribute>(interfaceType))
 						continue;
 
 					var interfaceMembers = interfaceType.GetMembers();
 					foreach (var interfaceMember in interfaceMembers)
 					{
-						if (interfaceMember.Name.StartsWith("get_") || interfaceMember.Name.StartsWith("set_"))
+						if (interfaceMember.Name.StartsWith("get_", StringComparison.Ordinal) ||
+							interfaceMember.Name.StartsWith("set_", StringComparison.Ordinal) ||
+							interfaceMember.Name.StartsWith("add_", StringComparison.Ordinal) ||
+							interfaceMember.Name.StartsWith("remove_", StringComparison.Ordinal))
 							continue;
 
 						var interfaceMethod = interfaceMember as MethodInfo;
@@ -67,15 +70,15 @@ namespace OpenRA.Mods.Common.UtilityCommands
 								var allMatch = true;
 								for (var i = 0; i < lenImpl; i++)
 								{
-								    var implementingParam = implementingMethodParams[i];
-								    var interfaceParam = interfaceMethodParams[i];
-								    if (implementingParam.ParameterType != interfaceParam.ParameterType
+									var implementingParam = implementingMethodParams[i];
+									var interfaceParam = interfaceMethodParams[i];
+									if (implementingParam.ParameterType != interfaceParam.ParameterType
 										|| implementingParam.Name != interfaceParam.Name
 										|| implementingParam.IsOut != interfaceParam.IsOut)
-								    {
+									{
 										allMatch = false;
 										break;
-								    }
+									}
 								}
 
 								// Explicitly implemented methods are never public in C#.
@@ -104,19 +107,19 @@ namespace OpenRA.Mods.Common.UtilityCommands
 
 			if (violationCount > 0)
 			{
-				Console.WriteLine("Explicit interface violations: {0}", violationCount);
+				Console.WriteLine($"Explicit interface violations: {violationCount}");
 				Environment.Exit(1);
 			}
 		}
 
 		static bool IsExplicitInterfaceProperty(PropertyInfo pi)
 		{
-			return pi.Name.Contains(".");
+			return pi.Name.Contains('.');
 		}
 
 		void OnViolation(Type implementor, Type interfaceType, MemberInfo violator)
 		{
-			Console.WriteLine("{0} must explicitly implement the interface member {1}.{2}", implementor.Name, interfaceType.Name, violator.Name);
+			Console.WriteLine($"{implementor.Name} must explicitly implement the interface member {interfaceType.Name}.{violator.Name}");
 			violationCount++;
 		}
 	}

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,34 +9,54 @@
  */
 #endregion
 
-using System.Collections.Generic;
 using OpenRA.Graphics;
-using OpenRA.Mods.Common.Warheads;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Render
 {
 	[Desc("Renders an overlay when the actor is taking heavy damage.")]
-	public class WithDamageOverlayInfo : ITraitInfo, Requires<RenderSpritesInfo>
+	public class WithDamageOverlayInfo : TraitInfo, Requires<RenderSpritesInfo>, IRulesetLoaded
 	{
 		public readonly string Image = "smoke_m";
 
-		[SequenceReference("Image")] public readonly string IdleSequence = "idle";
-		[SequenceReference("Image")] public readonly string LoopSequence = "loop";
-		[SequenceReference("Image")] public readonly string EndSequence = "end";
+		[SequenceReference(nameof(Image))]
+		public readonly string IdleSequence = "idle";
+
+		[SequenceReference(nameof(Image))]
+		public readonly string LoopSequence = "loop";
+
+		[SequenceReference(nameof(Image))]
+		public readonly string EndSequence = "end";
+
+		[Desc("Position relative to the body orientation.")]
+		public readonly WVec Offset = WVec.Zero;
+
+		[PaletteReference(nameof(IsPlayerPalette))]
+		[Desc("Custom palette name.")]
+		public readonly string Palette = null;
+
+		[Desc("Custom palette is a player palette BaseName.")]
+		public readonly bool IsPlayerPalette = false;
 
 		[Desc("Damage types that this should be used for (defined on the warheads).",
 			"Leave empty to disable all filtering.")]
-		public readonly HashSet<string> DamageTypes = new HashSet<string>();
+		public readonly BitSet<DamageType> DamageTypes = default;
 
 		[Desc("Trigger when Undamaged, Light, Medium, Heavy, Critical or Dead.")]
 		public readonly DamageState MinimumDamageState = DamageState.Heavy;
 		public readonly DamageState MaximumDamageState = DamageState.Dead;
 
-		public object Create(ActorInitializer init) { return new WithDamageOverlay(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new WithDamageOverlay(init.Self, this); }
+
+		public void RulesetLoaded(Ruleset rules, ActorInfo info)
+		{
+			if (Offset != WVec.Zero && !info.HasTraitInfo<BodyOrientationInfo>())
+				throw new YamlException("Specifying WithDamageOverlay.Offset requires the BodyOrientation trait on the actor.");
+		}
 	}
 
-	public class WithDamageOverlay : INotifyDamage
+	public class WithDamageOverlay : INotifyDamage, INotifyCreated
 	{
 		readonly WithDamageOverlayInfo info;
 		readonly Animation anim;
@@ -46,20 +66,26 @@ namespace OpenRA.Mods.Common.Traits.Render
 		public WithDamageOverlay(Actor self, WithDamageOverlayInfo info)
 		{
 			this.info = info;
-
-			var rs = self.Trait<RenderSprites>();
-
 			anim = new Animation(self.World, info.Image);
-			rs.Add(new AnimationWithOffset(anim, null, () => !isSmoking));
 		}
 
-		public void Damaged(Actor self, AttackInfo e)
+		void INotifyCreated.Created(Actor self)
 		{
-			if (info.DamageTypes.Count > 0 && !e.Damage.DamageTypes.Overlaps(info.DamageTypes))
+			var rs = self.Trait<RenderSprites>();
+			var body = self.TraitOrDefault<BodyOrientation>();
+
+			WVec AnimationOffset() => body.LocalToWorld(info.Offset.Rotate(body.QuantizeOrientation(self.Orientation)));
+			rs.Add(new AnimationWithOffset(anim, info.Offset == WVec.Zero || body == null ? null : AnimationOffset, () => !isSmoking),
+				info.Palette, info.IsPlayerPalette);
+		}
+
+		void INotifyDamage.Damaged(Actor self, AttackInfo e)
+		{
+			if (!info.DamageTypes.IsEmpty && !e.Damage.DamageTypes.Overlaps(info.DamageTypes))
 				return;
 
 			if (isSmoking) return;
-			if (e.Damage.Value < 0) return;	/* getting healed */
+			if (e.Damage.Value < 0) return; /* getting healed */
 			if (e.DamageState < info.MinimumDamageState) return;
 			if (e.DamageState > info.MaximumDamageState) return;
 

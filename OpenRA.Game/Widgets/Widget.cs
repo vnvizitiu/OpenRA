@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,24 +11,30 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using System.Collections.ObjectModel;
 using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Network;
+using OpenRA.Primitives;
 using OpenRA.Support;
 
 namespace OpenRA.Widgets
 {
 	public static class Ui
 	{
-		public static Widget Root = new RootWidget();
+		public const int Timestep = 40;
 
-		public static long LastTickTime = Game.RunTime;
+		public static Widget Root = new ContainerWidget();
 
-		static readonly Stack<Widget> WindowList = new Stack<Widget>();
+		public static TickTime LastTickTime = new(() => Timestep, Game.RunTime);
+
+		static readonly Stack<Widget> WindowList = new();
 
 		public static Widget MouseFocusWidget;
 		public static Widget KeyboardFocusWidget;
 		public static Widget MouseOverWidget;
+
+		static readonly Mediator Mediator = new();
 
 		public static void CloseWindow()
 		{
@@ -73,11 +79,10 @@ namespace OpenRA.Widgets
 
 		public static T LoadWidget<T>(string id, Widget parent, WidgetArgs args) where T : Widget
 		{
-			var widget = LoadWidget(id, parent, args) as T;
-			if (widget == null)
-				throw new InvalidOperationException(
-					"Widget {0} is not of type {1}".F(id, typeof(T).Name));
-			return widget;
+			if (LoadWidget(id, parent, args) is T widget)
+				return widget;
+
+			throw new InvalidOperationException($"Widget {id} is not of type {typeof(T).Name}");
 		}
 
 		public static Widget LoadWidget(string id, Widget parent, WidgetArgs args)
@@ -108,24 +113,22 @@ namespace OpenRA.Widgets
 			if (mi.Event == MouseInputEvent.Move)
 			{
 				Viewport.LastMousePos = mi.Location;
-				Viewport.TicksSinceLastMove = 0;
+				Viewport.LastMoveRunTime = Game.RunTime;
 			}
 
 			if (wasMouseOver != MouseOverWidget)
 			{
-				if (wasMouseOver != null)
-					wasMouseOver.MouseExited();
+				wasMouseOver?.MouseExited();
 
-				if (MouseOverWidget != null)
-					MouseOverWidget.MouseEntered();
+				MouseOverWidget?.MouseEntered();
 			}
 
 			return handled;
 		}
 
-		/// <summary>Possibly handle keyboard input (if this widget has keyboard focus)</summary>
-		/// <returns><c>true</c>, if keyboard input was handled, <c>false</c> if the input should bubble to the parent widget</returns>
-		/// <param name="e">Key input data</param>
+		/// <summary>Possibly handle keyboard input (if this widget has keyboard focus).</summary>
+		/// <returns><c>true</c>, if keyboard input was handled, <c>false</c> if the input should bubble to the parent widget.</returns>
+		/// <param name="e">Key input data.</param>
 		public static bool HandleKeyPress(KeyInput e)
 		{
 			if (KeyboardFocusWidget != null)
@@ -153,9 +156,21 @@ namespace OpenRA.Widgets
 		public static void ResetTooltips()
 		{
 			// Issue a no-op mouse move to force any tooltips to be recalculated
-			HandleInput(new MouseInput(MouseInputEvent.Move, MouseButton.None, 0,
-				Viewport.LastMousePos, Modifiers.None, 0));
+			HandleInput(new MouseInput(MouseInputEvent.Move, MouseButton.None,
+				Viewport.LastMousePos, int2.Zero, Modifiers.None, 0));
 		}
+
+		public static void Subscribe<T>(T instance)
+		{
+			Mediator.Subscribe(instance);
+		}
+
+		public static void Unsubscribe<T>(T instance)
+		{
+			Mediator.Unsubscribe(instance);
+		}
+
+		public static void Send<T>(T notification) => Mediator.Send(notification);
 	}
 
 	public class ChromeLogic : IDisposable
@@ -167,29 +182,54 @@ namespace OpenRA.Widgets
 		protected virtual void Dispose(bool disposing) { }
 	}
 
+	public struct WidgetBounds
+	{
+		public int X, Y, Width, Height;
+		public readonly int Left => X;
+		public readonly int Right => X + Width;
+		public readonly int Top => Y;
+		public readonly int Bottom => Y + Height;
+
+		public WidgetBounds(int x, int y, int width, int height)
+		{
+			X = x;
+			Y = y;
+			Width = width;
+			Height = height;
+		}
+
+		public readonly Rectangle ToRectangle()
+		{
+			return new Rectangle(X, Y, Width, Height);
+		}
+	}
+
 	public abstract class Widget
 	{
-		public readonly List<Widget> Children = new List<Widget>();
+		string defaultCursor = null;
+
+		public readonly List<Widget> Children = new();
 
 		// Info defined in YAML
 		public string Id = null;
-		public string X = "0";
-		public string Y = "0";
-		public string Width = "0";
-		public string Height = "0";
-		public string[] Logic = { };
+		public IntegerExpression X;
+		public IntegerExpression Y;
+		public IntegerExpression Width;
+		public IntegerExpression Height;
+		public string[] Logic = Array.Empty<string>();
 		public ChromeLogic[] LogicObjects { get; private set; }
 		public bool Visible = true;
 		public bool IgnoreMouseOver;
 		public bool IgnoreChildMouseOver;
 
 		// Calculated internally
-		public Rectangle Bounds;
+		public WidgetBounds Bounds;
 		public Widget Parent = null;
 		public Func<bool> IsVisible;
-		public Widget() { IsVisible = () => Visible; }
 
-		public Widget(Widget widget)
+		protected Widget() { IsVisible = () => Visible; }
+
+		protected Widget(Widget widget)
 		{
 			Id = widget.Id;
 			X = widget.X;
@@ -206,13 +246,15 @@ namespace OpenRA.Widgets
 			IgnoreChildMouseOver = widget.IgnoreChildMouseOver;
 			IgnoreMouseOver = widget.IgnoreMouseOver;
 
+			defaultCursor = widget.defaultCursor;
+
 			foreach (var child in widget.Children)
 				AddChild(child.Clone());
 		}
 
 		public virtual Widget Clone()
 		{
-			throw new InvalidOperationException("Widget type `{0}` is not cloneable.".F(GetType().Name));
+			throw new InvalidOperationException($"Widget type `{GetType().Name}` is not cloneable.");
 		}
 
 		public virtual int2 RenderOrigin
@@ -224,7 +266,7 @@ namespace OpenRA.Widgets
 			}
 		}
 
-		public virtual int2 ChildOrigin { get { return RenderOrigin; } }
+		public virtual int2 ChildOrigin => RenderOrigin;
 
 		public virtual Rectangle RenderBounds
 		{
@@ -237,36 +279,37 @@ namespace OpenRA.Widgets
 
 		public virtual void Initialize(WidgetArgs args)
 		{
+			defaultCursor = ChromeMetrics.Get<string>("DefaultCursor");
+
 			// Parse the YAML equations to find the widget bounds
 			var parentBounds = (Parent == null)
-				? new Rectangle(0, 0, Game.Renderer.Resolution.Width, Game.Renderer.Resolution.Height)
+				? new WidgetBounds(0, 0, Game.Renderer.Resolution.Width, Game.Renderer.Resolution.Height)
 				: Parent.Bounds;
 
-			var substitutions = args.ContainsKey("substitutions") ?
-				new Dictionary<string, int>((Dictionary<string, int>)args["substitutions"]) :
+			var substitutions = args.TryGetValue("substitutions", out var subs) ?
+				new Dictionary<string, int>((Dictionary<string, int>)subs) :
 				new Dictionary<string, int>();
 
 			substitutions.Add("WINDOW_RIGHT", Game.Renderer.Resolution.Width);
 			substitutions.Add("WINDOW_BOTTOM", Game.Renderer.Resolution.Height);
 			substitutions.Add("PARENT_RIGHT", parentBounds.Width);
-			substitutions.Add("PARENT_LEFT", parentBounds.Left);
-			substitutions.Add("PARENT_TOP", parentBounds.Top);
 			substitutions.Add("PARENT_BOTTOM", parentBounds.Height);
-			var width = Evaluator.Evaluate(Width, substitutions);
-			var height = Evaluator.Evaluate(Height, substitutions);
+
+			var readOnlySubstitutions = new ReadOnlyDictionary<string, int>(substitutions);
+			var width = Width?.Evaluate(readOnlySubstitutions) ?? 0;
+			var height = Height?.Evaluate(readOnlySubstitutions) ?? 0;
 
 			substitutions.Add("WIDTH", width);
 			substitutions.Add("HEIGHT", height);
 
-			Bounds = new Rectangle(Evaluator.Evaluate(X, substitutions),
-								   Evaluator.Evaluate(Y, substitutions),
-								   width,
-								   height);
+			var x = X?.Evaluate(readOnlySubstitutions) ?? 0;
+			var y = Y?.Evaluate(readOnlySubstitutions) ?? 0;
+			Bounds = new WidgetBounds(x, y, width, height);
 		}
 
 		public void PostInit(WidgetArgs args)
 		{
-			if (!Logic.Any())
+			if (Logic.Length == 0)
 				return;
 
 			args["widget"] = this;
@@ -274,23 +317,29 @@ namespace OpenRA.Widgets
 			LogicObjects = Logic.Select(l => Game.ModData.ObjectCreator.CreateObject<ChromeLogic>(l, args))
 				.ToArray();
 
+			foreach (var logicObject in LogicObjects)
+				Ui.Subscribe(logicObject);
+
 			args.Remove("widget");
 		}
 
-		public virtual Rectangle EventBounds { get { return RenderBounds; } }
+		public virtual Rectangle EventBounds => RenderBounds;
 
-		public virtual Rectangle GetEventBounds()
+		public virtual bool EventBoundsContains(int2 location)
 		{
 			// PERF: Avoid LINQ.
-			var bounds = EventBounds;
+			if (EventBounds.Contains(location))
+				return true;
+
 			foreach (var child in Children)
-				if (child.IsVisible())
-					bounds = Rectangle.Union(bounds, child.GetEventBounds());
-			return bounds;
+				if (child.IsVisible() && child.EventBoundsContains(location))
+					return true;
+
+			return false;
 		}
 
-		public bool HasMouseFocus { get { return Ui.MouseFocusWidget == this; } }
-		public bool HasKeyboardFocus { get { return Ui.KeyboardFocusWidget == this; } }
+		public bool HasMouseFocus => Ui.MouseFocusWidget == this;
+		public bool HasKeyboardFocus => Ui.KeyboardFocusWidget == this;
 
 		public virtual bool TakeMouseFocus(MouseInput mi)
 		{
@@ -315,7 +364,7 @@ namespace OpenRA.Widgets
 
 		void ForceYieldMouseFocus()
 		{
-			if (Ui.MouseFocusWidget == this && !YieldMouseFocus(default(MouseInput)))
+			if (Ui.MouseFocusWidget == this && !YieldMouseFocus(default))
 				Ui.MouseFocusWidget = null;
 		}
 
@@ -345,17 +394,18 @@ namespace OpenRA.Widgets
 				Ui.KeyboardFocusWidget = null;
 		}
 
-		public virtual string GetCursor(int2 pos) { return "default"; }
+		public virtual string GetCursor(int2 pos) { return defaultCursor; }
 		public string GetCursorOuter(int2 pos)
 		{
 			// Is the cursor on top of us?
-			if (!(IsVisible() && GetEventBounds().Contains(pos)))
+			if (!(IsVisible() && EventBoundsContains(pos)))
 				return null;
 
 			// Do any of our children specify a cursor?
-			foreach (var child in Children.OfType<Widget>().Reverse())
+			// PERF: Avoid LINQ.
+			for (var i = Children.Count - 1; i >= 0; --i)
 			{
-				var cc = child.GetCursorOuter(pos);
+				var cc = Children[i].GetCursorOuter(pos);
 				if (cc != null)
 					return cc;
 			}
@@ -367,21 +417,22 @@ namespace OpenRA.Widgets
 		public virtual void MouseExited() { }
 
 		/// <summary>Possibly handles mouse input (click, drag, scroll, etc).</summary>
-		/// <returns><c>true</c>, if mouse input was handled, <c>false</c> if the input should bubble to the parent widget</returns>
-		/// <param name="mi">Mouse input data</param>
+		/// <returns><c>true</c>, if mouse input was handled, <c>false</c> if the input should bubble to the parent widget.</returns>
+		/// <param name="mi">Mouse input data.</param>
 		public virtual bool HandleMouseInput(MouseInput mi) { return false; }
 
 		public bool HandleMouseInputOuter(MouseInput mi)
 		{
 			// Are we able to handle this event?
-			if (!(HasMouseFocus || (IsVisible() && GetEventBounds().Contains(mi.Location))))
+			if (!(HasMouseFocus || (IsVisible() && EventBoundsContains(mi.Location))))
 				return false;
 
 			var oldMouseOver = Ui.MouseOverWidget;
 
 			// Send the event to the deepest children first and bubble up if unhandled
-			foreach (var child in Children.OfType<Widget>().Reverse())
-				if (child.HandleMouseInputOuter(mi))
+			// PERF: Avoid LINQ.
+			for (var i = Children.Count - 1; i >= 0; --i)
+				if (Children[i].HandleMouseInputOuter(mi))
 					return true;
 
 			if (IgnoreChildMouseOver)
@@ -401,8 +452,9 @@ namespace OpenRA.Widgets
 				return false;
 
 			// Can any of our children handle this?
-			foreach (var child in Children.OfType<Widget>().Reverse())
-				if (child.HandleKeyPressOuter(e))
+			// PERF: Avoid LINQ.
+			for (var i = Children.Count - 1; i >= 0; --i)
+				if (Children[i].HandleKeyPressOuter(e))
 					return true;
 
 			// Do any widgety behavior
@@ -419,8 +471,9 @@ namespace OpenRA.Widgets
 				return false;
 
 			// Can any of our children handle this?
-			foreach (var child in Children.OfType<Widget>().Reverse())
-				if (child.HandleTextInputOuter(text))
+			// PERF: Avoid LINQ.
+			for (var i = Children.Count - 1; i >= 0; --i)
+				if (Children[i].HandleTextInputOuter(text))
 					return true;
 
 			// Do any widgety behavior (enter text etc)
@@ -495,8 +548,10 @@ namespace OpenRA.Widgets
 
 		public virtual void RemoveChildren()
 		{
-			while (Children.Count > 0)
-				RemoveChild(Children[Children.Count - 1]);
+			foreach (var child in Children)
+				child?.Removed();
+
+			Children.Clear();
 		}
 
 		public virtual void Hidden()
@@ -506,8 +561,9 @@ namespace OpenRA.Widgets
 			ForceYieldKeyboardFocus();
 			ForceYieldMouseFocus();
 
-			foreach (var c in Children.OfType<Widget>().Reverse())
-				c.Hidden();
+			// PERF: Avoid LINQ.
+			for (var i = Children.Count - 1; i >= 0; --i)
+				Children[i].Hidden();
 		}
 
 		public virtual void Removed()
@@ -517,12 +573,18 @@ namespace OpenRA.Widgets
 			ForceYieldKeyboardFocus();
 			ForceYieldMouseFocus();
 
-			foreach (var c in Children.OfType<Widget>().Reverse())
-				c.Removed();
+			// PERF: Avoid LINQ.
+			for (var i = Children.Count - 1; i >= 0; --i)
+				Children[i].Removed();
 
 			if (LogicObjects != null)
+			{
 				foreach (var l in LogicObjects)
+				{
+					Ui.Unsubscribe(l);
 					l.Dispose();
+				}
+			}
 		}
 
 		public Widget GetOrNull(string id)
@@ -549,9 +611,7 @@ namespace OpenRA.Widgets
 		{
 			var t = GetOrNull<T>(id);
 			if (t == null)
-				throw new InvalidOperationException(
-					"Widget {0} has no child {1} of type {2}".F(
-						Id, id, typeof(T).Name));
+				throw new InvalidOperationException($"Widget {Id} has no child {id} of type {typeof(T).Name}");
 			return t;
 		}
 
@@ -564,12 +624,14 @@ namespace OpenRA.Widgets
 
 		public ContainerWidget() { IgnoreMouseOver = true; }
 		public ContainerWidget(ContainerWidget other)
-			: base(other) { IgnoreMouseOver = true; }
+			: base(other)
+		{
+			ClickThrough = other.ClickThrough;
+			IgnoreMouseOver = true;
+		}
 
 		public override string GetCursor(int2 pos) { return null; }
 		public override Widget Clone() { return new ContainerWidget(this); }
-		public Func<KeyInput, bool> OnKeyPress = _ => false;
-		public override bool HandleKeyPress(KeyInput e) { return OnKeyPress(e); }
 
 		public override bool HandleMouseInput(MouseInput mi)
 		{
@@ -577,10 +639,58 @@ namespace OpenRA.Widgets
 		}
 	}
 
+	public class InputWidget : Widget
+	{
+		public bool Disabled = false;
+		public Func<bool> IsDisabled = () => false;
+
+		public InputWidget()
+		{
+			IsDisabled = () => Disabled;
+		}
+
+		public InputWidget(InputWidget other)
+			: base(other)
+		{
+			IsDisabled = () => other.Disabled;
+		}
+
+		public override Widget Clone() { return new InputWidget(this); }
+	}
+
 	public class WidgetArgs : Dictionary<string, object>
 	{
 		public WidgetArgs() { }
-		public WidgetArgs(Dictionary<string, object> args) : base(args) { }
+		public WidgetArgs(Dictionary<string, object> args)
+			: base(args) { }
 		public void Add(string key, Action val) { base.Add(key, val); }
+	}
+
+	public sealed class Mediator
+	{
+		readonly TypeDictionary types = new();
+
+		public void Subscribe<T>(T instance)
+		{
+			types.Add(instance);
+		}
+
+		public void Unsubscribe<T>(T instance)
+		{
+			types.Remove(instance);
+		}
+
+		public void Send<T>(T notification)
+		{
+			var handlers = types.WithInterface<INotificationHandler<T>>();
+
+			foreach (var handler in handlers)
+				handler.Handle(notification);
+		}
+	}
+
+	public interface INotificationHandler<T>
+	{
+		void Handle(T notification);
 	}
 }

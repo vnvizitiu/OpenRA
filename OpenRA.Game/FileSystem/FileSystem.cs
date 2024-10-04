@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -23,119 +23,100 @@ namespace OpenRA.FileSystem
 		bool TryGetPackageContaining(string path, out IReadOnlyPackage package, out string filename);
 		bool TryOpen(string filename, out Stream s);
 		bool Exists(string filename);
+		bool IsExternalFile(string filename);
 	}
 
 	public class FileSystem : IReadOnlyFileSystem
 	{
-		public IEnumerable<IReadOnlyPackage> MountedPackages { get { return mountedPackages.Keys; } }
-		readonly Dictionary<IReadOnlyPackage, int> mountedPackages = new Dictionary<IReadOnlyPackage, int>();
-		readonly Dictionary<string, IReadOnlyPackage> explicitMounts = new Dictionary<string, IReadOnlyPackage>();
+		public IEnumerable<IReadOnlyPackage> MountedPackages => mountedPackages.Keys;
+		readonly Dictionary<IReadOnlyPackage, int> mountedPackages = new();
+		readonly Dictionary<string, IReadOnlyPackage> explicitMounts = new();
+		readonly string modID;
 
 		// Mod packages that should not be disposed
-		readonly List<IReadOnlyPackage> modPackages = new List<IReadOnlyPackage>();
+		readonly List<IReadOnlyPackage> modPackages = new();
 		readonly IReadOnlyDictionary<string, Manifest> installedMods;
+		readonly IPackageLoader[] packageLoaders;
 
-		Cache<string, List<IReadOnlyPackage>> fileIndex = new Cache<string, List<IReadOnlyPackage>>(_ => new List<IReadOnlyPackage>());
+		Cache<string, List<IReadOnlyPackage>> fileIndex = new(_ => new List<IReadOnlyPackage>());
 
-		public FileSystem(IReadOnlyDictionary<string, Manifest> installedMods)
+		public FileSystem(string modID, IReadOnlyDictionary<string, Manifest> installedMods, IPackageLoader[] packageLoaders)
 		{
+			this.modID = modID;
 			this.installedMods = installedMods;
+			this.packageLoaders = packageLoaders
+				.Append(new ZipFileLoader())
+				.ToArray();
+		}
+
+		public bool TryParsePackage(Stream stream, string filename, out IReadOnlyPackage package)
+		{
+			package = null;
+			foreach (var packageLoader in packageLoaders)
+				if (packageLoader.TryParsePackage(stream, filename, this, out package))
+					return true;
+
+			return false;
 		}
 
 		public IReadOnlyPackage OpenPackage(string filename)
 		{
-			if (filename.EndsWith(".mix", StringComparison.InvariantCultureIgnoreCase))
-				return new MixFile(this, filename);
-			if (filename.EndsWith(".zip", StringComparison.InvariantCultureIgnoreCase))
-				return new ZipFile(this, filename);
-			if (filename.EndsWith(".oramap", StringComparison.InvariantCultureIgnoreCase))
-				return new ZipFile(this, filename);
-			if (filename.EndsWith(".oramod", StringComparison.InvariantCultureIgnoreCase))
-				return new ZipFile(this, filename);
-			if (filename.EndsWith(".RS", StringComparison.InvariantCultureIgnoreCase))
-				return new D2kSoundResources(this, filename);
-			if (filename.EndsWith(".Z", StringComparison.InvariantCultureIgnoreCase))
-				return new InstallShieldPackage(this, filename);
-			if (filename.EndsWith(".PAK", StringComparison.InvariantCultureIgnoreCase))
-				return new PakFile(this, filename);
-			if (filename.EndsWith(".big", StringComparison.InvariantCultureIgnoreCase))
-				return new BigFile(this, filename);
-			if (filename.EndsWith(".bag", StringComparison.InvariantCultureIgnoreCase))
-				return new BagFile(this, filename);
+			// Raw directories are the easiest and one of the most common cases, so try these first
+			var resolvedPath = Platform.ResolvePath(filename);
+			if (!resolvedPath.Contains('|') && Directory.Exists(resolvedPath))
+				return new Folder(resolvedPath);
 
-			IReadOnlyPackage parent;
-			string subPath = null;
-			if (TryGetPackageContaining(filename, out parent, out subPath))
-				return OpenPackage(subPath, parent);
+			// Children of another package require special handling
+			if (TryGetPackageContaining(filename, out var parent, out var subPath))
+				return parent.OpenPackage(subPath, this);
 
-			return new Folder(Platform.ResolvePath(filename));
-		}
+			// Try and open it normally
+			var stream = Open(filename);
+			if (TryParsePackage(stream, filename, out var package))
+				return package;
 
-		public IReadOnlyPackage OpenPackage(string filename, IReadOnlyPackage parent)
-		{
-			// HACK: limit support to zip and folder until we generalize the PackageLoader support
-			if (filename.EndsWith(".zip", StringComparison.InvariantCultureIgnoreCase) ||
-				filename.EndsWith(".oramap", StringComparison.InvariantCultureIgnoreCase))
-			{
-				using (var s = parent.GetStream(filename))
-					return new ZipFile(s, filename, parent);
-			}
-
-			if (parent is ZipFile)
-				return new ZipFolder(this, (ZipFile)parent, filename, filename);
-
-			if (parent is ZipFolder)
-			{
-				var folder = (ZipFolder)parent;
-				return new ZipFolder(this, folder.Parent, folder.Name + "/" + filename, filename);
-			}
-
-			if (parent is Folder)
-			{
-				var subFolder = Platform.ResolvePath(Path.Combine(parent.Name, filename));
-				if (Directory.Exists(subFolder))
-					return new Folder(subFolder);
-			}
+			// No package loaders took ownership of the stream, so clean it up
+			stream.Dispose();
 
 			return null;
 		}
 
 		public void Mount(string name, string explicitName = null)
 		{
-			var optional = name.StartsWith("~");
+			var optional = name.StartsWith('~');
 			if (optional)
-				name = name.Substring(1);
+				name = name[1..];
 
 			try
 			{
 				IReadOnlyPackage package;
-				if (name.StartsWith("$"))
+				if (name.StartsWith('$'))
 				{
-					name = name.Substring(1);
+					name = name[1..];
 
-					Manifest mod;
-					if (!installedMods.TryGetValue(name, out mod))
-						throw new InvalidOperationException("Could not load mod '{0}'. Available mods: {1}".F(name, installedMods.Keys.JoinWith(", ")));
+					if (!installedMods.TryGetValue(name, out var mod))
+						throw new InvalidOperationException($"Could not load mod '{name}'. Available mods: {installedMods.Keys.JoinWith(", ")}");
 
 					package = mod.Package;
 					modPackages.Add(package);
 				}
 				else
+				{
 					package = OpenPackage(name);
+					if (package == null)
+						throw new InvalidOperationException($"Could not open package '{name}', file not found or its format is not supported.");
+				}
 
 				Mount(package, explicitName);
 			}
-			catch
+			catch when (optional)
 			{
-				if (!optional)
-					throw;
 			}
 		}
 
 		public void Mount(IReadOnlyPackage package, string explicitName = null)
 		{
-			var mountCount = 0;
-			if (mountedPackages.TryGetValue(package, out mountCount))
+			if (mountedPackages.TryGetValue(package, out var mountCount))
 			{
 				// Package is already mounted
 				// Increment the mount count and bump up the file loading priority
@@ -161,8 +142,7 @@ namespace OpenRA.FileSystem
 
 		public bool Unmount(IReadOnlyPackage package)
 		{
-			var mountCount = 0;
-			if (!mountedPackages.TryGetValue(package, out mountCount))
+			if (!mountedPackages.TryGetValue(package, out var mountCount))
 				return false;
 
 			if (--mountCount <= 0)
@@ -179,9 +159,7 @@ namespace OpenRA.FileSystem
 					explicitMounts.Remove(key);
 
 				// Mod packages aren't owned by us, so we shouldn't dispose them
-				if (modPackages.Contains(package))
-					modPackages.Remove(package);
-				else
+				if (!modPackages.Remove(package))
 					package.Dispose();
 			}
 			else
@@ -203,11 +181,13 @@ namespace OpenRA.FileSystem
 			fileIndex = new Cache<string, List<IReadOnlyPackage>>(_ => new List<IReadOnlyPackage>());
 		}
 
-		public void LoadFromManifest(Manifest manifest)
+		public void TrimExcess()
 		{
-			UnmountAll();
-			foreach (var kv in manifest.Packages)
-				Mount(kv.Key, kv.Value);
+			mountedPackages.TrimExcess();
+			explicitMounts.TrimExcess();
+			modPackages.TrimExcess();
+			foreach (var packages in fileIndex.Values)
+				packages.TrimExcess();
 		}
 
 		Stream GetFromCache(string filename)
@@ -215,17 +195,13 @@ namespace OpenRA.FileSystem
 			var package = fileIndex[filename]
 				.LastOrDefault(x => x.Contains(filename));
 
-			if (package != null)
-				return package.GetStream(filename);
-
-			return null;
+			return package?.GetStream(filename);
 		}
 
 		public Stream Open(string filename)
 		{
-			Stream s;
-			if (!TryOpen(filename, out s))
-				throw new FileNotFoundException("File not found: {0}".F(filename), filename);
+			if (!TryOpen(filename, out var s))
+				throw new FileNotFoundException($"File not found: {filename}", filename);
 
 			return s;
 		}
@@ -233,9 +209,9 @@ namespace OpenRA.FileSystem
 		public bool TryGetPackageContaining(string path, out IReadOnlyPackage package, out string filename)
 		{
 			var explicitSplit = path.IndexOf('|');
-			if (explicitSplit > 0 && explicitMounts.TryGetValue(path.Substring(0, explicitSplit), out package))
+			if (explicitSplit > 0 && explicitMounts.TryGetValue(path[..explicitSplit], out package))
 			{
-				filename = path.Substring(explicitSplit + 1);
+				filename = path[(explicitSplit + 1)..];
 				return true;
 			}
 
@@ -248,24 +224,26 @@ namespace OpenRA.FileSystem
 		public bool TryOpen(string filename, out Stream s)
 		{
 			var explicitSplit = filename.IndexOf('|');
-			if (explicitSplit > 0)
+			if (explicitSplit > 0 && explicitMounts.TryGetValue(filename[..explicitSplit], out var explicitPackage))
 			{
-				IReadOnlyPackage explicitPackage;
-				if (explicitMounts.TryGetValue(filename.Substring(0, explicitSplit), out explicitPackage))
-				{
-					s = explicitPackage.GetStream(filename.Substring(explicitSplit + 1));
-					if (s != null)
-						return true;
-				}
+				s = explicitPackage.GetStream(filename[(explicitSplit + 1)..]);
+				if (s != null)
+					return true;
 			}
 
 			s = GetFromCache(filename);
 			if (s != null)
 				return true;
 
+			// The file should be in an explicit package (but we couldn't find it)
+			// Thus don't try to find it using the filename (which contains the invalid '|' char)
+			// This can be removed once the TODO below is resolved
+			if (explicitSplit > 0)
+				return false;
+
 			// Ask each package individually
 			// TODO: This fallback can be removed once the filesystem cleanups are complete
-			var	package = mountedPackages.Keys.LastOrDefault(x => x.Contains(filename));
+			var package = mountedPackages.Keys.LastOrDefault(x => x.Contains(filename));
 			if (package != null)
 			{
 				s = package.GetStream(filename);
@@ -279,15 +257,48 @@ namespace OpenRA.FileSystem
 		public bool Exists(string filename)
 		{
 			var explicitSplit = filename.IndexOf('|');
-			if (explicitSplit > 0)
-			{
-				IReadOnlyPackage explicitPackage;
-				if (explicitMounts.TryGetValue(filename.Substring(0, explicitSplit), out explicitPackage))
-					if (explicitPackage.Contains(filename.Substring(explicitSplit + 1)))
-						return true;
-			}
+			if (explicitSplit > 0 &&
+				explicitMounts.TryGetValue(filename[..explicitSplit], out var explicitPackage) &&
+				explicitPackage.Contains(filename[(explicitSplit + 1)..]))
+				return true;
 
 			return fileIndex.ContainsKey(filename);
+		}
+
+		/// <summary>
+		/// Returns true if the given filename references any file outside the mod mount.
+		/// </summary>
+		public bool IsExternalFile(string filename)
+		{
+			return !filename.StartsWith($"{modID}|", StringComparison.Ordinal);
+		}
+
+		public static string ResolveCaseInsensitivePath(string path)
+		{
+			var resolved = Path.GetPathRoot(path);
+
+			if (resolved == null)
+				return null;
+
+			foreach (var name in path[resolved.Length..].Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+			{
+				// Filter out paths of the form /foo/bar/./baz
+				if (name == ".")
+					continue;
+
+				resolved = Directory.GetFileSystemEntries(resolved)
+					.FirstOrDefault(e => e.Equals(Path.Combine(resolved, name), StringComparison.InvariantCultureIgnoreCase));
+
+				if (resolved == null)
+					return null;
+			}
+
+			return resolved;
+		}
+
+		public string GetPrefix(IReadOnlyPackage package)
+		{
+			return explicitMounts.ContainsValue(package) ? explicitMounts.First(f => f.Value == package).Key : null;
 		}
 	}
 }

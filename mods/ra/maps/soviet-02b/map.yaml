@@ -1,8 +1,8 @@
-MapFormat: 11
+MapFormat: 12
 
 RequiresMod: ra
 
-Title: 02b: The thin red line
+Title: 02b: The Thin Red Line
 
 Author: Westwood Studios
 
@@ -28,11 +28,12 @@ Players:
 		Name: Creeps
 		NonCombatant: True
 		Enemies: USSR
-	PlayerReference@Germany:
-		Name: Germany
+	PlayerReference@Greece:
+		Name: Greece
 		Faction: allies
 		Color: E2E6F5
 		Enemies: USSR
+		Bot: campaign
 	PlayerReference@USSR:
 		Name: USSR
 		AllowBots: False
@@ -44,63 +45,63 @@ Players:
 		Color: FE1100
 		LockSpawn: True
 		LockTeam: True
-		Enemies: Germany, Creeps
+		Enemies: Greece, Creeps
 
 Actors:
 	Actor0: sbag
 		Location: 53,52
-		Owner: Germany
+		Owner: Greece
 	Actor1: sbag
 		Location: 54,52
-		Owner: Germany
+		Owner: Greece
 	Actor2: sbag
 		Location: 53,53
 		Owner: Neutral
 	Actor3: sbag
 		Location: 54,53
-		Owner: Germany
+		Owner: Greece
 	Actor4: sbag
 		Location: 53,56
-		Owner: Germany
+		Owner: Greece
 	Actor5: sbag
 		Location: 54,56
-		Owner: Germany
+		Owner: Greece
 	Actor6: sbag
 		Location: 53,57
-		Owner: Germany
+		Owner: Greece
 	Actor7: sbag
 		Location: 54,57
-		Owner: Germany
+		Owner: Greece
 	Actor8: sbag
 		Location: 81,68
-		Owner: Germany
+		Owner: Greece
 	Actor9: sbag
 		Location: 83,68
-		Owner: Germany
+		Owner: Greece
 	Actor10: sbag
 		Location: 87,68
-		Owner: Germany
+		Owner: Greece
 	Actor11: sbag
 		Location: 89,68
-		Owner: Germany
+		Owner: Greece
 	Actor12: sbag
 		Location: 81,69
-		Owner: Germany
+		Owner: Greece
 	Actor13: sbag
 		Location: 82,69
-		Owner: Germany
+		Owner: Greece
 	Actor14: sbag
 		Location: 83,69
-		Owner: Germany
+		Owner: Greece
 	Actor15: sbag
 		Location: 87,69
-		Owner: Germany
+		Owner: Greece
 	Actor16: sbag
 		Location: 88,69
-		Owner: Germany
+		Owner: Greece
 	Actor17: sbag
 		Location: 89,69
-		Owner: Germany
+		Owner: Greece
 	Actor18: v14
 		Location: 87,84
 		Owner: Neutral
@@ -187,23 +188,22 @@ Actors:
 		Owner: Neutral
 	Actor46: weap
 		Location: 84,59
-		Owner: Germany
+		Owner: Greece
 	Actor47: dome
 		Location: 72,55
-		Owner: Germany
+		Owner: Greece
 	Actor50: fact
 		Location: 75,55
-		Owner: Germany
+		Owner: Greece
 	Actor51: proc
 		Location: 80,59
-		Owner: Germany
-		FreeActor: False
+		Owner: Greece
 	Actor52: powr
 		Location: 83,55
-		Owner: Germany
+		Owner: Greece
 	Actor53: powr
 		Location: 85,55
-		Owner: Germany
+		Owner: Greece
 	Actor54: brl3
 		Location: 69,64
 		Owner: Creeps
@@ -263,22 +263,22 @@ Actors:
 		Owner: USSR
 	Actor78: brl3
 		Location: 82,70
-		Owner: Germany
+		Owner: Greece
 	Actor79: brl3
 		Location: 83,70
-		Owner: Germany
+		Owner: Greece
 	Actor80: brl3
 		Location: 88,70
-		Owner: Germany
+		Owner: Greece
 	Actor81: barl
 		Location: 87,70
-		Owner: Germany
+		Owner: Greece
 	Actor82: barl
 		Location: 84,69
-		Owner: Germany
-	Actor83: tent
+		Owner: Greece
+	Tent: tent
 		Location: 70,57
-		Owner: Germany
+		Owner: Greece
 	Actor84: barl
 		Location: 74,55
 		Owner: Creeps
@@ -287,122 +287,120 @@ Actors:
 		Owner: USSR
 	Actor86: jeep
 		Location: 85,66
-		Owner: Germany
-		Health: 55
-		Facing: 128
+		Owner: Greece
+		Facing: 512
 	Actor89: jeep
 		Location: 55,56
-		Owner: Germany
-		Health: 59
-		Facing: 224
+		Owner: Greece
+		Facing: 896
 	Actor90: jeep
 		Location: 79,54
-		Owner: Germany
-		Facing: 128
+		Owner: Greece
+		Facing: 512
 	Actor92: e1
 		Location: 47,75
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 4
 	Actor93: e1
 		Location: 48,75
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 3
 	Actor94: e1
 		Location: 47,76
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 2
 	Actor95: e1
 		Location: 48,76
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 1
 	Actor96: dog
 		Location: 49,73
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 3
 	Actor97: dog
 		Location: 49,76
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 1
 	Actor98: dog
 		Location: 49,75
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 3
 	Actor99: dog
 		Location: 49,74
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 1
 	Actor100: e3
 		Location: 88,68
-		Owner: Germany
-		Facing: 160
+		Owner: Greece
+		Facing: 640
 		SubCell: 3
 	Actor103: e1
 		Location: 79,64
-		Owner: Germany
-		Facing: 96
+		Owner: Greece
+		Facing: 384
 		SubCell: 3
 	Actor104: e1
 		Location: 79,64
-		Owner: Germany
-		Facing: 96
+		Owner: Greece
+		Facing: 384
 		SubCell: 4
 	Actor105: e3
 		Location: 78,57
-		Owner: Germany
-		Facing: 160
+		Owner: Greece
+		Facing: 640
 		SubCell: 4
 	Actor106: e2
 		Location: 47,73
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 4
 	Actor107: e2
 		Location: 47,74
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 2
 	Actor108: e2
 		Location: 48,74
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 1
 	Actor109: e2
 		Location: 48,73
 		Owner: USSR
-		Facing: 64
+		Facing: 256
 		SubCell: 3
 	Actor110: e1
 		Location: 72,61
-		Owner: Germany
-		Facing: 160
+		Owner: Greece
+		Facing: 640
 		SubCell: 0
 	Actor111: e1
 		Location: 40,54
-		Owner: Germany
-		Facing: 96
+		Owner: Greece
+		Facing: 384
 		SubCell: 0
 	Actor112: e1
 		Location: 83,85
-		Owner: Germany
-		Facing: 224
+		Owner: Greece
+		Facing: 896
 		SubCell: 3
 	Actor113: e1
 		Location: 82,68
-		Owner: Germany
-		Facing: 96
+		Owner: Greece
+		Facing: 384
 		SubCell: 4
 	Actor114: e1
 		Location: 69,55
-		Owner: Germany
-		Facing: 160
+		Owner: Greece
+		Facing: 640
 		SubCell: 0
 	BarrelBase: brl3
 		Location: 71,55
@@ -442,28 +440,26 @@ Actors:
 		Owner: USSR
 	BridgeGun1: gun
 		Location: 68,64
-		Owner: Germany
-		Health: 56
-		Facing: 160
+		Owner: Greece
+		Facing: 640
 	BridgeGun2: gun
 		Location: 74,64
-		Owner: Germany
-		Health: 53
-		Facing: 160
+		Owner: Greece
+		Facing: 640
 	IntroSoldier1: e1
 		Location: 71,65
-		Owner: Germany
-		Facing: 160
+		Owner: Greece
+		Facing: 640
 		SubCell: 3
 	IntroSoldier2: e1
 		Location: 71,60
-		Owner: Germany
-		Facing: 128
+		Owner: Greece
+		Facing: 512
 		SubCell: 3
 	IntroSoldier3: e1
 		Location: 70,60
-		Owner: Germany
-		Facing: 128
+		Owner: Greece
+		Facing: 512
 		SubCell: 4
 	ParachuteBase1: waypoint
 		Location: 66,54
@@ -476,8 +472,8 @@ Actors:
 		Owner: Neutral
 	TransportTruck: truk
 		Location: 75,58
-		Owner: Germany
-		Facing: 192
+		Owner: Greece
+		Facing: 768
 	TransportWaypoint1: waypoint
 		Location: 75,58
 		Owner: Neutral
@@ -487,7 +483,13 @@ Actors:
 	TransportWaypoint3: waypoint
 		Location: 67,75
 		Owner: Neutral
+	AttackWaypoint1: waypoint
+		Location: 52,55
+		Owner: Neutral
+	AttackWaypoint2: waypoint
+		Location: 80,83
+		Owner: Neutral
 
-Rules: ra|rules/campaign-rules.yaml, ra|rules/campaign-tooltips.yaml, rules.yaml
+Rules: ra|rules/campaign-rules.yaml, ra|rules/campaign-tooltips.yaml, ra|rules/campaign-palettes.yaml, rules.yaml
 
-Weapons: weapons.yaml
+Translations: ra|languages/lua/en.ftl, ra|languages/campaign/en.ftl

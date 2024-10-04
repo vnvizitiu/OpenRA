@@ -1,83 +1,51 @@
 Player:
 	-ConquestVictoryConditions:
+	LobbyPrerequisiteCheckbox@GLOBALBOUNTY:
+		Enabled: False
+		Locked: True
+	PlayerResources:
+		ResourceValues:
+			Ore: 0
+			Gems: 0
 
 World:
 	-CrateSpawner:
-	-SpawnMPUnits:
-	-MPStartLocations:
+	-SpawnStartingUnits:
+	-MapStartingLocations:
 	MusicPlaylist:
 		BackgroundMusic: intro
-	ResourceType@ore:
-		ValuePerUnit: 0
+		AllowMuteBackgroundMusic: true
+		DisableWorldSounds: true
 	LuaScript:
 		Scripts: desert-shellmap.lua
-	ScriptUpgradesCache:
-		Upgrades: unkillable
 	-StartGameNotification:
 
-^Vehicle:
-	GivesBounty:
-		Percentage: 0
-	GainsExperience:
-		Upgrades:
+^ExistsInWorld:
+	GivesExperience:
+		ActorExperienceModifier: 0
 	DamageMultiplier@UNKILLABLE:
-		UpgradeTypes: unkillable
-		Modifier: 0, 0
+		RequiresCondition: unkillable
+		Modifier: 0
+	ExternalCondition@UNKILLABLE:
+		Condition: unkillable
 
-^Tank:
-	GivesBounty:
-		Percentage: 0
-	GainsExperience:
-		Upgrades:
-	DamageMultiplier@UNKILLABLE:
-		UpgradeTypes: unkillable
-		Modifier: 0, 0
+^Bridge:
+	DamageMultiplier:
+		Modifier: 0
 
-^Infantry:
-	GivesBounty:
-		Percentage: 0
-	GainsExperience:
-		Upgrades:
-	DeathSounds@NORMAL:
-		VolumeMultiplier: 0.1
-	DeathSounds@BURNED:
-		VolumeMultiplier: 0.1
-	DeathSounds@ZAPPED:
-		VolumeMultiplier: 0.1
-	DamageMultiplier@UNKILLABLE:
-		UpgradeTypes: unkillable
-		Modifier: 0, 0
-
-^Ship:
-	GivesBounty:
-		Percentage: 0
-	GainsExperience:
-		Upgrades:
-	DamageMultiplier@UNKILLABLE:
-		UpgradeTypes: unkillable
-		Modifier: 0, 0
-
-^Plane:
-	GivesBounty:
-		Percentage: 0
-	DamageMultiplier@UNKILLABLE:
-		UpgradeTypes: unkillable
-		Modifier: 0, 0
-
-^Building:
-	GivesBounty:
-		Percentage: 0
-	DamageMultiplier@UNKILLABLE:
-		UpgradeTypes: unkillable
-		Modifier: 0, 0
+^Wall:
+	DamageMultiplier:
+		Modifier: 0
 
 OILB:
 	CashTrickler:
 		ShowTicks: false
 
 TRAN.Husk2:
-	Burns:
-		Damage: 0
+	WithIdleOverlay@Burns:
+		Image: fire
+		Sequence: 1
+		IsDecoration: True
 
 MISS:
 	DamageMultiplier@INVULNERABLE:
@@ -91,20 +59,14 @@ Ant:
 	Buildable:
 		Prerequisites: barr
 	Health:
-		HP: 200
-
-E7:
-	-AnnounceOnKill:
+		HP: 20000
 
 powerproxy.paratroopers:
-	AlwaysVisible:
 	ParatroopersPower:
 		DisplayBeacon: false
 		DropItems: E1,E1,E2,E3,E4
 
 powerproxy.parazombies:
-	AlwaysVisible:
+	Inherits: powerproxy.paratroopers
 	ParatroopersPower:
 		DropItems: ZOMBIE,ZOMBIE,ZOMBIE,ZOMBIE,ZOMBIE
-		QuantizedFacings: 8
-		DisplayBeacon: false

@@ -5,39 +5,52 @@ CRATE.plain:
 CRATE:
 	Inherits: ^Crate
 	Crate:
-		Lifetime: 240
+		Duration: 6000
 	GiveCashCrateAction:
 		Amount: 1000
 		SelectionShares: 20
-		UseCashTick: yes
+		UseCashTick: true
 	RevealMapCrateAction:
 		SelectionShares: 1
-		Effect: reveal-map
+		Sequence: reveal-map
 	ExplodeCrateAction@fire:
 		Weapon: Napalm.Crate
 		SelectionShares: 5
-	GrantUpgradeCrateAction@cloak:
+	GrantExternalConditionCrateAction@cloak:
 		SelectionShares: 5
-		Effect: cloak
-		Upgrades: cloak
-	GiveMcvCrateAction:
+		Sequence: cloak
+		Condition: cloak-crate-collected
+	GiveBaseBuilderCrateAction:
 		SelectionShares: 0
-		NoBaseSelectionShares: 120
+		NoBaseSelectionShares: 50
 		Units: mcv
+	ExplodeCrateAction:
+		Weapon: Atomic
+		SelectionShares: 1
+	GiveUnitCrateAction:
+		Units: vice
+		Owner: Creeps
+		SelectionShares: 10
+	LevelUpCrateAction:
+		Levels: 4
+		SelectionShares: 12
 
 WCRATE:
 	Inherits: ^Crate
 	Tooltip:
-		Name: Wooden Crate
+		Name: actor-wcrate-name
+	RenderSprites:
+		Image: wcrate
 
 SCRATE:
 	Inherits: ^Crate
 	Tooltip:
-		Name: Steel Crate
+		Name: actor-scrate-name
 
 mpspawn:
+	Interactable:
 	EditorOnlyTooltip:
-		Name: (multiplayer player starting point)
+		Name: actor-mpspawn-name
 	AlwaysVisible:
 	Immobile:
 		OccupiesSpace: false
@@ -45,10 +58,15 @@ mpspawn:
 	RenderSpritesEditorOnly:
 	BodyOrientation:
 		QuantizedFacings: 1
+	MapEditorData:
+		Categories: System
+	RequiresSpecificOwners:
+		ValidOwnerNames: Neutral
 
 waypoint:
+	Interactable:
 	EditorOnlyTooltip:
-		Name: (waypoint for scripted behavior)
+		Name: actor-waypoint-name
 	AlwaysVisible:
 	Immobile:
 		OccupiesSpace: false
@@ -56,16 +74,23 @@ waypoint:
 	RenderSpritesEditorOnly:
 	BodyOrientation:
 		QuantizedFacings: 1
+	MapEditorData:
+		Categories: System
 
-^fact.colorpicker:
+fact.colorpicker:
 	Inherits: FACT
+	-Buildable:
+	-MapEditorData:
+	-BaseBuilding:
+	-Encyclopedia:
 	RenderSprites:
 		Image: fact
 		Palette: colorpicker
 
 CAMERA:
+	Interactable:
 	EditorOnlyTooltip:
-		Name: (reveals area to owner)
+		Name: actor-camera-name
 	AlwaysVisible:
 	WithSpriteBody:
 	RenderSpritesEditorOnly:
@@ -76,10 +101,13 @@ CAMERA:
 	RevealsShroud:
 		Range: 10c0
 		Type: CenterPosition
+	MapEditorData:
+		Categories: System
 
 CAMERA.small:
+	Interactable:
 	EditorOnlyTooltip:
-		Name: (reveals small area to owner)
+		Name: actor-camera-small-name
 	AlwaysVisible:
 	WithSpriteBody:
 	RenderSpritesEditorOnly:
@@ -89,10 +117,13 @@ CAMERA.small:
 	Immobile:
 		OccupiesSpace: false
 	Health:
-		HP: 1000
+		HP: 100000
+	HitShape:
 	RevealsShroud:
 		Range: 6c0
 		Type: CenterPosition
+	MapEditorData:
+		Categories: System
 
 FLARE:
 	Immobile:
@@ -108,8 +139,10 @@ FLARE:
 	HiddenUnderFog:
 		Type: CenterPosition
 	Tooltip:
-		Name: Flare
+		Name: actor-flare-name
 		ShowOwnerRow: false
 	BodyOrientation:
 		QuantizedFacings: 1
-	AutoSelectionSize:
+	MapEditorData:
+		Categories: System
+	Interactable:

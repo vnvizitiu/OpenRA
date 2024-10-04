@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,16 +11,18 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using OpenRA.Effects;
 using OpenRA.GameRules;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Terrain;
 using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	class BridgeInfo : ITraitInfo, IRulesetLoaded, Requires<HealthInfo>, Requires<BuildingInfo>
+	public class BridgeInfo : TraitInfo, IRulesetLoaded, Requires<HealthInfo>, Requires<BuildingInfo>
 	{
 		public readonly bool Long = false;
 
@@ -40,45 +42,64 @@ namespace OpenRA.Mods.Common.Traits
 		public readonly int[] NorthOffset = null;
 		public readonly int[] SouthOffset = null;
 
+		[WeaponReference]
 		[Desc("The name of the weapon to use when demolishing the bridge")]
-		[WeaponReference] public readonly string DemolishWeapon = "Demolish";
+		public readonly string DemolishWeapon = "Demolish";
 
 		public WeaponInfo DemolishWeaponInfo { get; private set; }
 
-		public object Create(ActorInitializer init) { return new Bridge(init.Self, this); }
+		[Desc("Types of damage that this bridge causes to units over/in path of it while being destroyed/repaired. Leave empty for no damage types.")]
+		public readonly BitSet<DamageType> DamageTypes = default;
 
-		public void RulesetLoaded(Ruleset rules, ActorInfo ai) { DemolishWeaponInfo = rules.Weapons[DemolishWeapon.ToLowerInvariant()]; }
+		public override object Create(ActorInitializer init) { return new Bridge(init.Self, this); }
 
-		public IEnumerable<Pair<ushort, int>> Templates
+		public void RulesetLoaded(Ruleset rules, ActorInfo ai)
+		{
+			if (!rules.Actors[SystemActors.World].HasTraitInfo<ITiledTerrainRendererInfo>())
+				throw new YamlException("Bridge requires a tile-based terrain renderer.");
+
+			if (string.IsNullOrEmpty(DemolishWeapon))
+				throw new YamlException("A value for DemolishWeapon of a Bridge trait is missing.");
+
+			var weaponToLower = DemolishWeapon.ToLowerInvariant();
+			if (!rules.Weapons.TryGetValue(weaponToLower, out var weapon))
+				throw new YamlException($"Weapons Ruleset does not contain an entry '{weaponToLower}'");
+
+			DemolishWeaponInfo = weapon;
+		}
+
+		public IEnumerable<(ushort Template, int Health)> Templates
 		{
 			get
 			{
 				if (Template != 0)
-					yield return Pair.New(Template, 100);
+					yield return (Template, 100);
 
 				if (DamagedTemplate != 0)
-					yield return Pair.New(DamagedTemplate, 50);
+					yield return (DamagedTemplate, 49);
 
 				if (DestroyedTemplate != 0)
-					yield return Pair.New(DestroyedTemplate, 0);
+					yield return (DestroyedTemplate, 0);
 
 				if (DestroyedPlusNorthTemplate != 0)
-					yield return Pair.New(DestroyedPlusNorthTemplate, 0);
+					yield return (DestroyedPlusNorthTemplate, 0);
 
 				if (DestroyedPlusSouthTemplate != 0)
-					yield return Pair.New(DestroyedPlusSouthTemplate, 0);
+					yield return (DestroyedPlusSouthTemplate, 0);
 
 				if (DestroyedPlusBothTemplate != 0)
-					yield return Pair.New(DestroyedPlusBothTemplate, 0);
+					yield return (DestroyedPlusBothTemplate, 0);
 			}
 		}
 	}
 
-	class Bridge : IRender, INotifyDamageStateChanged
+	public class Bridge : IRender, INotifyDamageStateChanged, IRadarSignature
 	{
-		readonly BuildingInfo building;
+		readonly BuildingInfo buildingInfo;
 		readonly Bridge[] neighbours = new Bridge[2];
-		readonly BridgeHut[] huts = new BridgeHut[2]; // Huts before this / first & after this / last
+		readonly LegacyBridgeHut[] huts = new LegacyBridgeHut[2]; // Huts before this / first & after this / last
+		readonly ITiledTerrainRenderer terrainRenderer;
+		readonly ITemplatedTerrainInfo terrainInfo;
 		readonly Health health;
 		readonly Actor self;
 		readonly BridgeInfo info;
@@ -87,9 +108,10 @@ namespace OpenRA.Mods.Common.Traits
 		readonly Lazy<bool> isDangling;
 		ushort template;
 		Dictionary<CPos, byte> footprint;
+		(CPos Cell, Color Color)[] radarSignature;
 
-		public BridgeHut Hut { get; private set; }
-		public bool IsDangling { get { return isDangling.Value; } }
+		public LegacyBridgeHut Hut { get; private set; }
+		public bool IsDangling => isDangling.Value;
 
 		public Bridge(Actor self, BridgeInfo info)
 		{
@@ -99,7 +121,12 @@ namespace OpenRA.Mods.Common.Traits
 			this.info = info;
 			type = self.Info.Name;
 			isDangling = new Lazy<bool>(() => huts[0] == huts[1] && (neighbours[0] == null || neighbours[1] == null));
-			building = self.Info.TraitInfo<BuildingInfo>();
+			buildingInfo = self.Info.TraitInfo<BuildingInfo>();
+
+			terrainRenderer = self.World.WorldActor.Trait<ITiledTerrainRenderer>();
+			terrainInfo = self.World.Map.Rules.TerrainInfo as ITemplatedTerrainInfo;
+			if (terrainInfo == null)
+				throw new InvalidDataException("Bridge requires a template-based tileset.");
 		}
 
 		public Bridge Neighbour(int direction) { return neighbours[direction]; }
@@ -121,21 +148,26 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			this.template = template;
 			this.footprint = footprint;
+			radarSignature = new (CPos Cell, Color Color)[footprint.Keys.Count];
 
-			// Set the initial custom terrain types
+			// Set the initial state
+			var i = 0;
 			foreach (var c in footprint.Keys)
-				self.World.Map.CustomTerrain[c] = GetTerrainType(c);
+			{
+				var tileInfo = GetTerrainInfo(c);
+				self.World.Map.CustomTerrain[c] = tileInfo.TerrainType;
+				radarSignature[i++] = (c, tileInfo.GetColor(self.World.LocalRandom));
+			}
 		}
 
-		byte GetTerrainType(CPos cell)
+		TerrainTileInfo GetTerrainInfo(CPos cell)
 		{
 			var dx = cell - self.Location;
-			var tileSet = self.World.Map.Rules.TileSet;
-			var index = dx.X + tileSet.Templates[template].Size.X * dx.Y;
-			return tileSet.GetTerrainIndex(new TerrainTile(template, (byte)index));
+			var index = dx.X + terrainInfo.Templates[template].Size.X * dx.Y;
+			return terrainInfo.GetTerrainInfo(new TerrainTile(template, (byte)index));
 		}
 
-		public void LinkNeighbouringBridges(World world, BridgeLayer bridges)
+		public void LinkNeighbouringBridges(LegacyBridgeLayer bridges)
 		{
 			for (var d = 0; d <= 1; d++)
 			{
@@ -152,7 +184,7 @@ namespace OpenRA.Mods.Common.Traits
 			}
 		}
 
-		internal void AddHut(BridgeHut hut)
+		internal void AddHut(LegacyBridgeHut hut)
 		{
 			// TODO: This method is incomprehensible and fragile, and should be rewritten.
 			if (huts[0] == huts[1])
@@ -170,8 +202,8 @@ namespace OpenRA.Mods.Common.Traits
 				Hut = null;
 		}
 
-		public BridgeHut GetHut(int index) { return huts[index]; }
-		public Bridge GetNeighbor(int[] offset, BridgeLayer bridges)
+		public LegacyBridgeHut GetHut(int index) { return huts[index]; }
+		public Bridge GetNeighbor(int[] offset, LegacyBridgeLayer bridges)
 		{
 			if (offset == null)
 				return null;
@@ -181,11 +213,12 @@ namespace OpenRA.Mods.Common.Traits
 
 		IRenderable[] TemplateRenderables(WorldRenderer wr, PaletteReference palette, ushort template)
 		{
-			var offset = FootprintUtils.CenterOffset(self.World, building).Y + 1024;
+			var offset = buildingInfo.CenterOffset(self.World).Y + 1024;
 
-			return footprint.Select(c => (IRenderable)(new SpriteRenderable(
-				wr.Theater.TileSprite(new TerrainTile(template, c.Value)),
-				wr.World.Map.CenterOfCell(c.Key), WVec.Zero, -offset, palette, 1f, true))).ToArray();
+			return footprint.Select(c => (IRenderable)new SpriteRenderable(
+				terrainRenderer.TileSprite(new TerrainTile(template, c.Value)),
+				wr.World.Map.CenterOfCell(c.Key), WVec.Zero, -offset, palette, 1f, 1f,
+				float3.Ones, TintModifiers.None, true)).ToArray();
 		}
 
 		bool initialized;
@@ -197,7 +230,7 @@ namespace OpenRA.Mods.Common.Traits
 				var palette = wr.Palette(TileSet.TerrainPaletteInternalName);
 				renderables = new Dictionary<ushort, IRenderable[]>();
 				foreach (var t in info.Templates)
-					renderables.Add(t.First, TemplateRenderables(wr, palette, t.First));
+					renderables.Add(t.Template, TemplateRenderables(wr, palette, t.Template));
 
 				initialized = true;
 			}
@@ -205,12 +238,31 @@ namespace OpenRA.Mods.Common.Traits
 			return renderables[template];
 		}
 
+		public IEnumerable<Rectangle> ScreenBounds(Actor self, WorldRenderer wr)
+		{
+			foreach (var kv in footprint)
+			{
+				var xy = wr.ScreenPxPosition(wr.World.Map.CenterOfCell(kv.Key));
+				var size = terrainRenderer.TileSprite(new TerrainTile(template, kv.Value)).Bounds.Size;
+
+				// Add an extra pixel padding to avoid issues with odd-sized sprites
+				var halfWidth = size.Width / 2 + 1;
+				var halfHeight = size.Height / 2 + 1;
+
+				yield return Rectangle.FromLTRB(
+					xy.X - halfWidth,
+					xy.Y - halfHeight,
+					xy.X + halfWidth,
+					xy.Y + halfHeight);
+			}
+		}
+
 		void KillUnitsOnBridge()
 		{
 			foreach (var c in footprint.Keys)
 				foreach (var a in self.World.ActorMap.GetActorsAt(c))
-					if (a.Info.HasTraitInfo<IPositionableInfo>() && !a.Trait<IPositionable>().CanEnterCell(c))
-						a.Kill(self);
+					if (a.Info.HasTraitInfo<IPositionableInfo>() && !a.Trait<IPositionable>().CanExistInCell(c))
+						a.Kill(self, info.DamageTypes);
 		}
 
 		bool NeighbourIsDeadShore(Bridge neighbour)
@@ -263,14 +315,13 @@ namespace OpenRA.Mods.Common.Traits
 				return;
 
 			// Update map
+			var i = 0;
 			foreach (var c in footprint.Keys)
-				self.World.Map.CustomTerrain[c] = GetTerrainType(c);
-
-			// If this bridge repair operation connects two pathfinding domains,
-			// update the domain index.
-			var domainIndex = self.World.WorldActor.TraitOrDefault<DomainIndex>();
-			if (domainIndex != null)
-				domainIndex.UpdateCells(self.World, footprint.Keys);
+			{
+				var tileInfo = GetTerrainInfo(c);
+				self.World.Map.CustomTerrain[c] = tileInfo.TerrainType;
+				radarSignature[i++] = (c, tileInfo.GetColor(self.World.LocalRandom));
+			}
 
 			if (LongBridgeSegmentIsDead() && !killedUnits)
 			{
@@ -320,7 +371,7 @@ namespace OpenRA.Mods.Common.Traits
 						neighbours[d].neighbours[d].UpdateState();
 		}
 
-		void AggregateDamageState(Bridge b, int d, ref DamageState damage)
+		static void AggregateDamageState(Bridge b, int d, ref DamageState damage)
 		{
 			if (b.health.DamageState > damage)
 				damage = b.health.DamageState;
@@ -336,16 +387,15 @@ namespace OpenRA.Mods.Common.Traits
 			return damage;
 		}
 
-		public void Demolish(Actor saboteur, int direction)
+		public void Demolish(Actor saboteur, int direction, BitSet<DamageType> damageTypes)
 		{
 			var initialDamage = health.DamageState;
 			self.World.AddFrameEndTask(w =>
 			{
 				// Use .FromPos since this actor is killed. Cannot use Target.FromActor
-				info.DemolishWeaponInfo.Impact(Target.FromPos(self.CenterPosition), saboteur, Enumerable.Empty<int>());
+				info.DemolishWeaponInfo.Impact(Target.FromPos(self.CenterPosition), saboteur);
 
-				self.World.WorldActor.Trait<ScreenShaker>().AddEffect(15, self.CenterPosition, 6);
-				self.Kill(saboteur);
+				self.Kill(saboteur, damageTypes);
 			});
 
 			// Destroy adjacent spans between (including) huts
@@ -355,8 +405,13 @@ namespace OpenRA.Mods.Common.Traits
 					0 : info.RepairPropagationDelay;
 
 				self.World.AddFrameEndTask(w => w.Add(new DelayedAction(delay, () =>
-					neighbours[direction].Demolish(saboteur, direction))));
+					neighbours[direction].Demolish(saboteur, direction, damageTypes))));
 			}
+		}
+
+		void IRadarSignature.PopulateRadarSignatureCells(Actor self, List<(CPos Cell, Color Color)> destinationBuffer)
+		{
+			destinationBuffer.AddRange(radarSignature);
 		}
 	}
 }

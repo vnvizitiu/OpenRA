@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,152 +9,236 @@
  */
 #endregion
 
-using System.Collections;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using ICSharpCode.SharpZipLib.Zip;
-using SZipFile = ICSharpCode.SharpZipLib.Zip.ZipFile;
 
 namespace OpenRA.FileSystem
 {
-	public sealed class ZipFile : IReadWritePackage
+	public class ZipFileLoader : IPackageLoader
 	{
-		public IReadWritePackage Parent { get; private set; }
-		public string Name { get; private set; }
-		readonly Stream pkgStream;
-		readonly SZipFile pkg;
+		const uint ZipSignature = 0x04034b50;
 
-		static ZipFile()
+		public class ReadOnlyZipFile : IReadOnlyPackage
 		{
-			ZipConstants.DefaultCodePage = Encoding.UTF8.CodePage;
-		}
+			public string Name { get; protected set; }
+			protected ZipFile pkg;
 
-		public ZipFile(Stream stream, string name, IReadOnlyPackage parent = null)
-		{
-			// SharpZipLib breaks when asked to update archives loaded from outside streams or files
-			// We can work around this by creating a clean in-memory-only file, cutting all outside references
-			pkgStream = new MemoryStream();
-			stream.CopyTo(pkgStream);
-			pkgStream.Position = 0;
+			// Dummy constructor for use with ReadWriteZipFile
+			protected ReadOnlyZipFile() { }
 
-			Name = name;
-			Parent = parent as IReadWritePackage;
-			pkg = new SZipFile(pkgStream);
-		}
+			public ReadOnlyZipFile(Stream s, string filename)
+			{
+				Name = filename;
+				pkg = new ZipFile(s);
+			}
 
-		public ZipFile(IReadOnlyFileSystem context, string filename)
-		{
-			string name;
-			IReadOnlyPackage p;
-			if (!context.TryGetPackageContaining(filename, out p, out name))
-				throw new FileNotFoundException("Unable to find parent package for " + filename);
+			public Stream GetStream(string filename)
+			{
+				var entry = pkg.GetEntry(filename);
+				if (entry == null)
+					return null;
 
-			Name = name;
-			Parent = p as IReadWritePackage;
+				using (var z = pkg.GetInputStream(entry))
+				{
+					var ms = new MemoryStream((int)entry.Size);
+					z.CopyTo(ms);
+					ms.Seek(0, SeekOrigin.Begin);
+					return ms;
+				}
+			}
 
-			// SharpZipLib breaks when asked to update archives loaded from outside streams or files
-			// We can work around this by creating a clean in-memory-only file, cutting all outside references
-			pkgStream = new MemoryStream();
-			using (var sourceStream = p.GetStream(name))
-				sourceStream.CopyTo(pkgStream);
-			pkgStream.Position = 0;
+			public IEnumerable<string> Contents
+			{
+				get
+				{
+					foreach (ZipEntry entry in pkg)
+						if (entry.IsFile)
+							yield return entry.Name;
+				}
+			}
 
-			pkg = new SZipFile(pkgStream);
-		}
+			public bool Contains(string filename)
+			{
+				return pkg.GetEntry(filename) != null;
+			}
 
-		ZipFile(string filename, IReadWritePackage parent)
-		{
-			pkgStream = new MemoryStream();
+			public void Dispose()
+			{
+				pkg?.Close();
+				GC.SuppressFinalize(this);
+			}
 
-			Name = filename;
-			Parent = parent;
-			pkg = SZipFile.Create(pkgStream);
-		}
+			public IReadOnlyPackage OpenPackage(string filename, FileSystem context)
+			{
+				// Directories are stored with a trailing "/" in the index
+				var entry = pkg.GetEntry(filename) ?? pkg.GetEntry(filename + "/");
+				if (entry == null)
+					return null;
 
-		public static ZipFile Create(string filename, IReadWritePackage parent)
-		{
-			return new ZipFile(filename, parent);
-		}
+				if (entry.IsDirectory)
+					return new ZipFolder(this, filename);
 
-		public Stream GetStream(string filename)
-		{
-			var entry = pkg.GetEntry(filename);
-			if (entry == null)
+				// Other package types can be loaded normally
+				var s = GetStream(filename);
+				if (s == null)
+					return null;
+
+				if (context.TryParsePackage(s, filename, out var package))
+					return package;
+
+				s.Dispose();
 				return null;
-
-			using (var z = pkg.GetInputStream(entry))
-			{
-				var ms = new MemoryStream();
-				z.CopyTo(ms);
-				ms.Seek(0, SeekOrigin.Begin);
-				return ms;
 			}
 		}
 
-		public IEnumerable<string> Contents
+		public sealed class ReadWriteZipFile : ReadOnlyZipFile, IReadWritePackage
 		{
-			get
+			readonly MemoryStream pkgStream = new();
+
+			public ReadWriteZipFile(string filename, bool create = false)
 			{
+				// SharpZipLib breaks when asked to update archives loaded from outside streams or files
+				// We can work around this by creating a clean in-memory-only file, cutting all outside references
+				if (!create)
+				{
+					using (var copy = new MemoryStream(File.ReadAllBytes(filename)))
+					{
+						pkgStream.Capacity = (int)copy.Length;
+						copy.CopyTo(pkgStream);
+					}
+				}
+
+				pkgStream.Position = 0;
+				pkg = new ZipFile(pkgStream);
+				Name = filename;
+
+				// Remove subfields that can break ZIP updating.
 				foreach (ZipEntry entry in pkg)
-					yield return entry.Name;
+					entry.ExtraData = null;
+			}
+
+			void Commit()
+			{
+				File.WriteAllBytes(Name, pkgStream.ToArray());
+			}
+
+			public void Update(string filename, byte[] contents)
+			{
+				pkg.BeginUpdate();
+				pkg.Add(new StaticStreamDataSource(new MemoryStream(contents)), filename);
+				pkg.CommitUpdate();
+				Commit();
+			}
+
+			public void Delete(string filename)
+			{
+				pkg.BeginUpdate();
+				pkg.Delete(filename);
+				pkg.CommitUpdate();
+				Commit();
 			}
 		}
 
-		public bool Contains(string filename)
+		sealed class ZipFolder : IReadOnlyPackage
 		{
-			return pkg.GetEntry(filename) != null;
+			public string Name { get; }
+			public ReadOnlyZipFile Parent { get; }
+
+			public ZipFolder(ReadOnlyZipFile parent, string path)
+			{
+				if (path.EndsWith('/'))
+					path = path[..^1];
+
+				Name = path;
+				Parent = parent;
+			}
+
+			public Stream GetStream(string filename)
+			{
+				// Zip files use '/' as a path separator
+				return Parent.GetStream(Name + '/' + filename);
+			}
+
+			public IEnumerable<string> Contents
+			{
+				get
+				{
+					foreach (var entry in Parent.Contents)
+					{
+						if (entry.StartsWith(Name, StringComparison.Ordinal) && entry != Name)
+						{
+							var filename = entry[(Name.Length + 1)..];
+							var dirLevels = filename.Split('/').Count(c => !string.IsNullOrEmpty(c));
+							if (dirLevels == 1)
+								yield return filename;
+						}
+					}
+				}
+			}
+
+			public bool Contains(string filename)
+			{
+				return Parent.Contains(Name + '/' + filename);
+			}
+
+			public IReadOnlyPackage OpenPackage(string filename, FileSystem context)
+			{
+				return Parent.OpenPackage(Name + '/' + filename, context);
+			}
+
+			public void Dispose() { /* nothing to do */ }
 		}
 
-		void Commit()
+		sealed class StaticStreamDataSource : IStaticDataSource
 		{
-			if (Parent == null)
-				throw new InvalidDataException("Cannot update ZipFile without writable parent");
+			readonly Stream s;
+			public StaticStreamDataSource(Stream s)
+			{
+				this.s = s;
+			}
 
-			var pos = pkgStream.Position;
-			pkgStream.Position = 0;
-			Parent.Update(Name, pkgStream.ReadBytes((int)pkgStream.Length));
-			pkgStream.Position = pos;
+			public Stream GetSource()
+			{
+				return s;
+			}
 		}
 
-		public void Update(string filename, byte[] contents)
+		public bool TryParsePackage(Stream s, string filename, FileSystem context, out IReadOnlyPackage package)
 		{
-			pkg.BeginUpdate();
-			pkg.Add(new StaticStreamDataSource(new MemoryStream(contents)), filename);
-			pkg.CommitUpdate();
-			Commit();
+			var readSignature = s.ReadUInt32();
+			s.Position -= 4;
+
+			if (readSignature != ZipSignature)
+			{
+				package = null;
+				return false;
+			}
+
+			package = new ReadOnlyZipFile(s, filename);
+			return true;
 		}
 
-		public void Delete(string filename)
+		public static bool TryParseReadWritePackage(string filename, out IReadWritePackage package)
 		{
-			pkg.BeginUpdate();
-			pkg.Delete(filename);
-			pkg.CommitUpdate();
-			Commit();
+			using (var s = File.OpenRead(filename))
+			{
+				if (s.ReadUInt32() != ZipSignature)
+				{
+					package = null;
+					return false;
+				}
+			}
+
+			package = new ReadWriteZipFile(filename);
+			return true;
 		}
 
-		public void Dispose()
+		public static IReadWritePackage Create(string filename)
 		{
-			if (pkg != null)
-				pkg.Close();
-
-			if (pkgStream != null)
-				pkgStream.Dispose();
-		}
-	}
-
-	class StaticStreamDataSource : IStaticDataSource
-	{
-		readonly Stream s;
-		public StaticStreamDataSource(Stream s)
-		{
-			this.s = s;
-		}
-
-		public Stream GetSource()
-		{
-			return s;
+			return new ReadWriteZipFile(filename, true);
 		}
 	}
 }

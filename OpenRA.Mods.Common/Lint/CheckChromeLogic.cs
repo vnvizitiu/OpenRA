@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,12 +11,11 @@
 
 using System;
 using System.Collections.Generic;
-using OpenRA.Traits;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Lint
 {
-	class CheckChromeLogic : ILintPass
+	sealed class CheckChromeLogic : ILintPass
 	{
 		public void Run(Action<string> emitError, Action<string> emitWarning, ModData modData)
 		{
@@ -24,7 +23,7 @@ namespace OpenRA.Mods.Common.Lint
 				CheckInner(MiniYaml.FromStream(modData.DefaultFileSystem.Open(filename), filename), filename, emitError);
 		}
 
-		void CheckInner(List<MiniYamlNode> nodes, string filename, Action<string> emitError)
+		static void CheckInner(IEnumerable<MiniYamlNode> nodes, string filename, Action<string> emitError)
 		{
 			foreach (var node in nodes)
 			{
@@ -38,9 +37,9 @@ namespace OpenRA.Mods.Common.Lint
 					{
 						var type = Game.ModData.ObjectCreator.FindType(typeName);
 						if (type == null)
-							emitError("{0} refers to a logic object `{1}` that does not exist".F(filename, typeName));
+							emitError($"{filename} refers to a logic object `{typeName}` that does not exist.");
 						else if (!typeof(ChromeLogic).IsAssignableFrom(type))
-							emitError("{0} refers to a logic object `{1}` that does not inherit from ChromeLogic".F(filename, typeName));
+							emitError($"{filename} refers to a logic object `{typeName}` that does not inherit from ChromeLogic.");
 					}
 				}
 

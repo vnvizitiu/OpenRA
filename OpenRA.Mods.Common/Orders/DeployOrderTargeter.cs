@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -19,11 +19,6 @@ namespace OpenRA.Mods.Common.Orders
 	{
 		readonly Func<string> cursor;
 
-		public DeployOrderTargeter(string order, int priority)
-			: this(order, priority, () => "deploy")
-		{
-		}
-
 		public DeployOrderTargeter(string order, int priority, Func<string> cursor)
 		{
 			OrderID = order;
@@ -31,11 +26,11 @@ namespace OpenRA.Mods.Common.Orders
 			this.cursor = cursor;
 		}
 
-		public string OrderID { get; private set; }
-		public int OrderPriority { get; private set; }
-		public bool TargetOverridesSelection(TargetModifiers modifiers) { return true; }
+		public string OrderID { get; }
+		public int OrderPriority { get; }
+		public bool TargetOverridesSelection(Actor self, in Target target, List<Actor> actorsAt, CPos xy, TargetModifiers modifiers) { return true; }
 
-		public bool CanTarget(Actor self, Target target, List<Actor> othersAtTarget, ref TargetModifiers modifiers, ref string cursor)
+		public bool CanTarget(Actor self, in Target target, ref TargetModifiers modifiers, ref string cursor)
 		{
 			if (target.Type != TargetType.Actor)
 				return false;

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,56 +14,47 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Render
 {
-	[Desc("Rendered together with AttackCharge.")]
-	public class WithChargeOverlayInfo : ITraitInfo, Requires<RenderSpritesInfo>
+	[Desc("Render overlay that varies the animation frame based on the AttackCharges trait's charge level.")]
+	sealed class WithChargeOverlayInfo : PausableConditionalTraitInfo, Requires<WithSpriteBodyInfo>, Requires<RenderSpritesInfo>
 	{
-		[Desc("Sequence name to use")]
-		[SequenceReference] public readonly string Sequence = "active";
+		[SequenceReference]
+		[Desc("Sequence to use for the charge levels.")]
+		public readonly string Sequence = "active";
 
+		[PaletteReference(nameof(IsPlayerPalette))]
 		[Desc("Custom palette name")]
-		[PaletteReference("IsPlayerPalette")] public readonly string Palette = null;
+		public readonly string Palette = null;
 
 		[Desc("Custom palette is a player palette BaseName")]
 		public readonly bool IsPlayerPalette = false;
 
-		public object Create(ActorInitializer init) { return new WithChargeOverlay(init, this); }
+		public override object Create(ActorInitializer init) { return new WithChargeOverlay(init.Self, this); }
 	}
 
-	public class WithChargeOverlay : INotifyCharging, INotifyDamageStateChanged, INotifySold
+	sealed class WithChargeOverlay : PausableConditionalTrait<WithChargeOverlayInfo>, INotifyDamageStateChanged
 	{
 		readonly Animation overlay;
-		readonly RenderSprites renderSprites;
-		readonly WithChargeOverlayInfo info;
 
-		bool charging;
-
-		public WithChargeOverlay(ActorInitializer init, WithChargeOverlayInfo info)
+		public WithChargeOverlay(Actor self, WithChargeOverlayInfo info)
+			: base(info)
 		{
-			this.info = info;
+			var rs = self.Trait<RenderSprites>();
+			var wsb = self.Trait<WithSpriteBody>();
 
-			renderSprites = init.Self.Trait<RenderSprites>();
+			var attackCharges = self.Trait<AttackCharges>();
+			var attackChargesInfo = (AttackChargesInfo)attackCharges.Info;
 
-			overlay = new Animation(init.World, renderSprites.GetImage(init.Self));
+			overlay = new Animation(self.World, rs.GetImage(self), () => IsTraitPaused);
+			overlay.PlayFetchIndex(wsb.NormalizeSequence(self, info.Sequence),
+				() => int2.Lerp(0, overlay.CurrentSequence.Length, attackCharges.ChargeLevel, attackChargesInfo.ChargeLevel + 1));
 
-			renderSprites.Add(new AnimationWithOffset(overlay, null, () => !charging),
+			rs.Add(new AnimationWithOffset(overlay, null, () => IsTraitDisabled, 1024),
 				info.Palette, info.IsPlayerPalette);
-		}
-
-		void INotifyCharging.Charging(Actor self, Target target)
-		{
-			charging = true;
-			overlay.PlayThen(RenderSprites.NormalizeSequence(overlay, self.GetDamageState(), info.Sequence), () => charging = false);
 		}
 
 		void INotifyDamageStateChanged.DamageStateChanged(Actor self, AttackInfo e)
 		{
-			overlay.ReplaceAnim(RenderSprites.NormalizeSequence(overlay, e.DamageState, info.Sequence));
-		}
-
-		void INotifySold.Sold(Actor self) { }
-		void INotifySold.Selling(Actor self)
-		{
-			charging = false;
+			overlay.ReplaceAnim(RenderSprites.NormalizeSequence(overlay, e.DamageState, Info.Sequence));
 		}
 	}
 }

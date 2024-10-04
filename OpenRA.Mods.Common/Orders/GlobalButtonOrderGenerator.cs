@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -16,18 +16,16 @@ using OpenRA.Mods.Common.Traits;
 
 namespace OpenRA.Mods.Common.Orders
 {
-	public class GlobalButtonOrderGenerator<T> : IOrderGenerator
+	public abstract class GlobalButtonOrderGenerator<T> : OrderGenerator
 	{
-		string cursor;
-		string order;
+		readonly string order;
 
-		public GlobalButtonOrderGenerator(string cursor, string order)
+		protected GlobalButtonOrderGenerator(string order)
 		{
-			this.cursor = cursor;
 			this.order = order;
 		}
 
-		public IEnumerable<Order> Order(World world, CPos cell, int2 worldPixel, MouseInput mi)
+		protected override IEnumerable<Order> OrderInner(World world, CPos cell, int2 worldPixel, MouseInput mi)
 		{
 			if (mi.Button == MouseButton.Right)
 				world.CancelInputMode();
@@ -35,49 +33,74 @@ namespace OpenRA.Mods.Common.Orders
 			return OrderInner(world, mi);
 		}
 
-		IEnumerable<Order> OrderInner(World world, MouseInput mi)
+		protected virtual bool IsValidTrait(T t)
+		{
+			return t.IsTraitEnabled();
+		}
+
+		protected IEnumerable<Order> OrderInner(World world, MouseInput mi)
 		{
 			if (mi.Button == MouseButton.Left)
 			{
-				var underCursor = world.ScreenMap.ActorsAt(mi)
+				var underCursor = world.ScreenMap.ActorsAtMouse(mi)
+					.Select(a => a.Actor)
 					.FirstOrDefault(a => a.Owner == world.LocalPlayer && a.TraitsImplementing<T>()
-						.Any(Exts.IsTraitEnabled));
+						.Any(IsValidTrait));
 
 				if (underCursor == null)
-					yield break;
-
-				var building = underCursor.TraitOrDefault<Building>();
-				if (building != null && building.Locked)
 					yield break;
 
 				yield return new Order(order, underCursor, false);
 			}
 		}
 
-		public void Tick(World world)
+		protected override void Tick(World world)
 		{
 			if (world.LocalPlayer != null &&
 				world.LocalPlayer.WinState != WinState.Undefined)
 				world.CancelInputMode();
 		}
 
-		public IEnumerable<IRenderable> Render(WorldRenderer wr, World world) { yield break; }
-		public IEnumerable<IRenderable> RenderAboveShroud(WorldRenderer wr, World world) { yield break; }
+		protected override IEnumerable<IRenderable> Render(WorldRenderer wr, World world) { yield break; }
+		protected override IEnumerable<IRenderable> RenderAboveShroud(WorldRenderer wr, World world) { yield break; }
+		protected override IEnumerable<IRenderable> RenderAnnotations(WorldRenderer wr, World world) { yield break; }
 
-		public string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi)
-		{
-			mi.Button = MouseButton.Left;
-			return cursor + (OrderInner(world, mi).Any() ? "" : "-blocked");
-		}
+		protected abstract override string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi);
 	}
 
-	public class PowerDownOrderGenerator : GlobalButtonOrderGenerator<CanPowerDown>
+	public class PowerDownOrderGenerator : GlobalButtonOrderGenerator<ToggleConditionOnOrder>
 	{
-		public PowerDownOrderGenerator() : base("powerdown", "PowerDown") { }
+		public PowerDownOrderGenerator()
+			: base("PowerDown") { }
+
+		protected override bool IsValidTrait(ToggleConditionOnOrder t)
+		{
+			return !t.IsTraitDisabled && !t.IsTraitPaused;
+		}
+
+		protected override string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi)
+		{
+			mi.Button = MouseButton.Left;
+			return OrderInner(world, mi).Any() ? "powerdown" : "powerdown-blocked";
+		}
 	}
 
 	public class SellOrderGenerator : GlobalButtonOrderGenerator<Sellable>
 	{
-		public SellOrderGenerator() : base("sell", "Sell") { }
+		public SellOrderGenerator()
+			: base("Sell") { }
+
+		protected override string GetCursor(World world, CPos cell, int2 worldPixel, MouseInput mi)
+		{
+			mi.Button = MouseButton.Left;
+
+			var cursor = OrderInner(world, mi)
+				.SelectMany(o => o.Subject.TraitsImplementing<Sellable>())
+				.Where(t => !t.IsTraitDisabled)
+				.Select(si => si.Info.Cursor)
+				.FirstOrDefault();
+
+			return cursor ?? "sell-blocked";
+		}
 	}
 }

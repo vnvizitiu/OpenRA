@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,27 +9,17 @@
  */
 #endregion
 
-using System.Linq;
-using OpenRA.Traits;
-
 namespace OpenRA.Mods.Common.Traits.Radar
 {
 	[Desc("This actor enables the radar minimap.")]
-	public class ProvidesRadarInfo : TraitInfo<ProvidesRadar> { }
-
-	public class ProvidesRadar : ITick
+	public class ProvidesRadarInfo : ConditionalTraitInfo
 	{
-		public bool IsActive { get; private set; }
+		public override object Create(ActorInitializer init) { return new ProvidesRadar(this); }
+	}
 
-		public void Tick(Actor self) { IsActive = UpdateActive(self); }
-
-		static bool UpdateActive(Actor self)
-		{
-			// Check if powered
-			if (self.IsDisabled()) return false;
-
-			return self.World.ActorsWithTrait<JamsRadar>().All(a => !a.Trait.Info.Stances.HasStance(a.Actor.Owner.Stances[self.Owner])
-				|| (self.CenterPosition - a.Actor.CenterPosition).HorizontalLengthSquared > a.Trait.Info.Range.LengthSquared);
-		}
+	public class ProvidesRadar : ConditionalTrait<ProvidesRadarInfo>
+	{
+		public ProvidesRadar(ProvidesRadarInfo info)
+			: base(info) { }
 	}
 }

@@ -6,15 +6,30 @@ World:
 	MissionData:
 		Briefing: The Allies are now being flanked from both sides. Evacuate before the remaining Allied forces in the area are wiped out. Einstein has recently developed a technology which allows us to obscure units from the enemy. Pull out at least one prototype mobile gap generator intact.
 	LuaScript:
-		Scripts: exodus.lua
+		Scripts: campaign.lua, utils.lua, exodus.lua
 	ScriptLobbyDropdown@difficulty:
 		ID: difficulty
-		Label: Difficulty
+		Label: dropdown-difficulty.label
+		Description: dropdown-difficulty.description
 		Values:
-			easy: Easy
-			normal: Normal
-			hard: Hard
+			easy: options-difficulty.easy
+			normal: options-difficulty.normal
+			hard: options-difficulty.hard
 		Default: normal
+	TimeLimitManager:
+		TimeLimitLocked: True
+
+^Palettes:
+	IndexedPlayerPalette:
+		PlayerIndex:
+			Allies: 224, 224, 225, 225, 226, 184, 185, 186, 187, 188, 188, 189, 190, 190, 191, 191
+			Allies1: 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175
+			Allies2: 208, 208, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 154, 155, 143
+	IndexedPlayerPalette@NOSHADOW:
+		PlayerIndex:
+			Allies: 224, 224, 225, 225, 226, 184, 185, 186, 187, 188, 188, 189, 190, 190, 191, 191
+			Allies1: 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175
+			Allies2: 208, 208, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 154, 155, 143
 
 powerproxy.paratroopers:
 	ParatroopersPower:
@@ -22,35 +37,14 @@ powerproxy.paratroopers:
 
 HBOX:
 	Buildable:
+		# Invalid targets for YakAttack
 		Prerequisites: ~disabled
-	EditorOnlyTooltip:
-		Description: invalid targets for YakAttack
 
 E7:
 	Buildable:
 		Prerequisites: ~disabled
 
-TRAN:
-	Buildable:
-		Prerequisites: ~disabled
-
-BARR:
-	Buildable:
-		Prerequisites: ~disabled
-
 MIG:
-	Buildable:
-		Prerequisites: ~disabled
-
-HELI:
-	Buildable:
-		Prerequisites: ~disabled
-
-HIND:
-	Buildable:
-		Prerequisites: ~disabled
-
-SS:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -59,22 +53,6 @@ ARTY:
 		Prerequisites: ~disabled
 
 AGUN:
-	Buildable:
-		Prerequisites: ~disabled
-
-MSUB:
-	Buildable:
-		Prerequisites: ~disabled
-
-DD:
-	Buildable:
-		Prerequisites: ~disabled
-
-CA:
-	Buildable:
-		Prerequisites: ~disabled
-
-PT:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -95,14 +73,6 @@ IRON:
 		Prerequisites: ~disabled
 
 PDOX:
-	Buildable:
-		Prerequisites: ~disabled
-
-TSLA:
-	Buildable:
-		Prerequisites: ~disabled
-
-FTUR:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -134,27 +104,11 @@ MCV:
 	Buildable:
 		Prerequisites: ~disabled
 
-APC:
-	Buildable:
-		Prerequisites: ~disabled
-
-MNLY.AP:
-	Buildable:
-		Prerequisites: ~disabled
-
-MNLY.AT:
-	Buildable:
-		Prerequisites: ~disabled
-
-TRUK:
+MNLY:
 	Buildable:
 		Prerequisites: ~disabled
 
 TTNK:
-	Buildable:
-		Prerequisites: ~disabled
-
-FTRK:
 	Buildable:
 		Prerequisites: ~disabled
 
@@ -176,9 +130,16 @@ GAP:
 	Buildable:
 		Prerequisites: ~disabled
 
+QTNK:
+	Buildable:
+		Prerequisites: ~disabled
+
+THF:
+	Buildable:
+		Prerequisites: ~disabled
+
 CAMERA.Large:
 	Inherits: CAMERA
+	# Required for YakAttack to work
 	RevealsShroud:
 		Range: 49c0
-	EditorOnlyTooltip:
-		Description: required for YakAttack to work

@@ -1,6 +1,15 @@
+--[[
+   Copyright (c) The OpenRA Developers and Contributors
+   This file is part of OpenRA, which is free software. It is made
+   available to you under the terms of the GNU General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or (at your option) any later version. For more
+   information, see COPYING.
+]]
+
 CheckForBase = function()
-	baseBuildings = Map.ActorsInBox(Map.TopLeft, CFBPoint.CenterPosition, function(actor)
-		return actor.Type == "fact" or actor.Type == "powr"
+	local baseBuildings = Map.ActorsInBox(BaseRectTL.CenterPosition, BaseRectBR.CenterPosition, function(actor)
+		return (actor.Type == "fact" or actor.Type == "powr") and actor.Owner == player
 	end)
 
 	return #baseBuildings >= 2
@@ -19,7 +28,7 @@ CheckForSPen = function()
 end
 
 RunInitialActivities = function()
-	if Map.LobbyOption("difficulty") == "hard" then
+	if Difficulty == "hard" then
 		Expand()
 		ExpansionCheck = true
 	else
@@ -28,9 +37,8 @@ RunInitialActivities = function()
 
 	Trigger.AfterDelay(1, function()
 		Harvester.FindResources()
-		Helper.Destroy()
 		IdlingUnits()
-		Media.PlaySpeechNotification(player, "ReinforcementsArrived")
+		Media.PlaySpeechNotification(USSR, "ReinforcementsArrived")
 
 		local buildings = Utils.Where(Map.ActorsInWorld, function(self) return self.Owner == Greece and self.HasProperty("StartBuildingRepairs") end)
 		Utils.Do(buildings, function(actor)
@@ -42,12 +50,12 @@ RunInitialActivities = function()
 		end)
 	end)
 
-	Reinforcements.Reinforce(player, SovietStartReinf, SovietStartToBasePath, 0, function(soldier)
+	Reinforcements.Reinforce(USSR, SovietStartReinf, SovietStartToBasePath, 0, function(soldier)
 		soldier.AttackMove(SovietBasePoint.Location)
 	end)
 
-	Actor.Create("camera", true, { Owner = player, Location = GreeceBasePoint.Location })
-	Actor.Create("camera", true, { Owner = player, Location = SovietBasePoint.Location })
+	Actor.Create("camera", true, { Owner = USSR, Location = GreeceBasePoint.Location })
+	Actor.Create("camera", true, { Owner = USSR, Location = SovietBasePoint.Location })
 
 	startmcv.Move(MCVStartMovePoint.Location)
 	Runner1.Move(RunnerPoint.Location)
@@ -57,7 +65,7 @@ RunInitialActivities = function()
 	ProduceInfantry()
 	Trigger.AfterDelay(DateTime.Minutes(2), ProduceShips)
 
-	if Map.LobbyOption("difficulty") == "hard" or Map.LobbyOption("difficulty") == "normal" then
+	if Difficulty == "hard" or Difficulty == "normal" then
 		Trigger.AfterDelay(DateTime.Seconds(25), ReinfInf)
 	end
 	Trigger.AfterDelay(DateTime.Minutes(2), ReinfInf)
@@ -67,66 +75,56 @@ RunInitialActivities = function()
 end
 
 Expand = function()
-	if ExpansionCheck then
-		return
-	elseif mcvtransport.IsDead then
-		return
-	elseif mcvGG.IsDead then
+	if ExpansionCheck or mcvtransport.IsDead or mcvGG.IsDead then
 		return
 	end
-
-	mcvGG.Move(mcvGGLoadPoint.Location)
-	mcvtransport.Move(lstBeachPoint.Location)
-
-	Reinforcements.Reinforce(GoodGuy, { "dd", "dd" }, ShipArrivePath, 0, function(ddsquad)
-		ddsquad.AttackMove(NearExpPoint.Location) end)
 
 	ExpansionCheck = true
 	Trigger.ClearAll(mcvGG)
 	Trigger.ClearAll(mcvtransport)
-	Trigger.AfterDelay(DateTime.Seconds(3), function()
-		if mcvtransport.IsDead then
-			return
-		elseif mcvGG.IsDead then
+	Media.DisplayMessage(UserInterface.Translate("allied-mcv-island"))
+
+	Reinforcements.Reinforce(GoodGuy, { "dd", "dd" }, ShipArrivePath, 0, function(ddsquad)
+		ddsquad.AttackMove(NearExpPoint.Location) end)
+
+
+	mcvtransport.Move(lstBeachPoint.Location)
+
+	mcvGG.Move(mcvGGLoadPoint.Location)
+	mcvGG.EnterTransport(mcvtransport)
+
+	Trigger.AfterDelay(DateTime.Seconds(5), function()
+		if mcvtransport.IsDead or mcvGG.IsDead then
 			return
 		end
 
-		mcvGG.EnterTransport(mcvtransport)
 		mcvtransport.Move(GGUnloadPoint.Location)
 		mcvtransport.UnloadPassengers()
-		Trigger.AfterDelay(DateTime.Seconds(12), function()
+		mcvtransport.CallFunc(function()
 			if mcvGG.IsDead then
 				return
 			end
 
 			mcvGG.Move(MCVDeploy.Location)
-			Trigger.AfterDelay(DateTime.Seconds(4), function()
-				if not mcvGG.IsDead then
-					mcvGG.Deploy()
-					Trigger.AfterDelay(DateTime.Seconds(4), function()
-						local fact = Map.ActorsInBox(mcvGGLoadPoint.CenterPosition, ReinfEastPoint.CenterPosition, function(actor)
-							return actor.Type == "fact" and actor.Owner == GoodGuy end)
-						if #fact == 0 then
-							return
-						else
-							Trigger.OnDamaged(fact[1], function()
-								if fact[1].Owner == GoodGuy and fact[1].Health < fact[1].MaxHealth * 3/4 then
-									fact[1].StartBuildingRepairs()
-								end
-							end)
-						end
-					end)
+			mcvGG.CallFunc(function()
+
+				-- Avoid crashing through modifying the actor list from mcvGG's tick
+				Trigger.AfterDelay(0, function()
+					mcvGG.Owner = GoodGuy
 
 					IslandTroops1()
 					Trigger.AfterDelay(DateTime.Minutes(3), IslandTroops2)
 					Trigger.AfterDelay(DateTime.Minutes(6), IslandTroops3)
-					Trigger.AfterDelay(DateTime.Seconds(7), BuildBase)
-				end
 
-				if not mcvtransport.IsDead then
-					mcvtransport.Move(ReinfNorthPoint.Location)
-					mcvtransport.Destroy()
-				end
+					if not mcvtransport.IsDead then
+						mcvtransport.Move(ReinfNorthPoint.Location)
+						mcvtransport.Destroy()
+					end
+				end)
+
+				Trigger.AfterDelay(DateTime.Seconds(1), function()
+					GoodGuy.GrantCondition("ai-active")
+				end)
 			end)
 		end)
 	end)
@@ -134,11 +132,14 @@ end
 
 Tick = function()
 	if Greece.HasNoRequiredUnits() and GoodGuy.HasNoRequiredUnits() then
-		player.MarkCompletedObjective(KillAll)
-		player.MarkCompletedObjective(HoldObjective)
+		USSR.MarkCompletedObjective(KillAll)
+
+		if HoldObjective then
+			USSR.MarkCompletedObjective(HoldObjective)
+		end
 	end
 
-	if player.HasNoRequiredUnits() then
+	if USSR.HasNoRequiredUnits() then
 		GoodGuy.MarkCompletedObjective(BeatUSSR)
 	end
 
@@ -152,8 +153,8 @@ Tick = function()
 		GoodGuy.Resources = GoodGuy.ResourceCapacity * 0.25
 	end
 
-	if not baseEstablished and CheckForBase() then
-		baseEstablished = true
+	if not BaseEstablished and CheckForBase() then
+		BaseEstablished = true
 		Para()
 	end
 
@@ -170,9 +171,9 @@ Tick = function()
 
 	if not RCheck then
 		RCheck = true
-		if Map.LobbyOption("difficulty") == "easy" and ReinfCheck then
+		if Difficulty == "easy" then
 			Trigger.AfterDelay(DateTime.Minutes(6), ReinfArmor)
-		elseif Map.LobbyOption("difficulty") == "normal" then
+		elseif Difficulty == "normal" then
 			Trigger.AfterDelay(DateTime.Minutes(4), ReinfArmor)
 		else
 			Trigger.AfterDelay(DateTime.Minutes(3), ReinfArmor)
@@ -181,70 +182,72 @@ Tick = function()
 end
 
 WorldLoaded = function()
-	player = Player.GetPlayer("USSR")
+	USSR = Player.GetPlayer("USSR")
 	GoodGuy = Player.GetPlayer("GoodGuy")
 	Greece = Player.GetPlayer("Greece")
 
+	InitObjectives(USSR)
+
+	CaptureObjective = AddPrimaryObjective(USSR, "capture-radar-dome")
+	KillAll = AddPrimaryObjective(USSR, "defeat-allied-forces")
+	BeatUSSR = AddPrimaryObjective(Greece, "")
+
 	RunInitialActivities()
-
-	Trigger.OnObjectiveAdded(player, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "New " .. string.lower(p.GetObjectiveType(id)) .. " objective")
-	end)
-	Trigger.OnObjectiveCompleted(player, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective completed")
-		Media.PlaySpeechNotification(player, "ObjectiveMet")
-	end)
-	Trigger.OnObjectiveFailed(player, function(p, id)
-		Media.DisplayMessage(p.GetObjectiveDescription(id), "Objective failed")
-	end)
-
-	CaptureObjective = player.AddPrimaryObjective("Capture the Radar Dome.")
-	KillAll = player.AddPrimaryObjective("Defeat the Allied forces.")
-	BeatUSSR = GoodGuy.AddPrimaryObjective("Defeat the Soviet forces.")
 
 	Trigger.OnDamaged(mcvGG, Expand)
 	Trigger.OnDamaged(mcvtransport, Expand)
 
-	Trigger.OnKilled(Radar, function()
-		player.MarkFailedObjective(CaptureObjective)
+	Trigger.OnKilled(RadarDome, function()
+		if not USSR.IsObjectiveCompleted(CaptureObjective) then
+			USSR.MarkFailedObjective(CaptureObjective)
+		end
+
+		if HoldObjective then
+			USSR.MarkFailedObjective(HoldObjective)
+		end
 	end)
 
-	Trigger.OnCapture(Radar, function(self, captor)
-		if captor.Owner ~= player then
+	RadarDome.GrantCondition("french")
+	Trigger.OnCapture(RadarDome, function()
+		if USSR.IsObjectiveCompleted(KillAll) then
+			USSR.MarkCompletedObjective(CaptureObjective)
 			return
 		end
 
-		HoldObjective = player.AddPrimaryObjective("Defend the Radar Dome.")
-		player.MarkCompletedObjective(CaptureObjective)
+		HoldObjective = AddPrimaryObjective(USSR, "defend-radar-dome")
+		USSR.MarkCompletedObjective(CaptureObjective)
+		Beacon.New(USSR, MCVDeploy.CenterPosition)
+		if Difficulty == "easy" then
+			Actor.Create("camera", true, { Owner = USSR, Location = MCVDeploy.Location })
+			Media.DisplayMessage(UserInterface.Translate("allied-expansion-movement-detected"))
+		else
+			Actor.Create("MCV.CAM", true, { Owner = USSR, Location = MCVDeploy.Location })
+			Media.DisplayMessage(UserInterface.Translate("coordinates-allied-expansion-discovered"))
+		end
 
 		if not ExpansionCheck then
 			Expand()
 			ExpansionCheck = true
 		end
 
-		Reinforcements.Reinforce(Greece, ArmorReinfGreece, AlliedCrossroadsToRadarPath , 0, function(soldier)
-			soldier.Hunt()
-		end)
+		Reinforcements.Reinforce(Greece, ArmorReinfGreece, AlliedCrossroadsToRadarPath , 0, IdleHunt)
 
-		Trigger.AfterDelay(1, function()
-			local newRadar = Actor.Create("dome", true, { Owner = player, Location = Radar.Location })
-			newRadar.Health = Radar.Health
-			Radar.Destroy()
-			Trigger.OnKilled(newRadar, function()
-				player.MarkFailedObjective(HoldObjective)
+		RadarDome.RevokeCondition(1)
+		Trigger.ClearAll(RadarDome)
+		Trigger.AfterDelay(0, function()
+			Trigger.OnRemovedFromWorld(RadarDome, function()
+				USSR.MarkFailedObjective(HoldObjective)
 			end)
 		end)
 	end)
 
 	Trigger.OnEnteredProximityTrigger(USSRExpansionPoint.CenterPosition, WDist.New(4 * 1024), function(unit, id)
-		if unit.Owner == player and Radar.Owner == player then
+		if unit.Owner == USSR and RadarDome.Owner == USSR then
 			Trigger.RemoveProximityTrigger(id)
 
 			Para2()
-			ProduceInfantryGG()
-			ProduceTanksGG()
 
-			local units = Reinforcements.ReinforceWithTransport(player, "lst", SovietMCVReinf, { ReinfSouthPoint.Location, USSRlstPoint.Location }, { ReinfSouthPoint.Location })[2]
+			local units = Reinforcements.ReinforceWithTransport(USSR, "lst", SovietMCVReinf, { ReinfSouthPoint.Location, USSRlstPoint.Location }, { ReinfSouthPoint.Location })[2]
 			Utils.Do(units, function(unit)
 				Trigger.OnAddedToWorld(unit, function()
 					if unit.Type == "mcv" then
@@ -255,16 +258,8 @@ WorldLoaded = function()
 				end)
 			end)
 
-			Media.PlaySpeechNotification(player, "ReinforcementsArrived")
+			Media.PlaySpeechNotification(USSR, "ReinforcementsArrived")
 		end
-	end)
-
-	Trigger.OnPlayerLost(player, function()
-		Media.PlaySpeechNotification(player, "Lose")
-	end)
-
-	Trigger.OnPlayerWon(player, function()
-		Media.PlaySpeechNotification(player, "Win")
 	end)
 
 	Camera.Position = StartCamPoint.CenterPosition

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,8 +10,9 @@
 #endregion
 
 using System;
-using System.Drawing;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Terrain;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Widgets;
 
 namespace OpenRA.Mods.Common.Widgets
@@ -20,83 +21,58 @@ namespace OpenRA.Mods.Common.Widgets
 	{
 		public Func<float> GetScale = () => 1f;
 
+		readonly ITiledTerrainRenderer terrainRenderer;
 		readonly WorldRenderer worldRenderer;
-		readonly TileSet tileset;
+		readonly WorldViewportSizes viewportSizes;
 
 		TerrainTemplateInfo template;
-		Rectangle bounds;
 
-		public TerrainTemplateInfo Template
-		{
-			get
-			{
-				return template;
-			}
-
-			set
-			{
-				template = value;
-				if (template == null)
-					return;
-
-				var grid = Game.ModData.Manifest.Get<MapGrid>();
-				bounds = worldRenderer.Theater.TemplateBounds(template, grid.TileSize, grid.Type);
-			}
-		}
+		public int2 PreviewOffset { get; private set; }
+		public int2 IdealPreviewSize { get; private set; }
 
 		[ObjectCreator.UseCtor]
-		public TerrainTemplatePreviewWidget(WorldRenderer worldRenderer, World world)
+		public TerrainTemplatePreviewWidget(ModData modData, WorldRenderer worldRenderer, World world)
 		{
 			this.worldRenderer = worldRenderer;
-			tileset = world.Map.Rules.TileSet;
+			viewportSizes = modData.Manifest.Get<WorldViewportSizes>();
+
+			terrainRenderer = world.WorldActor.TraitOrDefault<ITiledTerrainRenderer>();
+			if (terrainRenderer == null)
+				throw new YamlException("TerrainTemplatePreviewWidget requires a tile-based terrain renderer.");
 		}
 
 		protected TerrainTemplatePreviewWidget(TerrainTemplatePreviewWidget other)
 			: base(other)
 		{
 			worldRenderer = other.worldRenderer;
-			tileset = other.worldRenderer.World.Map.Rules.TileSet;
-			Template = other.Template;
+			viewportSizes = other.viewportSizes;
+			terrainRenderer = other.terrainRenderer;
+			template = other.template;
 			GetScale = other.GetScale;
 		}
 
 		public override Widget Clone() { return new TerrainTemplatePreviewWidget(this); }
+
+		public void SetTemplate(TerrainTemplateInfo template)
+		{
+			this.template = template;
+			var b = terrainRenderer.TemplateBounds(template);
+			IdealPreviewSize = new int2((int)(b.Width * viewportSizes.DefaultScale), (int)(b.Height * viewportSizes.DefaultScale));
+
+			// Measured from the middle of the widget to the middle of the top-left cell of the template
+			PreviewOffset = -new int2((int)(b.Left * viewportSizes.DefaultScale), (int)(b.Top * viewportSizes.DefaultScale)) - IdealPreviewSize / 2;
+		}
 
 		public override void Draw()
 		{
 			if (template == null)
 				return;
 
-			var grid = Game.ModData.Manifest.Get<MapGrid>();
-			var ts = grid.TileSize;
-			var gridType = grid.Type;
-			var scale = GetScale();
+			var scale = GetScale() * viewportSizes.DefaultScale;
+			var origin = RenderOrigin + PreviewOffset + new int2(RenderBounds.Size.Width / 2, RenderBounds.Size.Height / 2);
 
-			var sb = new Rectangle((int)(scale * bounds.X), (int)(scale * bounds.Y), (int)(scale * bounds.Width), (int)(scale * bounds.Height));
-			var origin = RenderOrigin + new int2((RenderBounds.Size.Width - sb.Width) / 2 - sb.X, (RenderBounds.Size.Height - sb.Height) / 2 - sb.Y);
-
-			var i = 0;
-			for (var y = 0; y < Template.Size.Y; y++)
-			{
-				for (var x = 0; x < Template.Size.X; x++)
-				{
-					var tile = new TerrainTile(Template.Id, (byte)(i++));
-					var tileInfo = tileset.GetTileInfo(tile);
-
-					// Empty tile
-					if (tileInfo == null)
-						continue;
-
-					var sprite = worldRenderer.Theater.TileSprite(tile, 0);
-					var size = new float2(sprite.Size.X * scale, sprite.Size.Y * scale);
-
-					var u = gridType == MapGridType.Rectangular ? x : (x - y) / 2f;
-					var v = gridType == MapGridType.Rectangular ? y : (x + y) / 2f;
-					var pos = origin + scale * (new float2(u * ts.Width, (v - 0.5f * tileInfo.Height) * ts.Height) - 0.5f * sprite.Size);
-					var palette = Template.Palette ?? TileSet.TerrainPaletteInternalName;
-					Game.Renderer.SpriteRenderer.DrawSprite(sprite, pos, worldRenderer.Palette(palette), size);
-				}
-			}
+			foreach (var r in terrainRenderer.RenderUIPreview(worldRenderer, template, origin, scale))
+				r.PrepareRender(worldRenderer).Render(worldRenderer);
 		}
 	}
 }

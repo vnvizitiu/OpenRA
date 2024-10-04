@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,85 +11,122 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Graphics;
+using OpenRA.Mods.Common.Traits.Radar;
 using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public class EditorActorPreview
+	public class EditorActorPreview : IEquatable<EditorActorPreview>
 	{
-		public readonly string Tooltip;
-		public readonly string ID;
+		public readonly string DescriptiveName;
 		public readonly ActorInfo Info;
-		public readonly PlayerReference Owner;
-		public readonly WPos CenterPosition;
-		public readonly IReadOnlyDictionary<CPos, SubCell> Footprint;
-		public readonly Rectangle Bounds;
 
-		public SubCell SubCell { get; private set; }
+		public string Tooltip =>
+			(tooltip == null ? " < " + Info.Name + " >" : FluentProvider.GetString(tooltip.Name)) + "\n" + Owner.Name + " (" + Owner.Faction + ")"
+			+ "\nID: " + ID + "\nType: " + Info.Name;
 
-		readonly ActorReference actor;
+		public string Type => reference.Type;
+
+		public string ID { get; }
+		public PlayerReference Owner { get; set; }
+		public WPos CenterPosition { get; set; }
+		public IReadOnlyDictionary<CPos, SubCell> Footprint { get; private set; }
+		public Rectangle Bounds { get; private set; }
+		public bool Selected { get; set; }
+		public Color RadarColor { get; private set; }
+		public CPos Location { get; private set; }
+
+		readonly RadarColorFromTerrainInfo terrainRadarColorInfo;
 		readonly WorldRenderer worldRenderer;
+		readonly TooltipInfoBase tooltip;
+		readonly ActorReference reference;
+		readonly Dictionary<INotifyEditorPlacementInfo, object> editorData = new();
+		readonly Action<CPos> onCellEntryChanged;
+
+		SelectionBoxAnnotationRenderable selectionBox;
 		IActorPreview[] previews;
 
-		public EditorActorPreview(WorldRenderer worldRenderer, string id, ActorReference actor, PlayerReference owner)
+		public EditorActorPreview(WorldRenderer worldRenderer, string id, ActorReference reference, PlayerReference owner)
 		{
 			ID = id;
-			this.actor = actor;
+			this.reference = reference;
 			Owner = owner;
 			this.worldRenderer = worldRenderer;
 
-			if (!actor.InitDict.Contains<FactionInit>())
-				actor.InitDict.Add(new FactionInit(owner.Faction));
+			if (!reference.Contains<FactionInit>())
+				reference.Add(new FactionInit(owner.Faction));
 
-			if (!actor.InitDict.Contains<OwnerInit>())
-				actor.InitDict.Add(new OwnerInit(owner.Name));
+			if (!reference.Contains<OwnerInit>())
+				reference.Add(new OwnerInit(owner.Name));
 
 			var world = worldRenderer.World;
-			if (!world.Map.Rules.Actors.TryGetValue(actor.Type.ToLowerInvariant(), out Info))
-				throw new InvalidDataException("Actor {0} of unknown type {1}".F(id, actor.Type.ToLowerInvariant()));
+			if (!world.Map.Rules.Actors.TryGetValue(reference.Type.ToLowerInvariant(), out Info))
+				throw new InvalidDataException($"Actor {id} of unknown type {reference.Type.ToLowerInvariant()}");
 
-			CenterPosition = PreviewPosition(world, actor.InitDict);
+			GenerateFootprint();
+			UpdateFromCellChange(null);
 
-			var location = actor.InitDict.Get<LocationInit>().Value(worldRenderer.World);
-			var ios = Info.TraitInfoOrDefault<IOccupySpaceInfo>();
+			tooltip = Info.TraitInfos<EditorOnlyTooltipInfo>().FirstOrDefault(info => info.EnabledByDefault) as TooltipInfoBase
+				?? Info.TraitInfos<TooltipInfo>().FirstOrDefault(info => info.EnabledByDefault);
 
-			var subCellInit = actor.InitDict.GetOrDefault<SubCellInit>();
-			var subCell = subCellInit != null ? subCellInit.Value(worldRenderer.World) : SubCell.Any;
+			DescriptiveName = tooltip != null ? tooltip.Name : Info.Name;
 
-			if (ios != null)
-				Footprint = ios.OccupiedCells(Info, location, subCell);
-			else
-			{
-				var footprint = new Dictionary<CPos, SubCell>() { { location, SubCell.FullCell } };
-				Footprint = new ReadOnlyDictionary<CPos, SubCell>(footprint);
-			}
+			terrainRadarColorInfo = Info.TraitInfoOrDefault<RadarColorFromTerrainInfo>();
+			UpdateRadarColor();
 
-			var tooltip = Info.TraitInfos<EditorOnlyTooltipInfo>().FirstOrDefault(Exts.IsTraitEnabled) as TooltipInfoBase
-				?? Info.TraitInfos<TooltipInfo>().FirstOrDefault(Exts.IsTraitEnabled);
+			onCellEntryChanged = cell => UpdateFromCellChange(cell);
+		}
 
-			Tooltip = (tooltip == null ? " < " + Info.Name + " >" : tooltip.Name) + "\n" + owner.Name + " (" + owner.Faction + ")"
-				+ "\nID: " + ID + "\nType: " + Info.Name;
+		public EditorActorPreview WithId(string id)
+		{
+			return new EditorActorPreview(worldRenderer, id, reference.Clone(), Owner);
+		}
 
+		void UpdateFromCellChange(CPos? cellChanged)
+		{
+			if (cellChanged != null && !Footprint.ContainsKey(cellChanged.Value))
+				return;
+
+			CenterPosition = PreviewPosition(worldRenderer.World, reference);
 			GeneratePreviews();
+			GenerateBounds();
+		}
 
-			// Bounds are fixed from the initial render.
-			// If this is a problem, then we may need to fetch the area from somewhere else
-			var r = previews
-				.SelectMany(p => p.Render(worldRenderer, CenterPosition))
-				.Select(rr => rr.PrepareRender(worldRenderer));
+		void GenerateBounds()
+		{
+			var r = previews.SelectMany(p => p.ScreenBounds(worldRenderer, CenterPosition));
 
-			if (r.Any())
-			{
-				Bounds = r.First().ScreenBounds(worldRenderer);
-				foreach (var rr in r.Skip(1))
-					Bounds = Rectangle.Union(Bounds, rr.ScreenBounds(worldRenderer));
-			}
+			Bounds = r.Union();
+
+			selectionBox = new SelectionBoxAnnotationRenderable(new WPos(CenterPosition.X, CenterPosition.Y, 8192),
+				new Rectangle(Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height), Color.White);
+		}
+
+		void GenerateFootprint()
+		{
+			Location = reference.Get<LocationInit>().Value;
+			var ios = Info.TraitInfoOrDefault<IOccupySpaceInfo>();
+			var subCellInit = reference.GetOrDefault<SubCellInit>();
+			var subCell = subCellInit != null ? subCellInit.Value : SubCell.Any;
+
+			var occupiedCells = ios?.OccupiedCells(Info, Location, subCell);
+			if (occupiedCells == null || occupiedCells.Count == 0)
+				Footprint = new Dictionary<CPos, SubCell>() { { Location, SubCell.FullCell } };
+			else
+				Footprint = occupiedCells;
+		}
+
+		void GeneratePreviews()
+		{
+			var init = new ActorPreviewInitializer(reference, worldRenderer);
+			previews = Info.TraitInfos<IRenderActorPreviewInfo>()
+				.SelectMany(rpi => rpi.RenderPreview(init))
+				.ToArray();
 		}
 
 		public void Tick()
@@ -100,79 +137,200 @@ namespace OpenRA.Mods.Common.Traits
 
 		public IEnumerable<IRenderable> Render()
 		{
-			return previews.SelectMany(p => p.Render(worldRenderer, CenterPosition));
+			var items = previews.SelectMany(p => p.Render(worldRenderer, CenterPosition));
+			if (Selected)
+			{
+				var overlay = items.Where(r => !r.IsDecoration && r is IModifyableRenderable)
+					.Select(r =>
+					{
+						var mr = (IModifyableRenderable)r;
+						return mr.WithTint(float3.Ones, mr.TintModifiers | TintModifiers.ReplaceColor).WithAlpha(0.5f);
+					});
+
+				return items.Concat(overlay);
+			}
+
+			return items;
 		}
 
-		public void ReplaceInit<T>(T init)
+		public IEnumerable<IRenderable> RenderAnnotations()
 		{
-			var original = actor.InitDict.GetOrDefault<T>();
-			if (original != null)
-				actor.InitDict.Remove(original);
+			if (Selected)
+				yield return selectionBox;
+		}
 
-			actor.InitDict.Add(init);
+		public void UpdateFromMove()
+		{
+			CenterPosition = PreviewPosition(worldRenderer.World, reference);
+			GenerateFootprint();
+			GenerateBounds();
+		}
+
+		public void AddedToEditor()
+		{
+			foreach (var notify in Info.TraitInfos<INotifyEditorPlacementInfo>())
+				editorData[notify] = notify.AddedToEditor(this, worldRenderer.World);
+
+			worldRenderer.World.Map.Height.CellEntryChanged += onCellEntryChanged;
+			worldRenderer.World.Map.Ramp.CellEntryChanged += onCellEntryChanged;
+		}
+
+		public void RemovedFromEditor()
+		{
+			foreach (var kv in editorData)
+				kv.Key.RemovedFromEditor(this, worldRenderer.World, kv.Value);
+
+			worldRenderer.World.Map.Height.CellEntryChanged -= onCellEntryChanged;
+			worldRenderer.World.Map.Ramp.CellEntryChanged -= onCellEntryChanged;
+		}
+
+		public void AddInit<T>(T init) where T : ActorInit
+		{
+			reference.Add(init);
 			GeneratePreviews();
 		}
 
-		public T Init<T>()
+		public void ReplaceInit<T>(T init, TraitInfo info) where T : ActorInit
 		{
-			return actor.InitDict.GetOrDefault<T>();
+			var original = GetInitOrDefault<T>(info);
+			if (original != null)
+				reference.Remove(original);
+
+			reference.Add(init);
+			GeneratePreviews();
+		}
+
+		public void RemoveInit<T>(TraitInfo info) where T : ActorInit
+		{
+			var original = GetInitOrDefault<T>(info);
+			if (original != null)
+				reference.Remove(original);
+			GeneratePreviews();
+		}
+
+		public int RemoveInits<T>() where T : ActorInit
+		{
+			var removed = reference.RemoveAll<T>();
+			GeneratePreviews();
+			return removed;
+		}
+
+		public T GetInitOrDefault<T>(TraitInfo info) where T : ActorInit
+		{
+			return reference.GetOrDefault<T>(info);
+		}
+
+		public IReadOnlyCollection<T> GetInits<T>() where T : ActorInit
+		{
+			return reference.GetAll<T>();
+		}
+
+		public T GetInitOrDefault<T>() where T : ActorInit, ISingleInstanceInit
+		{
+			return reference.GetOrDefault<T>();
+		}
+
+		public void ReplaceInit<T>(T init) where T : ActorInit, ISingleInstanceInit
+		{
+			var original = reference.GetOrDefault<T>();
+			if (original != null)
+				reference.Remove(original);
+
+			reference.Add(init);
+			GeneratePreviews();
+			UpdateRadarColor();
+		}
+
+		public void RemoveInit<T>() where T : ActorInit, ISingleInstanceInit
+		{
+			reference.RemoveAll<T>();
+			GeneratePreviews();
 		}
 
 		public MiniYaml Save()
 		{
-			Func<object, bool> saveInit = init =>
+			bool SaveInit(ActorInit init)
 			{
-				var factionInit = init as FactionInit;
-				if (factionInit != null && factionInit.Faction == Owner.Faction)
+				if (init is FactionInit factionInit && factionInit.Value == Owner.Faction)
+					return false;
+
+				if (init is HealthInit healthInit && healthInit.Value == 100)
 					return false;
 
 				// TODO: Other default values will need to be filtered
 				// here after we have built a properties panel
 				return true;
-			};
+			}
 
-			return actor.Save(saveInit);
+			return reference.Save(SaveInit);
 		}
 
-		WPos PreviewPosition(World world, TypeDictionary init)
+		WPos PreviewPosition(World world, ActorReference actor)
 		{
-			if (init.Contains<CenterPositionInit>())
-				return init.Get<CenterPositionInit>().Value(world);
+			var centerPositionInit = actor.GetOrDefault<CenterPositionInit>();
+			if (centerPositionInit != null)
+				return centerPositionInit.Value;
 
-			if (init.Contains<LocationInit>())
+			var locationInit = actor.GetOrDefault<LocationInit>();
+
+			if (locationInit != null)
 			{
-				var cell = init.Get<LocationInit>().Value(world);
+				var cell = locationInit.Value;
 				var offset = WVec.Zero;
 
-				var subCellInit = actor.InitDict.GetOrDefault<SubCellInit>();
-				var subCell = subCellInit != null ? subCellInit.Value(worldRenderer.World) : SubCell.Any;
+				var subCellInit = reference.GetOrDefault<SubCellInit>();
+				var subCell = subCellInit != null ? subCellInit.Value : SubCell.Any;
 
 				var buildingInfo = Info.TraitInfoOrDefault<BuildingInfo>();
 				if (buildingInfo != null)
-					offset = FootprintUtils.CenterOffset(world, buildingInfo);
+					offset = buildingInfo.CenterOffset(world);
 
 				return world.Map.CenterOfSubCell(cell, subCell) + offset;
 			}
 			else
-				throw new InvalidDataException("Actor {0} must define Location or CenterPosition".F(ID));
+				throw new InvalidDataException($"Actor {ID} must define Location or CenterPosition");
 		}
 
-		void GeneratePreviews()
+		void UpdateRadarColor()
 		{
-			var init = new ActorPreviewInitializer(Info, worldRenderer, actor.InitDict);
-			previews = Info.TraitInfos<IRenderActorPreviewInfo>()
-				.SelectMany(rpi => rpi.RenderPreview(init))
-				.ToArray();
+			RadarColor = terrainRadarColorInfo == null ? Owner.Color : terrainRadarColorInfo.GetColorFromTerrain(worldRenderer.World);
 		}
 
 		public ActorReference Export()
 		{
-			return new ActorReference(actor.Type, actor.Save().ToDictionary());
+			return reference.Clone();
 		}
 
 		public override string ToString()
 		{
-			return "{0} {1}".F(Info.Name, ID);
+			return $"{Info.Name} {ID}";
+		}
+
+		public bool Equals(EditorActorPreview other)
+		{
+			if (other is null)
+				return false;
+			if (ReferenceEquals(this, other))
+				return true;
+
+			return string.Equals(ID, other.ID, StringComparison.OrdinalIgnoreCase);
+		}
+
+		public override bool Equals(object obj)
+		{
+			if (obj is null)
+				return false;
+			if (ReferenceEquals(this, obj))
+				return true;
+			if (obj.GetType() != GetType())
+				return false;
+
+			return Equals((EditorActorPreview)obj);
+		}
+
+		public override int GetHashCode()
+		{
+			return ID != null ? StringComparer.OrdinalIgnoreCase.GetHashCode(ID) : 0;
 		}
 	}
 }

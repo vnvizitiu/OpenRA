@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,8 +10,6 @@
 #endregion
 
 using System;
-using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using OpenRA.Primitives;
 
@@ -19,40 +17,37 @@ namespace OpenRA.Graphics
 {
 	public class PlayerColorRemap : IPaletteRemap
 	{
-		Dictionary<int, Color> remapColors;
+		readonly int[] remapIndices;
+		readonly float hue;
+		readonly float saturation;
+		readonly float value;
 
-		public static int GetRemapIndex(int[] ramp, int i)
+		public PlayerColorRemap(int[] remapIndices, Color color)
 		{
-			return ramp[i];
-		}
+			this.remapIndices = remapIndices;
 
-		public PlayerColorRemap(int[] ramp, HSLColor c, float rampFraction)
-		{
-			// Increase luminosity if required to represent the full ramp
-			var rampRange = (byte)((1 - rampFraction) * c.L);
-			var c1 = new HSLColor(c.H, c.S, Math.Max(rampRange, c.L)).RGB;
-			var c2 = new HSLColor(c.H, c.S, (byte)Math.Max(0, c.L - rampRange)).RGB;
-			var baseIndex = ramp[0];
-			var remapRamp = ramp.Select(r => r - ramp[0]);
-			var rampMaxIndex = ramp.Length - 1;
-
-			// reversed remapping
-			if (ramp[0] > ramp[rampMaxIndex])
-			{
-				baseIndex = ramp[rampMaxIndex];
-				for (var i = rampMaxIndex; i > 0; i--)
-					remapRamp = ramp.Select(r => r - ramp[rampMaxIndex]);
-			}
-
-			remapColors = remapRamp.Select((x, i) => Pair.New(baseIndex + i, Exts.ColorLerp(x / (float)ramp.Length, c1, c2)))
-				.ToDictionary(u => u.First, u => u.Second);
+			var (r, g, b) = color.ToLinear();
+			(hue, saturation, value) = Color.RgbToHsv(r, g, b);
 		}
 
 		public Color GetRemappedColor(Color original, int index)
 		{
-			Color c;
-			return remapColors.TryGetValue(index, out c)
-				? c : original;
+			if (!remapIndices.Contains(index))
+				return original;
+
+			// Color remapping is applied in a linear color space, so start
+			// by undoing the pre-multiplied alpha and gamma corrections
+			var (r, g, b) = original.ToLinear();
+
+			// Calculate the brightness (i.e HSV value) of the original colour
+			// This inlines the single line of Color.RgbToHsv() that we need
+			var value = Math.Max(Math.Max(r, g), b);
+
+			// Construct the new RGB color
+			(r, g, b) = Color.HsvToRgb(hue, saturation, value * this.value);
+
+			// Convert linear back to SRGB and pre-multiply by the alpha
+			return Color.FromLinear(original.A, r, g, b);
 		}
 	}
 }

@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -28,7 +28,7 @@ namespace OpenRA.FileFormats
 		public ReplayMetadata(GameInformation info)
 		{
 			if (info == null)
-				throw new ArgumentNullException("info");
+				throw new ArgumentNullException(nameof(info));
 
 			GameInfo = info;
 		}
@@ -44,11 +44,11 @@ namespace OpenRA.FileFormats
 			// Read version
 			var version = fs.ReadInt32();
 			if (version != MetaVersion)
-				throw new NotSupportedException("Metadata version {0} is not supported".F(version));
+				throw new NotSupportedException($"Metadata version {version} is not supported");
 
 			// Read game info (max 100K limit as a safeguard against corrupted files)
-			var data = fs.ReadString(Encoding.UTF8, 1024 * 100);
-			GameInfo = GameInformation.Deserialize(data);
+			var data = fs.ReadLengthPrefixedString(Encoding.UTF8, 1024 * 100);
+			GameInfo = GameInformation.Deserialize(data, path);
 		}
 
 		public void Write(BinaryWriter writer)
@@ -62,7 +62,7 @@ namespace OpenRA.FileFormats
 			{
 				// Write lobby info data
 				writer.Flush();
-				dataLength += writer.BaseStream.WriteString(Encoding.UTF8, GameInfo.Serialize());
+				dataLength += writer.BaseStream.WriteLengthPrefixedString(Encoding.UTF8, GameInfo.Serialize());
 			}
 
 			// Write total length & end marker
@@ -79,45 +79,27 @@ namespace OpenRA.FileFormats
 
 		public static ReplayMetadata Read(string path)
 		{
-			using (var fs = new FileStream(path, FileMode.Open))
-				return Read(fs, path);
-		}
-
-		static ReplayMetadata Read(FileStream fs, string path)
-		{
-			if (!fs.CanSeek)
-				return null;
-
-			if (fs.Length < 20)
-				return null;
-
 			try
 			{
-				fs.Seek(-(4 + 4), SeekOrigin.End);
-				var dataLength = fs.ReadInt32();
-				if (fs.ReadInt32() == MetaEndMarker)
+				using (var fs = new FileStream(path, FileMode.Open))
 				{
-					// go back by (end marker + length storage + data + version + start marker) bytes
-					fs.Seek(-(4 + 4 + dataLength + 4 + 4), SeekOrigin.Current);
-					try
+					if (!fs.CanSeek)
+						return null;
+
+					if (fs.Length < 20)
+						return null;
+
+					fs.Seek(-(4 + 4), SeekOrigin.End);
+					var dataLength = fs.ReadInt32();
+					if (fs.ReadInt32() == MetaEndMarker)
 					{
+						// Go back by (end marker + length storage + data + version + start marker) bytes
+						fs.Seek(-(4 + 4 + dataLength + 4 + 4), SeekOrigin.Current);
 						return new ReplayMetadata(fs, path);
-					}
-					catch (YamlException ex)
-					{
-						Log.Write("debug", ex.ToString());
-					}
-					catch (InvalidOperationException ex)
-					{
-						Log.Write("debug", ex.ToString());
-					}
-					catch (NotSupportedException ex)
-					{
-						Log.Write("debug", ex.ToString());
 					}
 				}
 			}
-			catch (IOException ex)
+			catch (Exception ex)
 			{
 				Log.Write("debug", ex.ToString());
 			}

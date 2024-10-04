@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,43 +9,100 @@
  */
 #endregion
 
+using System.Collections.Generic;
+using System.Linq;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Handle demolitions from C4 explosives.")]
-	public class DemolishableInfo : IDemolishableInfo, ITraitInfo
+	public class DemolishableInfo : ConditionalTraitInfo, IDemolishableInfo
 	{
 		public bool IsValidTarget(ActorInfo actorInfo, Actor saboteur) { return true; }
 
-		[Desc("If true and this actor has EjectOnDeath, no actor will be spawned.")]
-		public readonly bool PreventsEjectOnDeath = false;
+		[GrantedConditionReference]
+		[Desc("Condition to grant during demolition countdown.")]
+		public readonly string Condition = null;
 
-		public object Create(ActorInitializer init) { return new Demolishable(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new Demolishable(this); }
 	}
 
-	public class Demolishable : IDemolishable, IPreventsEjectOnDeath
+	public class Demolishable : ConditionalTrait<DemolishableInfo>, IDemolishable, ITick, INotifyOwnerChanged
 	{
-		readonly DemolishableInfo info;
-
-		public Demolishable(Actor self, DemolishableInfo info)
+		sealed class DemolishAction
 		{
-			this.info = info;
+			public readonly Actor Saboteur;
+			public readonly int Token;
+			public int Delay;
+			public readonly BitSet<DamageType> DamageTypes;
+
+			public DemolishAction(Actor saboteur, int delay, int token, BitSet<DamageType> damageTypes)
+			{
+				Saboteur = saboteur;
+				Delay = delay;
+				Token = token;
+				DamageTypes = damageTypes;
+			}
 		}
 
-		public bool PreventsEjectOnDeath(Actor self)
+		readonly List<DemolishAction> actions = new();
+		readonly List<DemolishAction> removeActions = new();
+		IDamageModifier[] damageModifiers;
+
+		public Demolishable(DemolishableInfo info)
+			: base(info) { }
+
+		protected override void Created(Actor self)
 		{
-			return info.PreventsEjectOnDeath;
+			damageModifiers = self.TraitsImplementing<IDamageModifier>()
+				.Concat(self.Owner.PlayerActor.TraitsImplementing<IDamageModifier>()).ToArray();
 		}
 
-		public void Demolish(Actor self, Actor saboteur)
+		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
 		{
-			self.Kill(saboteur);
+			damageModifiers = self.TraitsImplementing<IDamageModifier>()
+				.Concat(newOwner.PlayerActor.TraitsImplementing<IDamageModifier>()).ToArray();
 		}
 
-		public bool IsValidTarget(Actor self, Actor saboteur)
+		bool IDemolishable.IsValidTarget(Actor self, Actor saboteur)
 		{
-			return true;
+			return !IsTraitDisabled;
+		}
+
+		void IDemolishable.Demolish(Actor self, Actor saboteur, int delay, BitSet<DamageType> damageTypes)
+		{
+			if (IsTraitDisabled)
+				return;
+
+			var token = self.GrantCondition(Info.Condition);
+			actions.Add(new DemolishAction(saboteur, delay, token, damageTypes));
+		}
+
+		void ITick.Tick(Actor self)
+		{
+			if (IsTraitDisabled || actions.Count == 0)
+				return;
+
+			foreach (var a in actions)
+			{
+				if (a.Delay-- <= 0)
+				{
+					if (Util.ApplyPercentageModifiers(100, damageModifiers.Select(t => t.GetDamageModifier(self, null))) > 0)
+						self.Kill(a.Saboteur, a.DamageTypes);
+					else if (a.Token != Actor.InvalidConditionToken)
+					{
+						self.RevokeCondition(a.Token);
+						removeActions.Add(a);
+					}
+				}
+			}
+
+			// Remove expired actions to avoid double-revoking
+			foreach (var a in removeActions)
+				actions.Remove(a);
+
+			removeActions.Clear();
 		}
 	}
 }

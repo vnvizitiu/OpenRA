@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -10,6 +10,8 @@
 #endregion
 
 using System;
+using Eluant;
+using OpenRA.Mods.Common.Traits;
 using OpenRA.Scripting;
 
 namespace OpenRA.Mods.Common.Scripting
@@ -17,31 +19,76 @@ namespace OpenRA.Mods.Common.Scripting
 	[ScriptGlobal("DateTime")]
 	public class DateGlobal : ScriptGlobal
 	{
+		readonly TimeLimitManager tlm;
+		readonly int ticksPerSecond;
+
 		public DateGlobal(ScriptContext context)
-			: base(context) { }
+			: base(context)
+		{
+			tlm = context.World.WorldActor.TraitOrDefault<TimeLimitManager>();
+			var gameSpeeds = Game.ModData.Manifest.Get<GameSpeeds>();
+			var defaultGameSpeed = gameSpeeds.Speeds[gameSpeeds.DefaultSpeed];
+			ticksPerSecond = 1000 / defaultGameSpeed.Timestep;
+		}
 
 		[Desc("True on the 31st of October.")]
-		public bool IsHalloween
-		{
-			get { return DateTime.Today.Month == 10 && DateTime.Today.Day == 31; }
-		}
+		[Obsolete("Use CurrentMonth and CurrentDay instead.")]
+		public bool IsHalloween => DateTime.Today.Month == 10 && DateTime.Today.Day == 31;
 
 		[Desc("Get the current game time (in ticks).")]
-		public int GameTime
-		{
-			get { return Context.World.WorldTick; }
-		}
+		public int GameTime => Context.World.WorldTick;
 
 		[Desc("Converts the number of seconds into game time (ticks).")]
 		public int Seconds(int seconds)
 		{
-			return seconds * 25;
+			return seconds * ticksPerSecond;
 		}
+
+		[Desc("Get the current year (1-9999).")]
+		public int CurrentYear => DateTime.Now.Year;
+		[Desc("Get the current month (1-12).")]
+		public int CurrentMonth => DateTime.Now.Month;
+		[Desc("Get the current day (1-31).")]
+		public int CurrentDay => DateTime.Now.Day;
+		[Desc("Get the current hour (0-23).")]
+		public int CurrentHour => DateTime.Now.Hour;
+		[Desc("Get the current minute (0-59).")]
+		public int CurrentMinute => DateTime.Now.Minute;
+		[Desc("Get the current second (0-59).")]
+		public int CurrentSecond => DateTime.Now.Second;
 
 		[Desc("Converts the number of minutes into game time (ticks).")]
 		public int Minutes(int minutes)
 		{
 			return Seconds(minutes * 60);
+		}
+
+		[Desc("Return or set the time limit (in ticks). When setting, the time limit will count from now. Setting the time limit to 0 will disable it.")]
+		public int TimeLimit
+		{
+			get => tlm?.TimeLimit ?? 0;
+
+			set
+			{
+				if (tlm != null)
+					tlm.TimeLimit = value == 0 ? 0 : value + GameTime;
+				else
+					throw new LuaException("Cannot set TimeLimit, TimeLimitManager trait is missing.");
+			}
+		}
+
+		[Desc("The notification string used for custom time limit warnings. See the TimeLimitManager trait documentation for details.")]
+		public string TimeLimitNotification
+		{
+			get => tlm?.Notification;
+
+			set
+			{
+				if (tlm != null)
+					tlm.Notification = value;
+				else
+					throw new LuaException("Cannot set TimeLimitNotification, TimeLimitManager trait is missing.");
+			}
 		}
 	}
 }

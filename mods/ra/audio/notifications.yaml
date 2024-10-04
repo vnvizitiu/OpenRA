@@ -53,8 +53,6 @@ Speech:
 		MercenaryRescued: mercr1
 		MissionAccomplished: misnwon1
 		MissionFailed: misnlst1
-		MissionLoaded: load1
-		MissionSaved: save1
 		MissionTimerInitialised: mtimein1
 		NavalUnitLost: navylst1
 		NewOptions: newopt1
@@ -85,6 +83,8 @@ Speech:
 		SovietReinforcementsArrived: sovrein1
 		SpyPlaneReady: spypln1
 		StartGame: bctrinit
+		GameLoaded: load1
+		GameSaved: save1
 		StructureDestroyed: strckil1
 		StructureSold: strusld1
 		TanyaFreed: tanyaf1
@@ -119,14 +119,28 @@ Sounds:
 		RadarUp: radaron2
 		RadarDown: radardn1
 		CashTickUp: cashup1
-		CashTickDown:cashdn1
+			VolumeModifier: 0.33
+			InterruptType: Overlap
+		CashTickDown: cashdn1
+			VolumeModifier: 0.33
+			InterruptType: Overlap
 		LevelUp: hydrod1
 		DisablePower: bleep11
 		EnablePower: bleep12
 		ChatLine: rabeep1
+			InterruptType: Interrupt
+		PlayerJoined: bleep11
+			InterruptType: Interrupt
+		LobbyOptionChanged: bleep17
+			InterruptType: Interrupt
+		PlayerLeft: bleep12
+			InterruptType: Interrupt
 		ClickSound: ramenu1
+			InterruptType: Overlap
 		ClickDisabledSound:
 		Beacon: beepslct
+			InterruptType: Interrupt
 		AlertBuzzer: buzzy1
 		AlertBleep: bleep6
+		AngryBleep: bleep5
 		BaseSetup: bleep9

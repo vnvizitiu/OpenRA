@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -14,36 +14,48 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public class ShroudRendererInfo : ITraitInfo
+	[TraitLocation(SystemActors.World | SystemActors.EditorWorld)]
+	public class ShroudRendererInfo : TraitInfo
 	{
 		public readonly string Sequence = "shroud";
-		[SequenceReference("Sequence")] public readonly string[] ShroudVariants = new[] { "shroud" };
-		[SequenceReference("Sequence")] public readonly string[] FogVariants = new[] { "fog" };
+		[SequenceReference(nameof(Sequence))]
+		public readonly string[] ShroudVariants = { "shroud" };
 
-		[PaletteReference] public readonly string ShroudPalette = "shroud";
-		[PaletteReference] public readonly string FogPalette = "fog";
+		[SequenceReference(nameof(Sequence))]
+		public readonly string[] FogVariants = { "fog" };
+
+		[PaletteReference]
+		public readonly string ShroudPalette = "shroud";
+
+		[PaletteReference]
+		public readonly string FogPalette = "fog";
 
 		[Desc("Bitfield of shroud directions for each frame. Lower four bits are",
 			"corners clockwise from TL; upper four are edges clockwise from top")]
-		public readonly int[] Index = new[] { 12, 9, 8, 3, 1, 6, 4, 2, 13, 11, 7, 14 };
+		public readonly int[] Index = { 12, 9, 8, 3, 1, 6, 4, 2, 13, 11, 7, 14 };
 
 		[Desc("Use the upper four bits when calculating frame")]
 		public readonly bool UseExtendedIndex = false;
 
+		[SequenceReference(nameof(Sequence))]
 		[Desc("Override for source art that doesn't define a fully shrouded tile")]
-		[SequenceReference("Sequence")] public readonly string OverrideFullShroud = null;
+		public readonly string OverrideFullShroud = null;
+
 		public readonly int OverrideShroudIndex = 15;
 
+		[SequenceReference(nameof(Sequence))]
 		[Desc("Override for source art that doesn't define a fully fogged tile")]
-		[SequenceReference("Sequence")] public readonly string OverrideFullFog = null;
+		public readonly string OverrideFullFog = null;
+
 		public readonly int OverrideFogIndex = 15;
 
 		public readonly BlendMode ShroudBlend = BlendMode.Alpha;
-		public object Create(ActorInitializer init) { return new ShroudRenderer(init.World, this); }
+		public override object Create(ActorInitializer init) { return new ShroudRenderer(init.World, this); }
 	}
 
 	public sealed class ShroudRenderer : IRenderShroud, IWorldLoaded, INotifyActorDisposing
@@ -69,12 +81,25 @@ namespace OpenRA.Mods.Common.Traits
 			All = Top | Right | Bottom | Left
 		}
 
-		struct TileInfo
+		// Index into neighbors array.
+		enum Neighbor
+		{
+			Top = 0,
+			Right,
+			Bottom,
+			Left,
+			TopLeft,
+			TopRight,
+			BottomRight,
+			BottomLeft
+		}
+
+		readonly struct TileInfo
 		{
 			public readonly float3 ScreenPosition;
 			public readonly byte Variant;
 
-			public TileInfo(float3 screenPosition, byte variant)
+			public TileInfo(in float3 screenPosition, byte variant)
 			{
 				ScreenPosition = screenPosition;
 				Variant = variant;
@@ -82,73 +107,97 @@ namespace OpenRA.Mods.Common.Traits
 		}
 
 		readonly ShroudRendererInfo info;
+		readonly World world;
 		readonly Map map;
-		readonly Edges notVisibleEdges;
+		readonly (Edges, Edges) notVisibleEdgesPair;
 		readonly byte variantStride;
 		readonly byte[] edgesToSpriteIndexOffset;
 
-		readonly CellLayer<TileInfo> tileInfos;
-		readonly Sprite[] fogSprites, shroudSprites;
-		readonly HashSet<PPos> cellsDirty = new HashSet<PPos>();
-		readonly HashSet<PPos> cellsAndNeighborsDirty = new HashSet<PPos>();
+		// PERF: Allocate once.
+		readonly Shroud.CellVisibility[] neighbors = new Shroud.CellVisibility[8];
 
-		Shroud currentShroud;
-		Func<PPos, bool> visibleUnderShroud, visibleUnderFog;
+		readonly CellLayer<TileInfo> tileInfos;
+		readonly CellLayer<bool> cellsDirty;
+		bool anyCellDirty;
+		readonly (Sprite Sprite, float Scale, float Alpha)[] fogSprites, shroudSprites;
+
+		Shroud shroud;
+		Func<PPos, Shroud.CellVisibility> cellVisibility;
 		TerrainSpriteLayer shroudLayer, fogLayer;
+		PaletteReference shroudPaletteReference, fogPaletteReference;
+		bool disposed;
 
 		public ShroudRenderer(World world, ShroudRendererInfo info)
 		{
 			if (info.ShroudVariants.Length != info.FogVariants.Length)
-				throw new ArgumentException("ShroudRenderer must define the same number of shroud and fog variants!", "info");
+				throw new ArgumentException("ShroudRenderer must define the same number of shroud and fog variants!", nameof(info));
 
 			if ((info.OverrideFullFog == null) ^ (info.OverrideFullShroud == null))
-				throw new ArgumentException("ShroudRenderer cannot define overrides for only one of shroud or fog!", "info");
+				throw new ArgumentException("ShroudRenderer cannot define overrides for only one of shroud or fog!", nameof(info));
 
 			if (info.ShroudVariants.Length > byte.MaxValue)
-				throw new ArgumentException("ShroudRenderer cannot define this many shroud and fog variants.", "info");
+				throw new ArgumentException("ShroudRenderer cannot define this many shroud and fog variants.", nameof(info));
 
 			if (info.Index.Length >= byte.MaxValue)
-				throw new ArgumentException("ShroudRenderer cannot define this many indexes for shroud directions.", "info");
+				throw new ArgumentException("ShroudRenderer cannot define this many indexes for shroud directions.", nameof(info));
 
 			this.info = info;
+			this.world = world;
 			map = world.Map;
 
 			tileInfos = new CellLayer<TileInfo>(map);
 
+			cellsDirty = new CellLayer<bool>(map);
+			anyCellDirty = true;
+
 			// Load sprite variants
 			var variantCount = info.ShroudVariants.Length;
 			variantStride = (byte)(info.Index.Length + (info.OverrideFullShroud != null ? 1 : 0));
-			shroudSprites = new Sprite[variantCount * variantStride];
-			fogSprites = new Sprite[variantCount * variantStride];
+			shroudSprites = new (Sprite, float, float)[variantCount * variantStride];
+			fogSprites = new (Sprite, float, float)[variantCount * variantStride];
 
-			var sequenceProvider = map.Rules.Sequences;
+			var sequences = map.Sequences;
 			for (var j = 0; j < variantCount; j++)
 			{
-				var shroud = sequenceProvider.GetSequence(info.Sequence, info.ShroudVariants[j]);
-				var fog = sequenceProvider.GetSequence(info.Sequence, info.FogVariants[j]);
+				var shroudSequence = sequences.GetSequence(info.Sequence, info.ShroudVariants[j]);
+				var fogSequence = sequences.GetSequence(info.Sequence, info.FogVariants[j]);
 				for (var i = 0; i < info.Index.Length; i++)
 				{
-					shroudSprites[j * variantStride + i] = shroud.GetSprite(i);
-					fogSprites[j * variantStride + i] = fog.GetSprite(i);
+					shroudSprites[j * variantStride + i] = (shroudSequence.GetSprite(i), shroudSequence.Scale, shroudSequence.GetAlpha(i));
+					fogSprites[j * variantStride + i] = (fogSequence.GetSprite(i), fogSequence.Scale, fogSequence.GetAlpha(i));
 				}
 
 				if (info.OverrideFullShroud != null)
 				{
 					var i = (j + 1) * variantStride - 1;
-					shroudSprites[i] = sequenceProvider.GetSequence(info.Sequence, info.OverrideFullShroud).GetSprite(0);
-					fogSprites[i] = sequenceProvider.GetSequence(info.Sequence, info.OverrideFullFog).GetSprite(0);
+					shroudSequence = sequences.GetSequence(info.Sequence, info.OverrideFullShroud);
+					fogSequence = sequences.GetSequence(info.Sequence, info.OverrideFullFog);
+					shroudSprites[i] = (shroudSequence.GetSprite(0), shroudSequence.Scale, shroudSequence.GetAlpha(0));
+					fogSprites[i] = (fogSequence.GetSprite(0), fogSequence.Scale, fogSequence.GetAlpha(0));
 				}
 			}
 
+			int spriteCount;
+			if (info.UseExtendedIndex)
+			{
+				notVisibleEdgesPair = (Edges.AllSides, Edges.AllSides);
+				spriteCount = (int)Edges.All;
+			}
+			else
+			{
+				notVisibleEdgesPair = (Edges.AllCorners, Edges.AllCorners);
+				spriteCount = (int)Edges.AllCorners;
+			}
+
 			// Mapping of shrouded directions -> sprite index
-			edgesToSpriteIndexOffset = new byte[(byte)(info.UseExtendedIndex ? Edges.All : Edges.AllCorners) + 1];
+			edgesToSpriteIndexOffset = new byte[spriteCount + 1];
 			for (var i = 0; i < info.Index.Length; i++)
 				edgesToSpriteIndexOffset[info.Index[i]] = (byte)i;
 
 			if (info.OverrideFullShroud != null)
 				edgesToSpriteIndexOffset[info.OverrideShroudIndex] = (byte)(variantStride - 1);
 
-			notVisibleEdges = info.UseExtendedIndex ? Edges.AllSides : Edges.AllCorners;
+			world.RenderPlayerChanged += WorldOnRenderPlayerChanged;
 		}
 
 		void IWorldLoaded.WorldLoaded(World w, WorldRenderer wr)
@@ -163,146 +212,177 @@ namespace OpenRA.Mods.Common.Traits
 				tileInfos[uv] = new TileInfo(screen, variant);
 			}
 
-			// Dirty the whole projected space
-			DirtyCells(map.AllCells.MapCoords.Select(uv => (PPos)uv));
-
 			// All tiles are visible in the editor
 			if (w.Type == WorldType.Editor)
-				visibleUnderShroud = _ => true;
+				cellVisibility = puv => map.Contains(puv) ? Shroud.CellVisibility.Visible | Shroud.CellVisibility.Explored : Shroud.CellVisibility.Explored;
 			else
-				visibleUnderShroud = puv => map.Contains(puv);
+				cellVisibility = puv => map.Contains(puv) ? Shroud.CellVisibility.Visible | Shroud.CellVisibility.Explored : Shroud.CellVisibility.Hidden;
 
-			visibleUnderFog = puv => map.Contains(puv);
-
-			var shroudSheet = shroudSprites[0].Sheet;
-			if (shroudSprites.Any(s => s.Sheet != shroudSheet))
-				throw new InvalidDataException("Shroud sprites span multiple sheets. Try loading their sequences earlier.");
-
-			var shroudBlend = shroudSprites[0].BlendMode;
-			if (shroudSprites.Any(s => s.BlendMode != shroudBlend))
+			var shroudBlend = shroudSprites[0].Sprite.BlendMode;
+			if (shroudSprites.Any(s => s.Sprite.BlendMode != shroudBlend))
 				throw new InvalidDataException("Shroud sprites must all use the same blend mode.");
 
-			var fogSheet = fogSprites[0].Sheet;
-			if (fogSprites.Any(s => s.Sheet != fogSheet))
-				throw new InvalidDataException("Fog sprites span multiple sheets. Try loading their sequences earlier.");
-
-			var fogBlend = fogSprites[0].BlendMode;
-			if (fogSprites.Any(s => s.BlendMode != fogBlend))
+			var fogBlend = fogSprites[0].Sprite.BlendMode;
+			if (fogSprites.Any(s => s.Sprite.BlendMode != fogBlend))
 				throw new InvalidDataException("Fog sprites must all use the same blend mode.");
 
-			shroudLayer = new TerrainSpriteLayer(w, wr, shroudSheet, shroudBlend, wr.Palette(info.ShroudPalette), false);
-			fogLayer = new TerrainSpriteLayer(w, wr, fogSheet, fogBlend, wr.Palette(info.FogPalette), false);
+			var emptySprite = new Sprite(shroudSprites[0].Sprite.Sheet, Rectangle.Empty, TextureChannel.Alpha);
+			shroudPaletteReference = wr.Palette(info.ShroudPalette);
+			fogPaletteReference = wr.Palette(info.FogPalette);
+			shroudLayer = new TerrainSpriteLayer(w, wr, emptySprite, shroudBlend, false);
+			fogLayer = new TerrainSpriteLayer(w, wr, emptySprite, fogBlend, false);
+
+			WorldOnRenderPlayerChanged(world.RenderPlayer);
 		}
 
-		Edges GetEdges(PPos puv, Func<PPos, bool> isVisible)
+		Shroud.CellVisibility[] GetNeighborsVisbility(PPos puv)
 		{
-			if (!isVisible(puv))
-				return notVisibleEdges;
-
 			var cell = ((MPos)puv).ToCPos(map);
+			neighbors[(int)Neighbor.Top] = cellVisibility((PPos)(cell + new CVec(0, -1)).ToMPos(map));
+			neighbors[(int)Neighbor.Right] = cellVisibility((PPos)(cell + new CVec(1, 0)).ToMPos(map));
+			neighbors[(int)Neighbor.Bottom] = cellVisibility((PPos)(cell + new CVec(0, 1)).ToMPos(map));
+			neighbors[(int)Neighbor.Left] = cellVisibility((PPos)(cell + new CVec(-1, 0)).ToMPos(map));
 
+			neighbors[(int)Neighbor.TopLeft] = cellVisibility((PPos)(cell + new CVec(-1, -1)).ToMPos(map));
+			neighbors[(int)Neighbor.TopRight] = cellVisibility((PPos)(cell + new CVec(1, -1)).ToMPos(map));
+			neighbors[(int)Neighbor.BottomRight] = cellVisibility((PPos)(cell + new CVec(1, 1)).ToMPos(map));
+			neighbors[(int)Neighbor.BottomLeft] = cellVisibility((PPos)(cell + new CVec(-1, 1)).ToMPos(map));
+
+			return neighbors;
+		}
+
+		Edges GetEdges(Shroud.CellVisibility[] neighbors, Shroud.CellVisibility visibleMask)
+		{
 			// If a side is shrouded then we also count the corners.
-			var edge = Edges.None;
-			if (!isVisible((PPos)(cell + new CVec(0, -1)).ToMPos(map))) edge |= Edges.Top;
-			if (!isVisible((PPos)(cell + new CVec(1, 0)).ToMPos(map))) edge |= Edges.Right;
-			if (!isVisible((PPos)(cell + new CVec(0, 1)).ToMPos(map))) edge |= Edges.Bottom;
-			if (!isVisible((PPos)(cell + new CVec(-1, 0)).ToMPos(map))) edge |= Edges.Left;
+			var edges = Edges.None;
+			if ((neighbors[(int)Neighbor.Top] & visibleMask) == 0) edges |= Edges.Top;
+			if ((neighbors[(int)Neighbor.Right] & visibleMask) == 0) edges |= Edges.Right;
+			if ((neighbors[(int)Neighbor.Bottom] & visibleMask) == 0) edges |= Edges.Bottom;
+			if ((neighbors[(int)Neighbor.Left] & visibleMask) == 0) edges |= Edges.Left;
 
-			var ucorner = edge & Edges.AllCorners;
-			if (!isVisible((PPos)(cell + new CVec(-1, -1)).ToMPos(map))) edge |= Edges.TopLeft;
-			if (!isVisible((PPos)(cell + new CVec(1, -1)).ToMPos(map))) edge |= Edges.TopRight;
-			if (!isVisible((PPos)(cell + new CVec(1, 1)).ToMPos(map))) edge |= Edges.BottomRight;
-			if (!isVisible((PPos)(cell + new CVec(-1, 1)).ToMPos(map))) edge |= Edges.BottomLeft;
+			var ucorner = edges & Edges.AllCorners;
+			if ((neighbors[(int)Neighbor.TopLeft] & visibleMask) == 0) edges |= Edges.TopLeft;
+			if ((neighbors[(int)Neighbor.TopRight] & visibleMask) == 0) edges |= Edges.TopRight;
+			if ((neighbors[(int)Neighbor.BottomRight] & visibleMask) == 0) edges |= Edges.BottomRight;
+			if ((neighbors[(int)Neighbor.BottomLeft] & visibleMask) == 0) edges |= Edges.BottomLeft;
 
 			// RA provides a set of frames for tiles with shrouded
 			// corners but unshrouded edges. We want to detect this
 			// situation without breaking the edge -> corner enabling
 			// in other combinations. The XOR turns off the corner
-			// bits that are enabled twice, which gives the behavior
+			// bits that are enabled twice, which gives the sprite offset
 			// we want here.
-			return info.UseExtendedIndex ? edge ^ ucorner : edge & Edges.AllCorners;
+			return info.UseExtendedIndex ? edges ^ ucorner : edges & Edges.AllCorners;
 		}
 
-		void DirtyCells(IEnumerable<PPos> cells)
+		(Edges EdgesShroud, Edges EdgesFog) GetEdges(PPos puv)
 		{
-			// PERF: Many cells in the shroud change every tick. We only track the changes here and defer the real work
-			// we need to do until we render. This allows us to avoid wasted work.
-			cellsDirty.UnionWith(cells);
+			var cv = cellVisibility(puv);
+
+			// If a cell is covered by shroud, then all neighbors are covered by shroud and fog.
+			if (!cv.HasFlag(Shroud.CellVisibility.Explored))
+				return notVisibleEdgesPair;
+
+			var ncv = GetNeighborsVisbility(puv);
+
+			// If a cell is covered by fog, then all neighbors are as well.
+			var edgesFog = cv.HasFlag(Shroud.CellVisibility.Visible) ? GetEdges(ncv, Shroud.CellVisibility.Visible) : notVisibleEdgesPair.Item2;
+
+			var edgesShroud = GetEdges(ncv, Shroud.CellVisibility.Explored);
+			return (edgesShroud, edgesFog);
 		}
 
-		void IRenderShroud.RenderShroud(Shroud shroud, WorldRenderer wr)
+		void WorldOnRenderPlayerChanged(Player player)
 		{
-			if (currentShroud != shroud)
+			var newShroud = player?.Shroud;
+
+			if (shroud != newShroud)
 			{
-				if (currentShroud != null)
-					currentShroud.CellsChanged -= DirtyCells;
-
 				if (shroud != null)
-					shroud.CellsChanged += DirtyCells;
+					shroud.OnShroudChanged -= UpdateShroudCell;
 
-				// Needs the anonymous function to ensure the correct overload is chosen
-				if (shroud != null)
-					visibleUnderShroud = puv => currentShroud.IsExplored(puv);
+				if (newShroud != null)
+				{
+					cellVisibility = puv => newShroud.GetVisibility(puv);
+					newShroud.OnShroudChanged += UpdateShroudCell;
+				}
 				else
-					visibleUnderShroud = puv => map.Contains(puv);
+				{
+					// Visible under shroud: Explored. Visible under fog: Visible.
+					cellVisibility = puv => map.Contains(puv) ? Shroud.CellVisibility.Visible | Shroud.CellVisibility.Explored : Shroud.CellVisibility.Hidden;
+				}
 
-				if (shroud != null)
-					visibleUnderFog = puv => currentShroud.IsVisible(puv);
-				else
-					visibleUnderFog = puv => map.Contains(puv);
-
-				currentShroud = shroud;
-				DirtyCells(map.ProjectedCellBounds);
+				shroud = newShroud;
 			}
 
-			// We need to update newly dirtied areas of the shroud.
-			// Expand the dirty area to cover the neighboring cells, since shroud is affected by neighboring cells.
-			foreach (var uv in cellsDirty)
-			{
-				cellsAndNeighborsDirty.Add(uv);
-				var cell = ((MPos)uv).ToCPos(map);
-				foreach (var direction in CVec.Directions)
-					cellsAndNeighborsDirty.Add((PPos)(cell + direction).ToMPos(map));
-			}
+			// Dirty the full projected space so the cells outside
+			// the map bounds can be initialized as fully shrouded.
+			cellsDirty.Clear(true);
+			anyCellDirty = true;
+			var tl = new PPos(0, 0);
+			var br = new PPos(map.MapSize.X - 1, map.MapSize.Y - 1);
+			UpdateShroud(new ProjectedCellRegion(map, tl, br));
+		}
 
-			foreach (var puv in cellsAndNeighborsDirty)
+		void UpdateShroud(IEnumerable<PPos> region)
+		{
+			if (!anyCellDirty)
+				return;
+
+			foreach (var puv in region)
 			{
 				var uv = (MPos)puv;
-				if (!tileInfos.Contains(uv))
+				if (!cellsDirty[uv] || !tileInfos.Contains(uv))
 					continue;
 
+				cellsDirty[uv] = false;
+
 				var tileInfo = tileInfos[uv];
-				var shroudSprite = GetSprite(shroudSprites, GetEdges(puv, visibleUnderShroud), tileInfo.Variant);
+				var (edgesShroud, edgesFog) = GetEdges(puv);
+				var shroudSprite = GetSprite(shroudSprites, edgesShroud, tileInfo.Variant);
 				var shroudPos = tileInfo.ScreenPosition;
-				if (shroudSprite != null)
-					shroudPos += shroudSprite.Offset - 0.5f * shroudSprite.Size;
+				if (shroudSprite.Sprite != null)
+					shroudPos += shroudSprite.Sprite.Offset - 0.5f * shroudSprite.Sprite.Size;
 
-				var fogSprite = GetSprite(fogSprites, GetEdges(puv, visibleUnderFog), tileInfo.Variant);
+				var fogSprite = GetSprite(fogSprites, edgesFog, tileInfo.Variant);
 				var fogPos = tileInfo.ScreenPosition;
-				if (fogSprite != null)
-					fogPos += fogSprite.Offset - 0.5f * fogSprite.Size;
+				if (fogSprite.Sprite != null)
+					fogPos += fogSprite.Sprite.Offset - 0.5f * fogSprite.Sprite.Size;
 
-				shroudLayer.Update(uv, shroudSprite, shroudPos);
-				fogLayer.Update(uv, fogSprite, fogPos);
+				shroudLayer.Update(uv, shroudSprite.Sprite, shroudPaletteReference, shroudPos, shroudSprite.Scale, shroudSprite.Alpha, true);
+				fogLayer.Update(uv, fogSprite.Sprite, fogPaletteReference, fogPos, fogSprite.Scale, fogSprite.Alpha, true);
 			}
 
-			cellsDirty.Clear();
-			cellsAndNeighborsDirty.Clear();
+			anyCellDirty = false;
+		}
 
+		void IRenderShroud.RenderShroud(WorldRenderer wr)
+		{
+			UpdateShroud(map.ProjectedCells);
 			fogLayer.Draw(wr.Viewport);
 			shroudLayer.Draw(wr.Viewport);
 		}
 
-		Sprite GetSprite(Sprite[] sprites, Edges edges, int variant)
+		void UpdateShroudCell(PPos puv)
+		{
+			var uv = (MPos)puv;
+			cellsDirty[uv] = true;
+			anyCellDirty = true;
+			var cell = uv.ToCPos(map);
+			foreach (var direction in CVec.Directions)
+				if (map.Contains((PPos)(cell + direction).ToMPos(map)))
+					cellsDirty[cell + direction] = true;
+		}
+
+		(Sprite Sprite, float Scale, float Alpha) GetSprite((Sprite, float, float)[] sprites, Edges edges, int variant)
 		{
 			if (edges == Edges.None)
-				return null;
+				return (null, 1f, 1f);
 
 			return sprites[variant * variantStride + edgesToSpriteIndexOffset[(byte)edges]];
 		}
 
-		bool disposed;
-		public void Disposing(Actor self)
+		void INotifyActorDisposing.Disposing(Actor self)
 		{
 			if (disposed)
 				return;

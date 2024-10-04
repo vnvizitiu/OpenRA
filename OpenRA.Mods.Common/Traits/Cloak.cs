@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,10 +11,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
-using OpenRA.Activities;
 using OpenRA.Graphics;
+using OpenRA.Mods.Common.Effects;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
@@ -25,15 +25,24 @@ namespace OpenRA.Mods.Common.Traits
 		None = 0,
 		Attack = 1,
 		Move = 2,
-		Unload = 4,
-		Infiltrate = 8,
-		Demolish = 16,
-		Damage = 32,
-		Dock = 64
+		Load = 4,
+		Unload = 8,
+		Infiltrate = 16,
+		Demolish = 32,
+		Damage = 64,
+		Heal = 128,
+		SelfHeal = 256,
+		Dock = 512,
+		SupportPower = 1024,
 	}
 
+	// Type tag for DetectionTypes
+	public class DetectionType { }
+
+	public enum CloakStyle { None, Alpha, Color, Palette }
+
 	[Desc("This unit can cloak and uncloak in specific situations.")]
-	public class CloakInfo : UpgradableTraitInfo
+	public class CloakInfo : PausableConditionalTraitInfo
 	{
 		[Desc("Measured in game ticks.")]
 		public readonly int InitialDelay = 10;
@@ -41,98 +50,175 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("Measured in game ticks.")]
 		public readonly int CloakDelay = 30;
 
-		[Desc("Events leading to the actor getting uncloaked. Possible values are: Attack, Move, Unload, Infiltrate, Demolish, Dock and Damage")]
+		[Desc(
+			"Events leading to the actor getting uncloaked. " +
+			"Possible values are: Attack, Move, Unload, Infiltrate, Demolish, Dock, Damage, Heal, SelfHeal and SupportPower.",
+			"'Dock' is triggered when docking to a refinery or resupplying.",
+			"'SupportPower' is triggered when using a support power.")]
 		public readonly UncloakType UncloakOn = UncloakType.Attack
 			| UncloakType.Unload | UncloakType.Infiltrate | UncloakType.Demolish | UncloakType.Dock;
 
 		public readonly string CloakSound = null;
 		public readonly string UncloakSound = null;
 
-		[PaletteReference("IsPlayerPalette")] public readonly string Palette = "cloak";
+		public readonly BitSet<DetectionType> DetectionTypes = new("Cloak");
+
+		[GrantedConditionReference]
+		[Desc("The condition to grant to self while cloaked.")]
+		public readonly string CloakedCondition = null;
+
+		[Desc("The type of cloak. Same type of cloaks won't trigger cloaking and uncloaking sound and effect.")]
+		public readonly string CloakType = null;
+
+		[Desc("Render effect to use when cloaked.")]
+		public readonly CloakStyle CloakStyle = CloakStyle.Alpha;
+
+		[Desc("The alpha level to use when cloaked when using Alpha CloakStyle.")]
+		public readonly float CloakedAlpha = 0.55f;
+
+		[Desc("The color to use when cloaked when using Color CloakStyle.")]
+		public readonly Color CloakedColor = Color.FromArgb(140, 0, 0, 0);
+
+		[PaletteReference(nameof(IsPlayerPalette))]
+		[Desc("The palette to use when cloaked when using Palette CloakStyle.")]
+		public readonly string CloakedPalette = null;
+
+		[Desc("Indicates that CloakedPalette is a player palette when using Palette CloakStyle.")]
 		public readonly bool IsPlayerPalette = false;
 
-		public readonly HashSet<string> CloakTypes = new HashSet<string> { "Cloak" };
+		[Desc("Which image to use for the effect played when cloaking or uncloaking.")]
+		public readonly string EffectImage = null;
 
-		[UpgradeGrantedReference]
-		[Desc("The upgrades to grant to self while cloaked.")]
-		public readonly string[] WhileCloakedUpgrades = { };
+		[Desc("Which effect sequence to play when cloaking.")]
+		[SequenceReference(nameof(EffectImage), allowNullImage: true)]
+		public readonly string CloakEffectSequence = null;
+
+		[Desc("Which effect sequence to play when uncloaking.")]
+		[SequenceReference(nameof(EffectImage), allowNullImage: true)]
+		public readonly string UncloakEffectSequence = null;
+
+		[PaletteReference(nameof(EffectPaletteIsPlayerPalette))]
+		public readonly string EffectPalette = "effect";
+		public readonly bool EffectPaletteIsPlayerPalette = false;
+
+		[Desc("Offset for the effect played when cloaking or uncloaking.")]
+		public readonly WVec EffectOffset = WVec.Zero;
+
+		[Desc("Should the effect track the actor.")]
+		public readonly bool EffectTracksActor = true;
 
 		public override object Create(ActorInitializer init) { return new Cloak(this); }
 	}
 
-	public class Cloak : UpgradableTrait<CloakInfo>, IRenderModifier, INotifyDamage,
-	INotifyAttack, ITick, IVisibilityModifier, IRadarColorModifier, INotifyCreated, INotifyHarvesterAction
+	public class Cloak : PausableConditionalTrait<CloakInfo>,
+		IRenderModifier, INotifyDamage, INotifyUnloadCargo, INotifyLoadCargo, INotifyDemolition, INotifyInfiltration,
+		INotifyAttack, ITick, IVisibilityModifier, IRadarColorModifier, INotifyDockClient, INotifySupportPower
 	{
-		[Sync] int remainingTime;
-		[Sync] bool damageDisabled;
+		readonly float3 cloakedColor;
+		readonly float cloakedColorAlpha;
+
+		[Sync]
+		int remainingTime;
+
 		bool isDocking;
-		UpgradeManager upgradeManager;
+		Cloak[] otherCloaks;
 
 		CPos? lastPos;
 		bool wasCloaked = false;
+		bool firstTick = true;
+		int cloakedToken = Actor.InvalidConditionToken;
 
 		public Cloak(CloakInfo info)
 			: base(info)
 		{
 			remainingTime = info.InitialDelay;
+			cloakedColor = new float3(info.CloakedColor.R, info.CloakedColor.G, info.CloakedColor.B) / 255f;
+			cloakedColorAlpha = info.CloakedColor.A / 255f;
 		}
 
-		void INotifyCreated.Created(Actor self)
+		protected override void Created(Actor self)
 		{
-			upgradeManager = self.TraitOrDefault<UpgradeManager>();
+			if (Info.CloakType != null)
+			{
+				otherCloaks = self.TraitsImplementing<Cloak>()
+					.Where(c => c != this && c.Info.CloakType == Info.CloakType)
+					.ToArray();
+			}
 
-			// The upgrade manager exists, but may not have finished being created yet.
-			// We'll defer the upgrades until the end of the tick, at which point it will be ready.
 			if (Cloaked)
 			{
 				wasCloaked = true;
-				self.World.AddFrameEndTask(_ => GrantUpgrades(self));
+				if (cloakedToken == Actor.InvalidConditionToken)
+					cloakedToken = self.GrantCondition(Info.CloakedCondition);
 			}
+
+			base.Created(self);
 		}
 
-		public bool Cloaked { get { return !IsTraitDisabled && remainingTime <= 0; } }
+		public bool Cloaked => !IsTraitDisabled && !IsTraitPaused && remainingTime <= 0;
 
 		public void Uncloak() { Uncloak(Info.CloakDelay); }
 
 		public void Uncloak(int time) { remainingTime = Math.Max(remainingTime, time); }
 
-		void INotifyAttack.Attacking(Actor self, Target target, Armament a, Barrel barrel) { if (Info.UncloakOn.HasFlag(UncloakType.Attack)) Uncloak(); }
+		void INotifyAttack.Attacking(Actor self, in Target target, Armament a, Barrel barrel) { if (Info.UncloakOn.HasFlag(UncloakType.Attack)) Uncloak(); }
 
-		void INotifyAttack.PreparingAttack(Actor self, Target target, Armament a, Barrel barrel) { }
+		void INotifyAttack.PreparingAttack(Actor self, in Target target, Armament a, Barrel barrel) { }
 
 		void INotifyDamage.Damaged(Actor self, AttackInfo e)
 		{
-			damageDisabled = e.DamageState >= DamageState.Critical;
-			if (damageDisabled || Info.UncloakOn.HasFlag(UncloakType.Damage))
+			if (e.Damage.Value == 0)
+				return;
+
+			var type = e.Damage.Value < 0
+				? (e.Attacker == self ? UncloakType.SelfHeal : UncloakType.Heal)
+				: UncloakType.Damage;
+			if (Info.UncloakOn.HasFlag(type))
 				Uncloak();
 		}
 
 		IEnumerable<IRenderable> IRenderModifier.ModifyRender(Actor self, WorldRenderer wr, IEnumerable<IRenderable> r)
 		{
-			if (remainingTime > 0 || IsTraitDisabled)
+			if (remainingTime > 0 || IsTraitDisabled || IsTraitPaused)
 				return r;
 
 			if (Cloaked && IsVisible(self, self.World.RenderPlayer))
 			{
-				var palette = string.IsNullOrEmpty(Info.Palette) ? null : Info.IsPlayerPalette ? wr.Palette(Info.Palette + self.Owner.InternalName) : wr.Palette(Info.Palette);
-				if (palette == null)
-					return r;
-				else
-					return r.Select(a => a.IsDecoration ? a : a.WithPalette(palette));
+				switch (Info.CloakStyle)
+				{
+					case CloakStyle.Alpha:
+						return r.Select(a => !a.IsDecoration && a is IModifyableRenderable mr ? mr.WithAlpha(Info.CloakedAlpha) : a);
+
+					case CloakStyle.Color:
+						return r.Select(a => !a.IsDecoration && a is IModifyableRenderable mr ?
+							mr.WithTint(cloakedColor, mr.TintModifiers | TintModifiers.ReplaceColor).WithAlpha(cloakedColorAlpha) :
+							a);
+
+					case CloakStyle.Palette:
+					{
+						var palette = wr.Palette(Info.IsPlayerPalette ? Info.CloakedPalette + self.Owner.InternalName : Info.CloakedPalette);
+						return r.Select(a => !a.IsDecoration && a is IPalettedRenderable pr ? pr.WithPalette(palette) : a);
+					}
+
+					default:
+						return r;
+				}
 			}
-			else
-				return SpriteRenderable.None;
+
+			return SpriteRenderable.None;
+		}
+
+		IEnumerable<Rectangle> IRenderModifier.ModifyScreenBounds(Actor self, WorldRenderer wr, IEnumerable<Rectangle> bounds)
+		{
+			return bounds;
 		}
 
 		void ITick.Tick(Actor self)
 		{
-			if (!IsTraitDisabled)
+			if (!IsTraitDisabled && !IsTraitPaused)
 			{
-				if (remainingTime > 0 && !damageDisabled && !isDocking)
+				if (remainingTime > 0 && !isDocking)
 					remainingTime--;
-
-				if (self.IsDisabled())
-					Uncloak();
 
 				if (Info.UncloakOn.HasFlag(UncloakType.Move) && (lastPos == null || lastPos.Value != self.Location))
 				{
@@ -144,28 +230,75 @@ namespace OpenRA.Mods.Common.Traits
 			var isCloaked = Cloaked;
 			if (isCloaked && !wasCloaked)
 			{
-				GrantUpgrades(self);
-				if (!self.TraitsImplementing<Cloak>().Any(a => a != this && a.Cloaked))
-					Game.Sound.Play(Info.CloakSound, self.CenterPosition);
+				if (cloakedToken == Actor.InvalidConditionToken)
+					cloakedToken = self.GrantCondition(Info.CloakedCondition);
+
+				// Sounds shouldn't play if the actor starts cloaked
+				if (!(firstTick && Info.InitialDelay == 0) && (otherCloaks == null || !otherCloaks.Any(a => a.Cloaked)))
+				{
+					var pos = self.CenterPosition;
+					Game.Sound.Play(SoundType.World, Info.CloakSound, self.CenterPosition);
+
+					Func<WPos> posfunc = () => self.CenterPosition + Info.EffectOffset;
+					if (!Info.EffectTracksActor)
+						posfunc = () => pos + Info.EffectOffset;
+
+					if (Info.EffectImage != null && Info.CloakEffectSequence != null)
+					{
+						var palette = Info.EffectPalette;
+						if (Info.EffectPaletteIsPlayerPalette)
+							palette += self.Owner.InternalName;
+
+						self.World.AddFrameEndTask(w => w.Add(new SpriteEffect(
+							posfunc, () => WAngle.Zero, w, Info.EffectImage, Info.CloakEffectSequence, palette)));
+					}
+				}
 			}
 			else if (!isCloaked && wasCloaked)
 			{
-				RevokeUpgrades(self);
-				if (!self.TraitsImplementing<Cloak>().Any(a => a != this && a.Cloaked))
-					Game.Sound.Play(Info.UncloakSound, self.CenterPosition);
+				if (cloakedToken != Actor.InvalidConditionToken)
+					cloakedToken = self.RevokeCondition(cloakedToken);
+
+				if (!(firstTick && Info.InitialDelay == 0) && (otherCloaks == null || !otherCloaks.Any(a => a.Cloaked)))
+				{
+					var pos = self.CenterPosition;
+					Game.Sound.Play(SoundType.World, Info.UncloakSound, pos);
+
+					Func<WPos> posfunc = () => self.CenterPosition + Info.EffectOffset;
+					if (!Info.EffectTracksActor)
+						posfunc = () => pos + Info.EffectOffset;
+
+					if (Info.EffectImage != null && Info.UncloakEffectSequence != null)
+					{
+						var palette = Info.EffectPalette;
+						if (Info.EffectPaletteIsPlayerPalette)
+							palette += self.Owner.InternalName;
+
+						self.World.AddFrameEndTask(w => w.Add(new SpriteEffect(
+							posfunc, () => WAngle.Zero, w, Info.EffectImage, Info.UncloakEffectSequence, palette)));
+					}
+				}
 			}
 
 			wasCloaked = isCloaked;
+			firstTick = false;
 		}
+
+		protected override void TraitEnabled(Actor self)
+		{
+			remainingTime = Info.InitialDelay;
+		}
+
+		protected override void TraitDisabled(Actor self) { Uncloak(); }
 
 		public bool IsVisible(Actor self, Player viewer)
 		{
 			if (!Cloaked || self.Owner.IsAlliedWith(viewer))
 				return true;
 
-			return self.World.ActorsWithTrait<DetectCloaked>().Any(a => !a.Trait.IsTraitDisabled && a.Actor.Owner.IsAlliedWith(viewer)
-				&& Info.CloakTypes.Overlaps(a.Trait.Info.CloakTypes)
-				&& (self.CenterPosition - a.Actor.CenterPosition).LengthSquared <= a.Trait.Info.Range.LengthSquared);
+			return self.World.ActorsWithTrait<DetectCloaked>().Any(a => a.Actor.IsInWorld
+				&& a.Actor.Owner.IsAlliedWith(viewer) && Info.DetectionTypes.Overlaps(a.Trait.Info.DetectionTypes)
+				&& (self.CenterPosition - a.Actor.CenterPosition).LengthSquared <= a.Trait.Range.LengthSquared);
 		}
 
 		Color IRadarColorModifier.RadarColorOverride(Actor self, Color color)
@@ -176,29 +309,7 @@ namespace OpenRA.Mods.Common.Traits
 			return color;
 		}
 
-		void GrantUpgrades(Actor self)
-		{
-			if (upgradeManager != null)
-				foreach (var u in Info.WhileCloakedUpgrades)
-					upgradeManager.GrantUpgrade(self, u, this);
-		}
-
-		void RevokeUpgrades(Actor self)
-		{
-			if (upgradeManager != null)
-				foreach (var u in Info.WhileCloakedUpgrades)
-					upgradeManager.RevokeUpgrade(self, u, this);
-		}
-
-		void INotifyHarvesterAction.MovingToResources(Actor self, CPos targetCell, Activity next) { }
-
-		void INotifyHarvesterAction.MovingToRefinery(Actor self, CPos targetCell, Activity next) { }
-
-		void INotifyHarvesterAction.MovementCancelled(Actor self) { }
-
-		void INotifyHarvesterAction.Harvested(Actor self, ResourceType resource) { }
-
-		void INotifyHarvesterAction.Docked()
+		void INotifyDockClient.Docked(Actor self, Actor host)
 		{
 			if (Info.UncloakOn.HasFlag(UncloakType.Dock))
 			{
@@ -207,9 +318,42 @@ namespace OpenRA.Mods.Common.Traits
 			}
 		}
 
-		void INotifyHarvesterAction.Undocked()
+		void INotifyDockClient.Undocked(Actor self, Actor host)
 		{
-			isDocking = false;
+			if (Info.UncloakOn.HasFlag(UncloakType.Dock))
+				isDocking = false;
+		}
+
+		void INotifyLoadCargo.Loading(Actor self)
+		{
+			if (Info.UncloakOn.HasFlag(UncloakType.Load))
+				Uncloak();
+		}
+
+		void INotifyUnloadCargo.Unloading(Actor self)
+		{
+			if (Info.UncloakOn.HasFlag(UncloakType.Unload))
+				Uncloak();
+		}
+
+		void INotifyDemolition.Demolishing(Actor self)
+		{
+			if (Info.UncloakOn.HasFlag(UncloakType.Demolish))
+				Uncloak();
+		}
+
+		void INotifyInfiltration.Infiltrating(Actor self)
+		{
+			if (Info.UncloakOn.HasFlag(UncloakType.Infiltrate))
+				Uncloak();
+		}
+
+		void INotifySupportPower.Charged(Actor self) { }
+
+		void INotifySupportPower.Activated(Actor self)
+		{
+			if (Info.UncloakOn.HasFlag(UncloakType.SupportPower))
+				Uncloak();
 		}
 	}
 }

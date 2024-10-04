@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -31,7 +31,7 @@ namespace OpenRA.Mods.Common.Scripting
 		}
 
 		[ScriptActorPropertyActivity]
-		[Desc("Seek out and attack nearby targets.")]
+		[Desc("Ignoring visibility, find the closest hostile target and attack move to within 2 cells of it.")]
 		public void Hunt()
 		{
 			Self.QueueActivity(new Hunt(Self));
@@ -43,7 +43,7 @@ namespace OpenRA.Mods.Common.Scripting
 			"close enough to complete the activity.")]
 		public void AttackMove(CPos cell, int closeEnough = 0)
 		{
-			Self.QueueActivity(new AttackMoveActivity(Self, move.MoveTo(cell, closeEnough)));
+			Self.QueueActivity(new AttackMoveActivity(Self, () => move.MoveTo(cell, closeEnough)));
 		}
 
 		[ScriptActorPropertyActivity]
@@ -53,7 +53,7 @@ namespace OpenRA.Mods.Common.Scripting
 		{
 			foreach (var wpt in waypoints)
 			{
-				Self.QueueActivity(new AttackMoveActivity(Self, move.MoveTo(wpt, 2)));
+				Self.QueueActivity(new AttackMoveActivity(Self, () => move.MoveTo(wpt, 2)));
 				Self.QueueActivity(new Wait(wait));
 			}
 
@@ -63,8 +63,9 @@ namespace OpenRA.Mods.Common.Scripting
 
 		[ScriptActorPropertyActivity]
 		[Desc("Patrol along a set of given waypoints until a condition becomes true. " +
-			"The actor will wait for `wait` ticks at each waypoint.")]
-		public void PatrolUntil(CPos[] waypoints, LuaFunction func, int wait = 0)
+			"The actor will wait for `wait` ticks at each waypoint. " +
+			"The callback function will be called as func(self: actor):boolean.")]
+		public void PatrolUntil(CPos[] waypoints, [ScriptEmmyTypeOverride("fun(self: actor):boolean")] LuaFunction func, int wait = 0)
 		{
 			Patrol(waypoints, false, wait);
 
@@ -78,12 +79,12 @@ namespace OpenRA.Mods.Common.Scripting
 	[ScriptPropertyGroup("Combat")]
 	public class GeneralCombatProperties : ScriptActorProperties, Requires<AttackBaseInfo>
 	{
-		readonly AttackBase attackBase;
+		readonly AttackBase[] attackBases;
 
 		public GeneralCombatProperties(ScriptContext context, Actor self)
 			: base(context, self)
 		{
-			attackBase = self.Trait<AttackBase>();
+			attackBases = self.TraitsImplementing<AttackBase>().ToArray();
 		}
 
 		[Desc("Attack the target actor. The target actor needs to be visible.")]
@@ -91,12 +92,13 @@ namespace OpenRA.Mods.Common.Scripting
 		{
 			var target = Target.FromActor(targetActor);
 			if (!target.IsValidFor(Self))
-				Log.Write("lua", "{1} is an invalid target for {0}!", Self, targetActor);
+				Log.Write("lua", $"{targetActor} is an invalid target for {Self}!");
 
-			if (!targetActor.Info.HasTraitInfo<FrozenUnderFogInfo>() && !Self.Owner.CanTargetActor(targetActor))
-				Log.Write("lua", "{1} is not revealed for player {0}!", Self.Owner, targetActor);
+			if (!targetActor.Info.HasTraitInfo<FrozenUnderFogInfo>() && !targetActor.CanBeViewedByPlayer(Self.Owner))
+				Log.Write("lua", $"{targetActor} is not revealed for player {Self.Owner}!");
 
-			attackBase.AttackTarget(target, true, allowMove, forceAttack);
+			foreach (var attack in attackBases)
+				attack.AttackTarget(target, AttackSource.Default, true, allowMove, forceAttack);
 		}
 
 		[Desc("Checks if the targeted actor is a valid target for this actor.")]

@@ -1,4 +1,4 @@
-MapFormat: 11
+MapFormat: 12
 
 RequiresMod: ra
 
@@ -15,6 +15,8 @@ Bounds: 16,16,96,96
 Visibility: Lobby, MissionSelector
 
 Categories: Mission, Cooperative Mission
+
+LockPreview: True
 
 Players:
 	PlayerReference@Neutral:
@@ -54,11 +56,13 @@ Players:
 		Color: 5CC1A3
 		Allies: Allies1, Allies2
 		Enemies: Soviets
+		Bot: campaign
 	PlayerReference@Soviets:
 		Name: Soviets
 		Faction: soviet
 		Color: FE1100
 		Enemies: Allies1, Allies2, Allies
+		Bot: campaign
 
 Actors:
 	Actor1: v07
@@ -1505,15 +1509,15 @@ Actors:
 	Actor357: 3tnk
 		Location: 43,59
 		Owner: Soviets
-		Facing: 90
+		Facing: 360
 	Actor537: harv
 		Location: 25,94
 		Owner: Allies
-		Facing: 96
+		Facing: 384
 	Actor358: 3tnk
 		Location: 38,55
 		Owner: Soviets
-		Facing: 110
+		Facing: 440
 	Actor359: v2rl
 		Location: 44,53
 		Owner: Soviets
@@ -1523,9 +1527,6 @@ Actors:
 	Actor290: pbox
 		Location: 39,92
 		Owner: Allies
-	Actor1000: camera
-		Location: 1,1
-		Owner: Soviets
 	ChinookHusk: tran.husk2
 		Location: 108,87
 		Owner: Neutral
@@ -1563,7 +1564,7 @@ Actors:
 		Location: 31,111
 		Owner: Neutral
 	ExtractionLZEntryPoint: waypoint
-		Location: 9,9
+		Location: 16,16
 		Owner: Neutral
 	ExtractionLZ: waypoint
 		Location: 30,38
@@ -1584,10 +1585,10 @@ Actors:
 		Location: 86,78
 		Owner: Neutral
 	BadgerEntryPoint1: waypoint
-		Location: 40,12
+		Location: 40,16
 		Owner: Neutral
 	BadgerEntryPoint2: waypoint
-		Location: 119,77
+		Location: 111,77
 		Owner: Neutral
 	BadgerDropPoint1: waypoint
 		Location: 19,96
@@ -1599,13 +1600,13 @@ Actors:
 		Location: 26,100
 		Owner: Neutral
 	ParabombPoint1: waypoint
-		Location: 39,105
+		Location: 42,106
 		Owner: Neutral
 	ParabombPoint2: waypoint
 		Location: 39,108
 		Owner: Neutral
 	YakEntryPoint: waypoint
-		Location: 99,10
+		Location: 99,16
 		Owner: Neutral
 	YakAttackPoint: waypoint
 		Location: 78,62
@@ -1754,4 +1755,6 @@ Actors:
 		Owner: Soviets
 		ScriptTags: TownAttacker
 
-Rules: ra|rules/campaign-rules.yaml, ra|rules/campaign-tooltips.yaml, rules.yaml
+Rules: ra|rules/campaign-rules.yaml, ra|rules/campaign-tooltips.yaml, ra|rules/campaign-palettes.yaml, ra|rules/coop-missions-rules.yaml, rules.yaml
+
+Translations: ra|languages/lua/en.ftl, ra|languages/campaign/en.ftl

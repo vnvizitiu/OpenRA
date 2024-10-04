@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,157 +12,151 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
-using OpenRA.Mods.Common.Traits;
+using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits.Render;
+using OpenRA.Server;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Lint
 {
-	class CheckSequences : ILintMapPass
+	sealed class CheckSequences : ILintSequencesPass, ILintServerMapPass
 	{
-		Action<string> emitError;
-
-		List<MiniYamlNode> sequenceDefinitions;
-
-		public void Run(Action<string> emitError, Action<string> emitWarning, Map map)
+		void ILintServerMapPass.Run(Action<string> emitError, Action<string> emitWarning, ModData modData, MapPreview map, Ruleset mapRules)
 		{
-			if (map.SequenceDefinitions == null)
-				return;
-
-			var modData = Game.ModData;
-			this.emitError = emitError;
-
-			sequenceDefinitions = MiniYaml.Load(map, modData.Manifest.Sequences, map.SequenceDefinitions);
-
-			var rules = map.Rules;
-			var factions = rules.Actors["world"].TraitInfos<FactionInfo>().Select(f => f.InternalName).ToArray();
-			var sequenceProviders = new[] { rules.Sequences };
-
-			foreach (var actorInfo in rules.Actors)
+			using (var sequences = new SequenceSet(map, modData, map.TileSet, map.SequenceDefinitions))
 			{
-				foreach (var renderInfo in actorInfo.Value.TraitInfos<RenderSpritesInfo>())
-				{
-					foreach (var faction in factions)
-					{
-						foreach (var sequenceProvider in sequenceProviders)
-						{
-							var image = renderInfo.GetImage(actorInfo.Value, sequenceProvider, faction);
-							if (sequenceDefinitions.All(s => s.Key != image.ToLowerInvariant()) && !actorInfo.Value.Name.Contains("^"))
-								emitError("Sprite image {0} from actor {1} using faction {2} has no sequence definition."
-									.F(image, actorInfo.Value.Name, faction));
-						}
-					}
-				}
-
-				foreach (var traitInfo in actorInfo.Value.TraitInfos<ITraitInfo>())
-				{
-					var fields = traitInfo.GetType().GetFields();
-					foreach (var field in fields)
-					{
-						if (field.HasAttribute<SequenceReferenceAttribute>())
-						{
-							var sequences = LintExts.GetFieldValues(traitInfo, field, emitError);
-							foreach (var sequence in sequences)
-							{
-								if (string.IsNullOrEmpty(sequence))
-									continue;
-
-								var renderInfo = actorInfo.Value.TraitInfos<RenderSpritesInfo>().FirstOrDefault();
-								if (renderInfo == null)
-									continue;
-
-								foreach (var faction in factions)
-								{
-									var sequenceReference = field.GetCustomAttributes<SequenceReferenceAttribute>(true).FirstOrDefault();
-									if (sequenceReference != null && !string.IsNullOrEmpty(sequenceReference.ImageReference))
-									{
-										var imageField = fields.FirstOrDefault(f => f.Name == sequenceReference.ImageReference);
-										if (imageField != null)
-										{
-											foreach (var imageOverride in LintExts.GetFieldValues(traitInfo, imageField, emitError))
-											{
-												if (!string.IsNullOrEmpty(imageOverride) && sequenceDefinitions.All(s => s.Key != imageOverride.ToLowerInvariant()))
-													emitError("Custom sprite image {0} from actor {1} has no sequence definition.".F(imageOverride, actorInfo.Value.Name));
-												else
-													CheckDefintions(imageOverride, sequenceReference, actorInfo, sequence, faction, field, traitInfo);
-											}
-										}
-									}
-									else
-									{
-										foreach (var sequenceProvider in sequenceProviders)
-										{
-											var image = renderInfo.GetImage(actorInfo.Value, sequenceProvider, faction);
-											CheckDefintions(image, sequenceReference, actorInfo, sequence, faction, field, traitInfo);
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-
-				foreach (var weaponInfo in rules.Weapons)
-				{
-					var projectileInfo = weaponInfo.Value.Projectile;
-					if (projectileInfo == null)
-						continue;
-
-					var fields = projectileInfo.GetType().GetFields();
-					foreach (var field in fields)
-					{
-						if (field.HasAttribute<SequenceReferenceAttribute>())
-						{
-							var sequences = LintExts.GetFieldValues(projectileInfo, field, emitError);
-							foreach (var sequence in sequences)
-							{
-								if (string.IsNullOrEmpty(sequence))
-									continue;
-
-								var sequenceReference = field.GetCustomAttributes<SequenceReferenceAttribute>(true).FirstOrDefault();
-								if (sequenceReference != null && !string.IsNullOrEmpty(sequenceReference.ImageReference))
-								{
-									var imageField = fields.FirstOrDefault(f => f.Name == sequenceReference.ImageReference);
-									if (imageField != null)
-									{
-										foreach (var imageOverride in LintExts.GetFieldValues(projectileInfo, imageField, emitError))
-										{
-											if (!string.IsNullOrEmpty(imageOverride))
-											{
-												var definitions = sequenceDefinitions.FirstOrDefault(n => n.Key == imageOverride.ToLowerInvariant());
-												if (definitions == null)
-													emitError("Can't find sequence definition for projectile image {0} at weapon {1}.".F(imageOverride, weaponInfo.Key));
-												else if (!definitions.Value.Nodes.Any(n => n.Key == sequence))
-													emitError("Projectile sprite image {0} from weapon {1} does not define sequence {2} from field {3} of {4}"
-														.F(imageOverride, weaponInfo.Key, sequence, field.Name, projectileInfo));
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
+				Run(emitError, emitWarning, mapRules, sequences);
 			}
 		}
 
-		void CheckDefintions(string image, SequenceReferenceAttribute sequenceReference,
-			KeyValuePair<string, ActorInfo> actorInfo, string sequence, string faction, FieldInfo field, ITraitInfo traitInfo)
+		void ILintSequencesPass.Run(Action<string> emitError, Action<string> emitWarning, ModData modData, Ruleset rules, SequenceSet sequences)
 		{
-			var definitions = sequenceDefinitions.FirstOrDefault(n => n.Key == image.ToLowerInvariant());
-			if (definitions != null)
+			Run(emitError, emitWarning, rules, sequences);
+		}
+
+		static void Run(Action<string> emitError, Action<string> emitWarning, Ruleset rules, SequenceSet sequences)
+		{
+			var factions = rules.Actors[SystemActors.World].TraitInfos<FactionInfo>().Select(f => f.InternalName).ToArray();
+			foreach (var actorInfo in rules.Actors)
 			{
-				if (sequenceReference != null && sequenceReference.Prefix)
+				// Catch TypeDictionary errors.
+				try
 				{
-					if (!definitions.Value.Nodes.Any(n => n.Key.StartsWith(sequence)))
-						emitError("Sprite image {0} from actor {1} of faction {2} does not define sequence prefix {3} from field {4} of {5}"
-							.F(image, actorInfo.Value.Name, faction, sequence, field.Name, traitInfo));
+					var images = new HashSet<string>();
+
+					// Actors may have 0 or 1 RenderSprites traits.
+					var renderInfo = actorInfo.Value.TraitInfoOrDefault<RenderSpritesInfo>();
+					if (renderInfo != null)
+					{
+						images.Add(renderInfo.GetImage(actorInfo.Value, null).ToLowerInvariant());
+
+						// Some actors define faction-specific artwork.
+						foreach (var faction in factions)
+							images.Add(renderInfo.GetImage(actorInfo.Value, faction).ToLowerInvariant());
+					}
+
+					foreach (var traitInfo in actorInfo.Value.TraitInfos<TraitInfo>())
+					{
+						// Remove the "Info" suffix.
+						var traitName = traitInfo.GetType().Name;
+						traitName = traitName.Remove(traitName.Length - 4);
+
+						var fields = Utility.GetFields(traitInfo.GetType());
+						foreach (var field in fields)
+						{
+							var sequenceReference = Utility.GetCustomAttributes<SequenceReferenceAttribute>(field, true).FirstOrDefault();
+							if (sequenceReference == null)
+								continue;
+
+							// Some sequences may specify their own Image override.
+							IEnumerable<string> sequenceImages = images;
+							if (!string.IsNullOrEmpty(sequenceReference.ImageReference))
+							{
+								var imageField = fields.First(f => f.Name == sequenceReference.ImageReference);
+								var imageOverride = (string)imageField.GetValue(traitInfo);
+								if (string.IsNullOrEmpty(imageOverride))
+								{
+									if (!sequenceReference.AllowNullImage)
+										emitError($"Actor type `{actorInfo.Value.Name}` trait `{traitName}` must define a value for `{sequenceReference.ImageReference}`.");
+
+									continue;
+								}
+
+								sequenceImages = new[] { imageOverride.ToLowerInvariant() };
+							}
+
+							foreach (var sequence in LintExts.GetFieldValues(traitInfo, field, sequenceReference.DictionaryReference))
+							{
+								if (string.IsNullOrEmpty(sequence))
+									continue;
+
+								foreach (var i in sequenceImages)
+								{
+									if (sequenceReference.Prefix)
+									{
+										// TODO: Remove prefixed sequence references and instead use explicit lists of lintable references.
+										if (!sequences.Sequences(i).Any(s => s.StartsWith(sequence, StringComparison.Ordinal)))
+											emitWarning(
+												$"Actor type `{actorInfo.Value.Name}` trait `{traitName}` field `{field.Name}` " +
+												$"defines a prefix `{sequence}` that does not match any sequences on image `{i}`.");
+									}
+									else if (!sequences.HasSequence(i, sequence))
+										emitError(
+											$"Actor type `{actorInfo.Value.Name}` trait `{traitName}` field `{field.Name}` " +
+											$"references an undefined sequence `{sequence}` on image `{i}`.");
+								}
+							}
+						}
+					}
 				}
-				else if (definitions.Value.Nodes.All(n => n.Key != sequence))
+				catch (InvalidOperationException e)
 				{
-					emitError("Sprite image {0} from actor {1} of faction {2} does not define sequence {3} from field {4} of {5}"
-						.F(image, actorInfo.Value.Name, faction, sequence, field.Name, traitInfo));
+					emitError($"{e.Message} (Actor type `{actorInfo.Key}`)");
+				}
+			}
+
+			foreach (var weaponInfo in rules.Weapons)
+			{
+				var projectileInfo = weaponInfo.Value.Projectile;
+				if (projectileInfo == null)
+					continue;
+
+				var fields = Utility.GetFields(projectileInfo.GetType());
+				foreach (var field in fields)
+				{
+					var sequenceReference = Utility.GetCustomAttributes<SequenceReferenceAttribute>(field, true).FirstOrDefault();
+					if (sequenceReference == null)
+						continue;
+
+					// All weapon sequences must specify their corresponding image.
+					var image = (string)fields.First(f => f.Name == sequenceReference.ImageReference).GetValue(projectileInfo);
+					if (string.IsNullOrEmpty(image))
+					{
+						if (!sequenceReference.AllowNullImage)
+							emitError($"Weapon type `{weaponInfo.Key}` projectile field `{sequenceReference.ImageReference}` must define a value.");
+
+						continue;
+					}
+
+					image = image.ToLowerInvariant();
+					foreach (var sequence in LintExts.GetFieldValues(projectileInfo, field, sequenceReference.DictionaryReference))
+					{
+						if (string.IsNullOrEmpty(sequence))
+							continue;
+
+						if (sequenceReference.Prefix)
+						{
+							// TODO: Remove prefixed sequence references and instead use explicit lists of lintable references.
+							if (!sequences.Sequences(image).Any(s => s.StartsWith(sequence, StringComparison.Ordinal)))
+								emitWarning(
+									$"Weapon type `{weaponInfo.Key}` projectile field `{field.Name}` " +
+									$"defines a prefix `{sequence}` that does not match any sequences on image `{image}`.");
+						}
+						else if (!sequences.HasSequence(image, sequence))
+							emitError(
+								$"Weapon type `{weaponInfo.Key}` projectile field `{field.Name}` " +
+								$"references an undefined sequence `{sequence}` on image `{image}`.");
+					}
 				}
 			}
 		}

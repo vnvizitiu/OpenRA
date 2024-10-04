@@ -1,179 +1,211 @@
 ^concrete:
 	AlwaysVisible:
-	Building:
-		Adjacent: 4
+	Interactable:
+	D2kBuilding:
 		TerrainTypes: Rock
 		BuildSounds: CHUNG.WAV
 		AllowInvalidPlacement: true
-	LaysTerrain:
-		Template: 88
-		TerrainTypes: Rock
+	FootprintPlaceBuildingPreview:
+	RequiresBuildableArea:
+		AreaTypes: building
+		Adjacent: 4
 	Tooltip:
-		Name: Concrete
+		GenericName: meta-concrete.generic-name
 	RenderSprites:
 	KillsSelf:
 		RemoveInstead: true
 	Buildable:
 		Queue: Building
-		Prerequisites: construction_yard
 		BuildPaletteOrder: 10
-		Description: Provides a strong foundation that prevents\ndamage from the terrain.
+		Description: meta-concrete.description
 
 concretea:
 	Inherits: ^concrete
-	Building:
+	D2kBuilding:
 		Footprint: xx xx
 		Dimensions: 2,2
+	Tooltip:
+		Name: actor-concrete-a.name
+	Encyclopedia:
+		Description: actor-concrete-a.encyclopedia
+		Category: Buildings
+		Order: 10
 	Valued:
 		Cost: 20
 	Buildable:
-		BuildDuration: 54
-		BuildDurationModifier: 40
+		BuildPaletteOrder: 110
+		Prerequisites: ~!global-auto-concrete
+		BuildDuration: 62
+		BuildDurationModifier: 100
+	WithSpriteBody:
+		Sequence: preview
 
 concreteb:
 	Inherits: ^concrete
-	Building:
+	D2kBuilding:
 		Footprint: xxx xxx xxx
 		Dimensions: 3,3
+	Tooltip:
+		Name: actor-concrete-b-name
 	Valued:
 		Cost: 50
 	Buildable:
-		Prerequisites: construction_yard, upgrade.conyard
-		BuildDuration: 81
-		BuildDurationModifier: 40
+		BuildPaletteOrder: 210
+		Prerequisites: upgrade.conyard, ~!global-auto-concrete
+		BuildDuration: 94
+		BuildDurationModifier: 100
 
 construction_yard:
 	Inherits: ^Building
+	Inherits@PRIMARY: ^PrimaryBuilding
+	Inherits@UPGRADEABLE: ^Upgradeable
 	Buildable:
-		Description: Produces structures.
-	-DamagedByTerrain:
-	Building:
-		Footprint: xxx xxx
-		Dimensions: 3,2
-		Adjacent: 4
-	LaysTerrain:
-		TerrainTypes: Rock
-		Template: 88
-	Bib:
+		Description: actor-construction-yard.description
+	D2kBuilding:
+		Footprint: xxx xxx ===
+		Dimensions: 3,3
+		LocalCenterOffset: 0,-512,0
+		-ConcretePrerequisites:
+	Encyclopedia:
+		Description: actor-construction-yard.encyclopedia
+		Category: Buildings
+		Order: 0
+	WithBuildingBib:
 	Selectable:
-		Bounds: 96,64
+		Bounds: 3072, 2048
 	Health:
-		HP: 3000
+		HP: 30000
+	HitShape:
+		Type: Rectangle
+			TopLeft: -1536, -1024
+			BottomRight: 1536, 1024
 	Armor:
 		Type: cy
 	RevealsShroud:
 		Range: 5c768
 	Production:
 		Produces: Building, Upgrade
-	Exit:
 	Valued:
 		Cost: 2000
 	Tooltip:
-		Name: Construction Yard
+		Name: actor-construction-yard.name
 	CustomSellValue:
 		Value: 2000
-	EmitInfantryOnSell:
-		ActorTypes: light_inf, light_inf, engineer
+	SpawnActorsOnSell:
+		ActorTypes: light_inf
+		GuaranteedActorTypes: light_inf, engineer
 	BaseBuilding:
 	ProductionBar:
+		ProductionType: Building
 	Power:
 		Amount: 20
 	RenderSprites:
-		Image: conyard.harkonnen
+		Image: conyard.ordos
 		FactionImages:
 			atreides: conyard.atreides
-			ordos: conyard.ordos
-			smuggler: conyard.ordos
-			mercenary: conyard.ordos
+			fremen: conyard.atreides
+			harkonnen: conyard.harkonnen
+			corrino: conyard.harkonnen
 	WithBuildingPlacedOverlay:
+		RequiresCondition: !build-incomplete
 		Palette: d2k
 	PrimaryBuilding:
+		ProductionQueues: Building
 	ProvidesPrerequisite@buildingname:
-	GlobalUpgradable:
+	GrantConditionOnPrerequisite@UPGRADEABLE:
 		Prerequisites: upgrade.conyard
-		Upgrades: stardecoration
-	WithDecoration@upgraded:
-		RequiresSelection: true
-		Image: pips
-		Sequence: tag-upgraded
-		ReferencePoint: Top, Right
-		ZOffset: 256
-		UpgradeTypes: stardecoration
-		UpgradeMinEnabledLevel: 1
-	WithTextDecoration@primary:
-		RequiresSelection: true
-		Text: PRIMARY
-		ReferencePoint: Top
-		ZOffset: 256
-		UpgradeTypes: primary
-		UpgradeMinEnabledLevel: 1
+	RevealOnDeath:
+		Radius: 5c768
 
 wind_trap:
 	Inherits: ^Building
 	Buildable:
 		Queue: Building
-		Prerequisites: construction_yard
-		BuildPaletteOrder: 10
-		BuildDuration: 180
-		BuildDurationModifier: 40
-		Description: Provides power for other structures
+		BuildPaletteOrder: 120
+		BuildDuration: 208
+		BuildDurationModifier: 100
+		Description: actor-wind-trap.description
 	Selectable:
-		Bounds: 64,64
+		Bounds: 2048, 2048
 	Valued:
 		Cost: 225
 	Tooltip:
-		Name: Wind Trap
-	Building:
-		Footprint: xx xx
-		Dimensions: 2,2
-	Bib:
+		Name: actor-wind-trap.name
+	D2kBuilding:
+		Footprint: xx xx ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-wind-trap.encyclopedia
+		Category: Buildings
+		Order: 20
 	Health:
-		HP: 3000
+		HP: 30000
+	HitShape:
+		Type: Rectangle
+			TopLeft: -1024, -1024
+			BottomRight: 1024, 1024
 	Armor:
 		Type: building
 	RevealsShroud:
 		Range: 3c768
 	RenderSprites:
-		Image: power.harkonnen
+		Image: power.ordos
 		FactionImages:
 			atreides: power.atreides
-			ordos: power.ordos
-			smuggler: power.ordos
-			mercenary: power.ordos
+			fremen: power.atreides
+			harkonnen: power.harkonnen
+			corrino: power.harkonnen
+	WithBuildingBib:
 	WithIdleOverlay@ZAPS:
+		RequiresCondition: !build-incomplete
 		Sequence: idle-zaps
 	Power:
 		Amount: 200
 	ScalePowerWithHealth:
 	ProvidesPrerequisite@buildingname:
+	RevealOnDeath:
+		Radius: 3c768
 
 barracks:
 	Inherits: ^Building
+	Inherits@PRIMARY: ^PrimaryBuilding
+	Inherits@UPGRADEABLE: ^Upgradeable
 	Buildable:
-		Prerequisites: construction_yard, wind_trap
+		Prerequisites: wind_trap
 		Queue: Building
-		BuildPaletteOrder: 40
-		BuildDuration: 231
-		BuildDurationModifier: 40
-		Description: Trains infantry
+		BuildPaletteOrder: 220
+		BuildDuration: 268
+		BuildDurationModifier: 100
+		Description: actor-barracks.description
 	Selectable:
-		Bounds: 64,64
+		Bounds: 2048, 2048
 	Valued:
 		Cost: 225
 	Tooltip:
-		Name: Barracks
-	Building:
-		Footprint: xx xx
-		Dimensions: 2,2
-	Bib:
+		Name: actor-barracks.name
+	D2kBuilding:
+		Footprint: xx xx ==
+		Dimensions: 2,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-barracks.encyclopedia
+		Category: Buildings
+		Order: 30
 	Health:
-		HP: 3200
+		HP: 32000
+	HitShape:
+		Type: Rectangle
+			TopLeft: -1024, -1024
+			BottomRight: 1024, 1024
 	Armor:
-		Type: wood
+		Type: building
 	RevealsShroud:
 		Range: 3c768
 	RallyPoint:
-		Offset: 1,2
+		ForceSetType: Infantry
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
 		SpawnOffset: 352,576,0
 		ExitCell: 0,2
@@ -181,9 +213,11 @@ barracks:
 		SpawnOffset: 512,480,0
 		ExitCell: 1,2
 	Production:
-		Produces: Infantry
+		Produces: Infantry, Upgrade
 	PrimaryBuilding:
+		ProductionQueues: Infantry
 	ProductionBar:
+		ProductionType: Infantry
 	ProvidesPrerequisite@atreides:
 		Prerequisite: barracks.atreides
 		Factions: atreides
@@ -196,64 +230,63 @@ barracks:
 	Power:
 		Amount: -30
 	RenderSprites:
-		Image: barracks.harkonnen
+		Image: barracks.ordos
 		FactionImages:
 			atreides: barracks.atreides
-			ordos: barracks.ordos
-			smuggler: barracks.ordos
-			mercenary: barracks.ordos
+			fremen: barracks.atreides
+			harkonnen: barracks.harkonnen
+			corrino: barracks.harkonnen
+	WithBuildingBib:
 	ProvidesPrerequisite@buildingname:
-	GlobalUpgradable:
+	GrantConditionOnPrerequisite@UPGRADEABLE:
 		Prerequisites: upgrade.barracks
-		Upgrades: stardecoration
-	WithDecoration@upgraded:
-		RequiresSelection: true
-		Image: pips
-		Sequence: tag-upgraded
-		ReferencePoint: Top, Right
-		ZOffset: 256
-		UpgradeTypes: stardecoration
-		UpgradeMinEnabledLevel: 1
-	WithTextDecoration@primary:
-		RequiresSelection: true
-		Text: PRIMARY
-		ReferencePoint: Top
-		ZOffset: 256
-		UpgradeTypes: primary
-		UpgradeMinEnabledLevel: 1
+	RevealOnDeath:
+		Radius: 3c768
 
 refinery:
 	Inherits: ^Building
 	Buildable:
-		Prerequisites: construction_yard, wind_trap
+		Prerequisites: wind_trap
 		Queue: Building
-		BuildPaletteOrder: 20
-		BuildDuration: 540
-		BuildDurationModifier: 40
-		Description: Harvesters unload Spice here for processing
+		BuildPaletteOrder: 130
+		BuildDuration: 625
+		BuildDurationModifier: 100
+		Description: actor-refinery.description
 	Selectable:
-		Bounds: 96,64
+		Bounds: 3072, 2048
 	Valued:
 		Cost: 1500
 	Tooltip:
-		Name: Spice Refinery
-	Building:
-		Footprint: =xx xx=
-		Dimensions: 3,2
-	Bib:
+		Name: actor-refinery.name
+	D2kBuilding:
+		Footprint: =xx xx= ===
+		Dimensions: 3,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-refinery.encyclopedia
+		Category: Buildings
+		Order: 40
 	Health:
-		HP: 3000
+		HP: 30000
+	HitShape:
+		Type: Rectangle
+			TopLeft: -512, -1024
+			BottomRight: 1536, 0
+	HitShape@BOTTOM:
+		Type: Rectangle
+			TopLeft: -1536, 0
+			BottomRight: 512, 1024
 	Armor:
-		Type: building
+		Type: heavy
 	RevealsShroud:
-		Range: 4c768
+		Range: 3c768
 	Refinery:
-		DockAngle: 160
-		DockOffset: 2,1
 		TickRate: 20
-	StoresResources:
-		PipColor: green
-		PipCount: 10
+	DockHost:
+		Type: Unload
+		DockAngle: 640
+		DockOffset: 1c0,512,0
+	StoresPlayerResources:
 		Capacity: 2000
 	CustomSellValue:
 		Value: 500
@@ -263,108 +296,149 @@ refinery:
 		DeliveringActor: carryall.reinforce
 		Facing: 160
 	RenderSprites:
-		Image: refinery.harkonnen
+		Image: refinery.ordos
 		FactionImages:
 			atreides: refinery.atreides
-			ordos: refinery.ordos
-			smuggler: refinery.ordos
-			mercenary: refinery.ordos
+			fremen: refinery.atreides
+			harkonnen: refinery.harkonnen
+			corrino: refinery.harkonnen
+	WithBuildingBib:
+	WithIdleOverlay@TOP:
+		RequiresCondition: !build-incomplete
+		Sequence: idle-top
 	WithDockedOverlay@SMOKE:
+		RequiresCondition: !build-incomplete
 		Sequence: smoke
 	Power:
 		Amount: -75
-	WithIdleOverlay@TOP:
-		Sequence: idle-top
 	ProvidesPrerequisite@buildingname:
+	WithResourceStoragePipsDecoration:
+		Position: BottomLeft
+		Margin: 1, 4
+		RequiresSelection: true
+		PipCount: 10
 
 silo:
 	Inherits: ^Building
 	Buildable:
-		Prerequisites: construction_yard, refinery
+		Prerequisites: refinery
 		Queue: Building
-		BuildPaletteOrder: 30
-		BuildDuration: 135
-		BuildDurationModifier: 40
-		Description: Stores excess harvested Spice
+		BuildPaletteOrder: 310
+		BuildDuration: 156
+		BuildDurationModifier: 100
+		Description: actor-silo.description
 	Selectable:
-		Bounds: 32,32
+		Bounds: 1024, 1024
+	Encyclopedia:
+		Description: actor-silo.encyclopedia
+		Category: Buildings
+		Order: 50
 	Valued:
 		Cost: 120
 	Tooltip:
-		Name: Silo
-	Building:
+		Name: actor-silo.name
+	RequiresBuildableArea:
 		Adjacent: 4
 	-GivesBuildableArea:
 	Health:
-		HP: 1500
+		HP: 15000
 	Armor:
-		Type: wall
+		Type: building
 	RevealsShroud:
 		Range: 2c768
 	RenderSprites:
-		Image: silo.harkonnen
+		Image: silo.ordos
 		FactionImages:
 			atreides: silo.atreides
-			ordos: silo.ordos
-			smuggler: silo.ordos
-			mercenary: silo.ordos
-	WithSpriteBody:
-	WithSiloAnimation:
-	StoresResources:
-		PipColor: green
-		PipCount: 5
+			fremen: silo.atreides
+			harkonnen: silo.harkonnen
+			corrino: silo.harkonnen
+	-WithSpriteBody:
+	WithResourceLevelSpriteBody:
+		Sequence: stages
+	StoresPlayerResources:
 		Capacity: 2000
-	-EmitInfantryOnSell:
+	-SpawnActorsOnSell:
 	Power:
 		Amount: -15
 	MustBeDestroyed:
 		RequiredForShortGame: false
-	ThrowsShrapnel:
+	FireProjectilesOnDeath:
 		Weapons: Debris, Debris2, Debris3, Debris4
 		Pieces: 3, 5
 		Range: 2c0, 5c0
+	RevealOnDeath:
+		Radius: 2c768
+	WithResourceStoragePipsDecoration:
+		Position: BottomLeft
+		Margin: 1, 4
+		RequiresSelection: true
+		PipCount: 5
 
 light_factory:
 	Inherits: ^Building
+	Inherits@PRIMARY: ^PrimaryBuilding
+	Inherits@UPGRADEABLE: ^Upgradeable
 	Buildable:
-		Prerequisites: construction_yard, refinery
+		Prerequisites: refinery
 		Queue: Building
-		BuildPaletteOrder: 70
-		BuildDuration: 277
-		BuildDurationModifier: 40
-		Description: Produces light vehicles
+		BuildPaletteOrder: 230
+		BuildDuration: 321
+		BuildDurationModifier: 100
+		Description: actor-light-factory.description
 	Selectable:
-		Bounds: 96,64
+		Bounds: 3072, 2048
 	Valued:
 		Cost: 500
 	Tooltip:
-		Name: Light Factory
-	Building:
-		Footprint: xxx xx=
-		Dimensions: 3,2
-	Bib:
+		Name: actor-light-factory.name
+	D2kBuilding:
+		Footprint: xxx xx= ===
+		Dimensions: 3,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-light-factory.encyclopedia
+		Category: Buildings
+		Order: 60
 	Health:
-		HP: 3300
+		HP: 33000
+	HitShape:
+		TargetableOffsets: -210,608,0
+		Type: Rectangle
+			TopLeft: -1536, -1024
+			BottomRight: 1536, 1024
 	Armor:
-		Type: light
+		Type: building
 	RevealsShroud:
-		Range: 4c768
+		Range: 5c768
 	RenderSprites:
-		Image: light.harkonnen
+		Image: light.ordos
 		FactionImages:
 			atreides: light.atreides
-			ordos: light.ordos
-			smuggler: light.ordos
-			mercenary: light.ordos
+			fremen: light.atreides
+			harkonnen: light.harkonnen
+			corrino: light.harkonnen
+	WithBuildingBib:
+	WithIdleOverlay@TOP:
+		RequiresCondition: !build-incomplete
+		Sequence: idle-top
+	WithProductionOverlay@WELDING:
+		RequiresCondition: !build-incomplete
+		Queues: Vehicle
+		Sequence: production-welding
 	RallyPoint:
-		Offset: 2,2
+		ForceSetType: Vehicle
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
 		SpawnOffset: 544,-224,0
 		ExitCell: 2,1
 	Production:
-		Produces: Vehicle
+		Produces: Vehicle, Upgrade
 	PrimaryBuilding:
+		ProductionQueues: Vehicle
 	ProductionBar:
+		ProductionType: Vehicle
 	ProvidesPrerequisite@atreides:
 		Prerequisite: light.atreides
 		Factions: atreides
@@ -374,69 +448,71 @@ light_factory:
 	ProvidesPrerequisite@harkonnen:
 		Prerequisite: light.harkonnen
 		Factions: harkonnen
-	ProvidesPrerequisite@trikes:
-		Prerequisite: light.regulartrikes
-		Factions: atreides, harkonnen
+	ProvidesPrerequisite@trike:
+		Prerequisite: light.trike
+		Factions: atreides, fremen, harkonnen, corrino
+	ProvidesPrerequisite@raider:
+		Prerequisite: light.raider
+		Factions: ordos, smuggler, mercenary
 	ProvidesPrerequisite@buildingname:
-	WithProductionOverlay@WELDING:
-		Sequence: production-welding
-	WithIdleOverlay@TOP:
-		Sequence: idle-top
 	Power:
 		Amount: -125
-	GlobalUpgradable:
+	GrantConditionOnPrerequisite@UPGRADEABLE:
 		Prerequisites: upgrade.light
-		Upgrades: stardecoration
-	WithDecoration@upgraded:
-		RequiresSelection: true
-		Image: pips
-		Sequence: tag-upgraded
-		ReferencePoint: Top, Right
-		ZOffset: 256
-		UpgradeTypes: stardecoration
-		UpgradeMinEnabledLevel: 1
-	WithTextDecoration@primary:
-		RequiresSelection: true
-		Text: PRIMARY
-		ReferencePoint: Top
-		ZOffset: 256
-		UpgradeTypes: primary
-		UpgradeMinEnabledLevel: 1
 
 heavy_factory:
 	Inherits: ^Building
+	Inherits@PRIMARY: ^PrimaryBuilding
+	Inherits@UPGRADEABLE: ^Upgradeable
 	Buildable:
-		Prerequisites: construction_yard, refinery
+		Prerequisites: refinery
 		Queue: Building
-		BuildPaletteOrder: 100
-		BuildDuration: 648
-		BuildDurationModifier: 40
-		Description: Produces heavy vehicles
+		BuildPaletteOrder: 330
+		BuildDuration: 750
+		BuildDurationModifier: 100
+		Description: actor-heavy-factory.description
 	Selectable:
-		Bounds: 96,68,0,12
+		Bounds: 3072, 3072
 	Valued:
 		Cost: 1000
 	Tooltip:
-		Name: Heavy Factory
-	Building:
-		Footprint: _x_ xxx =xx
-		Dimensions: 3,3
-	Bib:
+		Name: actor-heavy-factory.name
+	D2kBuilding:
+		Footprint: _x_ xxx =xX ===
+		Dimensions: 3,4
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-heavy-factory.encyclopedia
+		Category: Buildings
+		Order: 70
 	Health:
-		HP: 3500
+		HP: 35000
+	HitShape:
+		TargetableOffsets: -1155,-704,0, -1365,832,0
+		Type: Rectangle
+			TopLeft: -1536, -512
+			BottomRight: 1536, 1536
+	HitShape@TOP:
+		Type: Rectangle
+			TopLeft: -512, -1536
+			BottomRight: 512, -512
 	Armor:
-		Type: wood
+		Type: building
 	RevealsShroud:
 		Range: 4c768
 	RallyPoint:
-		Offset: 0,3
+		ForceSetType: Armor
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
 		SpawnOffset: 256,192,0
 		ExitCell: 0,2
 	Production:
-		Produces: Armor
+		Produces: Armor, Upgrade
 	PrimaryBuilding:
+		ProductionQueues: Armor
 	ProductionBar:
+		ProductionType: Armor
 	ProvidesPrerequisite@atreides:
 		Prerequisite: heavy.atreides
 		Factions: atreides
@@ -446,115 +522,135 @@ heavy_factory:
 	ProvidesPrerequisite@harkonnen:
 		Prerequisite: heavy.harkonnen
 		Factions: harkonnen
-	ProvidesPrerequisite@missiletank:
-		Prerequisite: heavy.missiletank
-		Factions: atreides, harkonnen
+	ProvidesPrerequisite@atreides_combat:
+		Prerequisite: heavy.atreides_combat
+		Factions: atreides, fremen
+	ProvidesPrerequisite@ordos_combat:
+		Prerequisite: heavy.ordos_combat
+		Factions: ordos, smuggler, mercenary
+	ProvidesPrerequisite@harkonnen_combat:
+		Prerequisite: heavy.harkonnen_combat
+		Factions: harkonnen, corrino
+	ProvidesPrerequisite@missile_tank:
+		Prerequisite: heavy.missile_tank
+		Factions: atreides, fremen, harkonnen, corrino
 	RenderSprites:
-		Image: heavy.harkonnen
+		Image: heavy.ordos
 		FactionImages:
 			atreides: heavy.atreides
-			ordos: heavy.ordos
+			fremen: heavy.atreides
+			harkonnen: heavy.harkonnen
+			corrino: heavy.harkonnen
 			mercenary: heavy.mercenary
-			smuggler: heavy.ordos
-	WithProductionOverlay@WELDING:
-		Sequence: production-welding
+	WithBuildingBib:
 	WithIdleOverlay@TOP:
+		RequiresCondition: !build-incomplete
 		Sequence: idle-top
+	WithProductionOverlay@WELDING:
+		RequiresCondition: !build-incomplete
+		Queues: Armor
+		Sequence: production-welding
 	Power:
 		Amount: -150
 	ProvidesPrerequisite@buildingname:
-	SelectionDecorations:
-		VisualBounds: 96,96
-	GlobalUpgradable:
+	GrantConditionOnPrerequisite@UPGRADEABLE:
 		Prerequisites: upgrade.heavy
-		Upgrades: stardecoration
-	WithDecoration@upgraded:
-		RequiresSelection: true
-		Image: pips
-		Sequence: tag-upgraded
-		ReferencePoint: Top, Right
-		ZOffset: 256
-		UpgradeTypes: stardecoration
-		UpgradeMinEnabledLevel: 1
-	WithTextDecoration@primary:
-		RequiresSelection: true
-		Text: PRIMARY
-		ReferencePoint: Top
-		ZOffset: 256
-		UpgradeTypes: primary
-		UpgradeMinEnabledLevel: 1
 
 outpost:
 	Inherits: ^Building
-	RequiresPower:
-	CanPowerDown:
-		PowerupSound: EnablePower
-		PowerdownSound: DisablePower
-	DisabledOverlay:
+	Inherits@IDISABLE: ^DisableOnLowPowerOrPowerDown
 	Buildable:
-		Prerequisites: construction_yard, barracks, ~techlevel.medium
+		Prerequisites: barracks, ~techlevel.medium
 		Queue: Building
-		BuildPaletteOrder: 50
-		BuildDuration: 270
-		BuildDurationModifier: 40
-		Description: Provides a radar map of the battlefield\n  Requires power to operate
+		BuildPaletteOrder: 320
+		BuildDuration: 312
+		BuildDurationModifier: 100
+		Description: actor-outpost.description
 	Selectable:
-		Bounds: 96,72,0,-8
+		Bounds: 3072, 2048
 	Valued:
 		Cost: 750
 	Tooltip:
-		Name: Outpost
-	Building:
-		Footprint: xxx xxx
-		Dimensions: 3,2
-	Bib:
+		Name: actor-outpost.name
+	D2kBuilding:
+		Footprint: xxx xxx ===
+		Dimensions: 3,3
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-outpost.encyclopedia
+		Category: Buildings
+		Order: 80
 	Health:
-		HP: 3500
+		HP: 35000
+	HitShape:
+		Type: Rectangle
+			TopLeft: -1536, -1024
+			BottomRight: 1536, 1024
 	Armor:
-		Type: light
+		Type: building
 	RevealsShroud:
-		Range: 4c768
+		Range: 5c768
 	ProvidesRadar:
+		RequiresCondition: !disabled
 	RenderSprites:
-		Image: outpost.harkonnen
+		Image: outpost.ordos
 		FactionImages:
 			atreides: outpost.atreides
-			ordos: outpost.ordos
-			smuggler: outpost.ordos
-			mercenary: outpost.ordos
+			fremen: outpost.atreides
+			harkonnen: outpost.harkonnen
+			corrino: outpost.harkonnen
+	WithBuildingBib:
 	WithIdleOverlay@DISH:
+		RequiresCondition: !build-incomplete && !severe-damaged
 		Sequence: idle-dish
-		PauseOnLowPower: true
+		PauseOnCondition: disabled
+	GrantConditionOnDamageState@STOPDISH:
+		Condition: severe-damaged
 	Power:
 		Amount: -125
 	ProvidesPrerequisite@buildingname:
 
 starport:
 	Inherits: ^Building
+	Inherits@PRIMARY: ^PrimaryBuilding
 	Tooltip:
-		Name: Starport
+		Name: actor-starport.name
 	Buildable:
-		Prerequisites: construction_yard, heavy_factory, outpost, ~techlevel.high
+		Prerequisites: heavy_factory, outpost, ~techlevel.high
 		Queue: Building
-		BuildPaletteOrder: 80
-		BuildDuration: 540
-		BuildDurationModifier: 40
-		Description: Dropzone for quick reinforcements, at a price.\n  Requires power to operate
+		BuildPaletteOrder: 530
+		BuildDuration: 625
+		BuildDurationModifier: 100
+		Description: actor-starport.description
 	Valued:
 		Cost: 1500
-	Building:
+	D2kBuilding:
 		Footprint: xxx x=x =x=
 		Dimensions: 3,3
+	Encyclopedia:
+		Description: actor-starport.encyclopedia
+		Category: Buildings
+		Order: 90
 	Selectable:
-		Bounds: 96,64
+		Bounds: 3072, 3072
 	Health:
-		HP: 3500
+		HP: 35000
+	HitShape:
+		Type: Rectangle
+			TopLeft: -1536, -1536
+			BottomRight: 1536, 512
+	HitShape@BOTTOM:
+		Type: Rectangle
+			TopLeft: -512, 512
+			BottomRight: 512, 1536
 	Armor:
-		Type: building
+		Type: heavy
 	RevealsShroud:
-		Range: 4c768
+		Range: 3c768
 	RallyPoint:
-		Offset: 1,3
+		ForceSetType: Starport
+	CommandBarBlacklist:
+		DisableStop: false
 	Exit@1:
 		SpawnOffset: 0,-480,0
 		ExitCell: 2,2
@@ -562,24 +658,26 @@ starport:
 		SpawnOffset: 0,-480,0
 		ExitCell: 0,2
 	ProductionAirdrop:
+		WaitTickBeforeProduce: 10
+		WaitTickAfterProduce: 15
+		LandOffset: 0, -256, 0
 		Produces: Starport
 		ActorType: frigate
+		ReadyTextNotification: notification-reinforcements-have-arrived
 	RenderSprites:
-		Image: starport.harkonnen
+		Image: starport.ordos
 		FactionImages:
 			atreides: starport.atreides
-			ordos: starport.ordos
+			fremen: starport.atreides
+			harkonnen: starport.harkonnen
+			corrino: starport.harkonnen
 			smuggler: starport.smuggler
-			mercenary: starport.ordos
 	WithDeliveryOverlay:
-		Palette: starportlights
+		RequiresCondition: !build-incomplete
 	ProductionBar:
+		ProductionType: Starport
 	PrimaryBuilding:
-	RequiresPower:
-	CanPowerDown:
-		PowerupSound: EnablePower
-		PowerdownSound: DisablePower
-	DisabledOverlay:
+		ProductionQueues: Starport
 	ProvidesPrerequisite@atreides:
 		Prerequisite: starport.atreides
 		Factions: atreides
@@ -589,54 +687,64 @@ starport:
 	ProvidesPrerequisite@harkonnen:
 		Prerequisite: starport.harkonnen
 		Factions: harkonnen
+	ProvidesPrerequisite@atreides_combat:
+		Prerequisite: starport.atreides_combat
+		Factions: atreides, fremen
+	ProvidesPrerequisite@ordos_combat:
+		Prerequisite: starport.ordos_combat
+		Factions: ordos, smuggler, mercenary
+	ProvidesPrerequisite@harkonnen_combat:
+		Prerequisite: starport.harkonnen_combat
+		Factions: harkonnen, corrino
 	Power:
 		Amount: -150
 	ProvidesPrerequisite@buildingname:
-	WithTextDecoration@primary:
-		RequiresSelection: true
-		Text: PRIMARY
-		ReferencePoint: Top
-		ZOffset: 256
-		UpgradeTypes: primary
-		UpgradeMinEnabledLevel: 1
 
 wall:
 	Inherits@1: ^SpriteActor
+	Interactable:
 	CombatDebugOverlay:
-	HiddenUnderShroud:
+	FrozenUnderFog:
+	ScriptTriggers:
+	OwnerLostAction:
+		Action: ChangeOwner
 	Buildable:
 		Queue: Building
-		Prerequisites: construction_yard, barracks
-		BuildPaletteOrder: 60
-		BuildDuration: 54
-		BuildDurationModifier: 40
-		Description: Stop units and blocks enemy fire.
-	SoundOnDamageTransition:
-		DamagedSounds:
-		DestroyedSounds: EXPLSML4.WAV
+		Prerequisites: barracks
+		BuildPaletteOrder: 410
+		BuildDuration: 62
+		BuildDurationModifier: 100
+		Description: actor-wall.description
 	Valued:
 		Cost: 20
 	CustomSellValue:
 		Value: 0
 	Tooltip:
-		Name: Concrete Wall
+		Name: actor-wall.name
+		GenericName: actor-wall.generic-name
 	AppearsOnRadar:
-	Building:
+	D2kBuilding:
 		BuildSounds: CHUNG.WAV
-		Adjacent: 7
 		TerrainTypes: Rock, Concrete
+	Encyclopedia:
+		Description: actor-wall.encyclopedia
+		Category: Buildings
+		Order: 15
+	FootprintPlaceBuildingPreview:
+		LineBuildFootprintAlpha: 0.65
+	RequiresBuildableArea:
+		AreaTypes: building
+		Adjacent: 7
 	Health:
-		HP: 2000
-		Shape: Rectangle
-			TopLeft: -512, -512
-			BottomRight: 512, 512
+		HP: 20000
 	Armor:
-		Type: none
+		Type: wall
 	RevealsShroud:
-		Range: 2c768
+		Range: 1c768
 	Crushable:
 		CrushClasses: wall
 	BlocksProjectiles:
+		Height: 512
 	LineBuild:
 		Range: 5
 		NodeTypes: wall, turret
@@ -645,38 +753,51 @@ wall:
 	Targetable:
 		TargetTypes: Ground, Wall
 	WithWallSpriteBody:
-	AutoTargetIgnore:
 	Sellable:
 		SellSounds: CHUNG.WAV
 	Guardable:
-	ThrowsShrapnel:
-		Weapons: Debris, Debris3
-		Pieces: 2, 2
-		Range: 2c0, 4c0
+	FireWarheadsOnDeath:
+		Weapon: WallExplode
+		EmptyWeapon: WallExplode
+	FireProjectilesOnDeath:
+		Weapons: Debris2, Debris3
+		Pieces: 1, 1
+		Range: 1c512, 2c768
+	HitShape:
+		Type: Rectangle
+			TopLeft: -512, -512
+			BottomRight: 512, 512
+	AppearsOnMapPreview:
+	MapEditorData:
+		Categories: Defense
+	Replaceable:
+		Types: Tower
 
 medium_gun_turret:
 	Inherits: ^Defense
+	Inherits@AUTOTARGET: ^AutoTargetGround
 	Buildable:
 		Queue: Building
-		Prerequisites: construction_yard, barracks
-		BuildPaletteOrder: 90
-		BuildDuration: 231
-		BuildDurationModifier: 40
-		Description: Defensive structure\n  Strong vs Tanks\n  Weak vs Infantry, Aircraft
+		Prerequisites: barracks
+		BuildPaletteOrder: 510
+		BuildDuration: 268
+		BuildDurationModifier: 100
+		Description: actor-medium-gun-turret.description
 	Valued:
 		Cost: 550
 	Tooltip:
-		Name: Gun Turret
-	Building:
+		Name: actor-medium-gun-turret.name
+	RequiresBuildableArea:
 		Adjacent: 4
-		BuildSounds: CHUNG.WAV
-	Sellable:
-		SellSounds: CHUNG.WAV
 	Selectable:
-		Bounds: 32,32
-		Priority: 3
+		Bounds: 1024, 1024
+		DecorationBounds: 1024, 1280, 0, -256
 	Health:
-		HP: 2700
+		HP: 27000
+	Encyclopedia:
+		Description: actor-medium-gun-turret.encyclopedia
+		Category: Buildings
+		Order: 100
 	Armor:
 		Type: heavy
 	RevealsShroud:
@@ -685,42 +806,48 @@ medium_gun_turret:
 		QuantizedFacings: 32
 	WithMuzzleOverlay:
 	Turreted:
-		TurnSpeed: 6
-		InitialFacing: 128
+		TurnSpeed: 24
+		InitialFacing: 512
+		RealignDelay: -1
 	Armament:
 		Weapon: 110mm_Gun
 		LocalOffset: 512,0,432
 		MuzzleSequence: muzzle
 	Power:
 		Amount: -50
-	SelectionDecorations:
-		VisualBounds: 32,40,0,-8
+	Replacement:
+		ReplaceableTypes: Tower
 
 large_gun_turret:
 	Inherits: ^Defense
+	Inherits@IDISABLE: ^DisableOnLowPowerOrPowerDown
+	Inherits@AUTOTARGET: ^AutoTargetAll
+	AttackTurreted:
+		PauseOnCondition: disabled || build-incomplete
 	Buildable:
 		Queue: Building
-		Prerequisites: construction_yard, outpost, upgrade.conyard, ~techlevel.medium
-		BuildPaletteOrder: 120
-		BuildDuration: 270
-		BuildDurationModifier: 40
-		Description: Defensive structure\n  Strong vs Infantry, Aircraft\n  Weak vs Tanks\n\n  Requires power to operate
+		Prerequisites: outpost, upgrade.conyard, ~techlevel.medium
+		BuildPaletteOrder: 610
+		BuildDuration: 312
+		BuildDurationModifier: 100
+		Description: actor-large-gun-turret.description
 	Valued:
 		Cost: 750
 	Tooltip:
-		Name: Rocket Turret
-	Building:
+		Name: actor-large-gun-turret.name
+	Encyclopedia:
+		Description: actor-large-gun-turret.encyclopedia
+		Category: Buildings
+		Order: 110
+	RequiresBuildableArea:
 		Adjacent: 4
-		BuildSounds: CHUNG.WAV
-	Sellable:
-		SellSounds: CHUNG.WAV
 	Selectable:
-		Bounds: 32,32
-		Priority: 3
+		Bounds: 1024, 1024
+		DecorationBounds: 1024, 1280, 0, -256
 	Health:
-		HP: 3000
+		HP: 30000
 	Armor:
-		Type: concrete
+		Type: heavy
 	RevealsShroud:
 		Range: 5c768
 	BodyOrientation:
@@ -729,208 +856,280 @@ large_gun_turret:
 		Weapon: TowerMissile
 		LocalOffset: 256,384,768, 256,-384,768
 	Turreted:
-		TurnSpeed: 8
-		InitialFacing: 128
-	RequiresPower:
-	CanPowerDown:
-		PowerupSound: EnablePower
-		PowerdownSound: DisablePower
-	DisabledOverlay:
+		TurnSpeed: 32
+		InitialFacing: 512
+		RealignDelay: -1
 	Power:
 		Amount: -60
-	SelectionDecorations:
-		VisualBounds: 32,40,0,-8
+	RevealOnDeath:
+		Radius: 5c768
+	Replacement:
+		ReplaceableTypes: Tower
 
 repair_pad:
 	Inherits: ^Building
 	Buildable:
 		Queue: Building
-		Prerequisites: construction_yard, heavy_factory, upgrade.heavy, ~techlevel.medium
-		BuildPaletteOrder: 130
-		BuildDuration: 324
-		BuildDurationModifier: 40
-		Description: Repairs vehicles\n Allows construction of MCVs
+		Prerequisites: heavy_factory, upgrade.heavy, ~techlevel.medium
+		BuildPaletteOrder: 430
+		BuildDuration: 375
+		BuildDurationModifier: 100
+		Description: actor-repair-pad.description
 	Valued:
 		Cost: 800
 	Tooltip:
-		Name: Repair Pad
-	Building:
-		Footprint: =x= =x= ===
+		Name: actor-repair-pad.name
+	D2kBuilding:
+		Footprint: +++ +++ +++
 		Dimensions: 3,3
+	Encyclopedia:
+		Description: actor-repair-pad.encyclopedia
+		Category: Buildings
+		Order: 120
 	Health:
-		HP: 3000
+		HP: 30000
+	HitShape:
+		TargetableOffsets: 1024,0,0, 0,-1024,0, 0,1024,0, -1024,0,0
+		Type: Rectangle
+			TopLeft: -1536, -512
+			BottomRight: 1536, 512
+	HitShape@TOPANDBOTTOM:
+		Type: Rectangle
+			TopLeft: -512, -1536
+			BottomRight: 512, 1536
 	Armor:
 		Type: building
 	RevealsShroud:
-		Range: 4c768
+		Range: 3c768
 	Selectable:
-		Bounds: 96,64
-	SelectionDecorations:
-		VisualBounds: 96,80
+		Bounds: 3072, 3072
 	Reservable:
 	RepairsUnits:
 		Interval: 10
-		HpPerStep: 80
+		HpPerStep: 800
+		StartRepairingNotification: Repairing
+		StartRepairingTextNotification: notification-repairing
 		FinishRepairingNotification: UnitRepaired
-		PlayerExperience: 15
+		FinishRepairingTextNotification: notification-unit-repaired
+		PlayerExperience: 10
 	RallyPoint:
-		Offset: 1,3
+	CommandBarBlacklist:
+		DisableStop: false
 	RenderSprites:
-		Image: repair_pad.harkonnen
+		Image: repair_pad.ordos
 		FactionImages:
 			atreides: repair_pad.atreides
-			ordos: repair_pad.ordos
-			smuggler: repair_pad.ordos
-			mercenary: repair_pad.ordos
+			fremen: repair_pad.atreides
+			harkonnen: repair_pad.harkonnen
+			corrino: repair_pad.harkonnen
 	WithRepairOverlay:
-		Palette: effect75alpha
+		RequiresCondition: !build-incomplete
 	Power:
 		Amount: -50
 	ProvidesPrerequisite@buildingname:
 
 high_tech_factory:
 	Inherits: ^Building
+	Inherits@PRIMARY: ^PrimaryBuilding
+	Inherits@UPGRADEABLE: ^Upgradeable
 	Buildable:
-		Prerequisites: construction_yard, outpost, ~techlevel.medium
+		Prerequisites: outpost, ~techlevel.medium
 		Queue: Building
-		BuildPaletteOrder: 110
-		BuildDuration: 405
-		BuildDurationModifier: 40
-		Description: Unlocks advanced technology
+		BuildPaletteOrder: 420
+		BuildDuration: 468
+		BuildDurationModifier: 100
+		Description: actor-high-tech-factory.description
 	Selectable:
-		Bounds: 96,68,0,12
+		Bounds: 3072, 3072
 	Valued:
 		Cost: 1150
 	Tooltip:
-		Name: High Tech Factory
+		Name: actor-high-tech-factory.name
 	ProductionFromMapEdge:
-		Produces: Aircraft
+		Produces: Aircraft, Upgrade
+	ProductionBar:
+		ProductionType: Aircraft
+	PrimaryBuilding:
+		ProductionQueues: Aircraft
 	Exit:
 		SpawnOffset: 0,0,728
 		ExitCell: 0,0
-	Building:
-		Footprint: _x_ xxx xxx
-		Dimensions: 3,3
-	Bib:
+	D2kBuilding:
+		Footprint: _X_ xxx XXX ===
+		Dimensions: 3,4
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-high-tech-factory.encyclopedia
+		Category: Buildings
+		Order: 130
 	Health:
-		HP: 3500
+		HP: 35000
+	HitShape:
+		TargetableOffsets: -1312,0,0, -1312,-1024,0, -1312,1024,0
+		Type: Rectangle
+			TopLeft: -1536, -512
+			BottomRight: 1536, 1536
+	HitShape@TOP:
+		TargetableOffsets: 1280,0,0
+		Type: Rectangle
+			TopLeft: -512, -1536
+			BottomRight: 512, -512
 	Armor:
-		Type: wood
+		Type: building
 	RevealsShroud:
 		Range: 4c768
 	RenderSprites:
-		Image: hightech.harkonnen
+		Image: hightech.ordos
 		FactionImages:
 			atreides: hightech.atreides
-			ordos: hightech.ordos
-			smuggler: hightech.ordos
-			mercenary: hightech.ordos
+			fremen: hightech.atreides
+			harkonnen: hightech.harkonnen
+			corrino: hightech.harkonnen
+	WithBuildingBib:
+	WithProductionOverlay@WELDING:
+		RequiresCondition: !build-incomplete
+		Queues: Aircraft
+		Sequence: production-welding
 	ProvidesPrerequisite@upgrade:
 		Prerequisite: hightech.atreides
 		Factions: atreides
 	ProvidesPrerequisite@buildingname:
 	AirstrikePower:
 		Icon: ornistrike
-		Description: Air Strike
+		Name: actor-high-tech-factory.airstrikepower-name
 		Prerequisites: ~techlevel.superweapons, upgrade.hightech
-		ChargeTime: 300
+		ChargeInterval: 7500
 		SquadSize: 3
-		LongDesc: Ornithopters hit the target with bombs
+		SquadOffset: -1536, 1024, 0
+		Description: actor-high-tech-factory.airstrikepower-description
 		UnitType: ornithopter
 		DisplayBeacon: True
 		CameraActor: camera
-	WithProductionOverlay@WELDING:
-		Sequence: production-welding
+		CameraRemoveDelay: 60
+		ArrowSequence: arrow
+		CircleSequence: circles
+		UseDirectionalTarget: True
+		DirectionArrowAnimation: ornidirection
+		SupportPowerPaletteOrder: 10
+		EndChargeTextNotification: notification-airstrike-ready
+		SelectTargetTextNotification: notification-select-target
 	Power:
 		Amount: -75
-	SelectionDecorations:
-		VisualBounds: 96,96
-	GlobalUpgradable:
+	GrantConditionOnPrerequisite@UPGRADEABLE:
 		Prerequisites: upgrade.hightech
-		Upgrades: stardecoration
-	WithDecoration@upgraded:
-		RequiresSelection: true
-		Image: pips
-		Sequence: tag-upgraded
-		ReferencePoint: Top, Right
-		ZOffset: 256
-		UpgradeTypes: stardecoration
-		UpgradeMinEnabledLevel: 1
 
 research_centre:
 	Inherits: ^Building
 	Buildable:
 		Queue: Building
-		Prerequisites: construction_yard, outpost, heavy_factory, upgrade.heavy, ~techlevel.high
-		BuildPaletteOrder: 140
-		BuildDuration: 270
-		BuildDurationModifier: 40
-		Description: Unlocks experimental tanks
+		Prerequisites: outpost, heavy_factory, upgrade.heavy, ~techlevel.high
+		BuildPaletteOrder: 520
+		BuildDuration: 312
+		BuildDurationModifier: 100
+		Description: actor-research-centre.description
 	Selectable:
-		Bounds: 96,64,0,16
+		Bounds: 3072, 3072
 	Valued:
 		Cost: 1000
 	Tooltip:
-		Name: Ix Lab
-	Building:
-		Footprint: _x_ xxx xxx
-		Dimensions: 3,3
-	Bib:
+		Name: actor-research-centre.name
+	D2kBuilding:
+		Footprint: _X_ xxx XXX ===
+		Dimensions: 3,4
+		LocalCenterOffset: 0,-512,0
+	Encyclopedia:
+		Description: actor-research-centre.encyclopedia
+		Category: Buildings
+		Order: 140
 	Health:
-		HP: 2500
+		HP: 25000
+	HitShape:
+		TargetableOffsets: -1574,-158,0, -1050,-1024,0, -1155,960,0
+		Type: Rectangle
+			TopLeft: -1536, -512
+			BottomRight: 1536, 1536
+	HitShape@TOP:
+		TargetableOffsets: 1312,0,0
+		Type: Rectangle
+			TopLeft: -512, -1536
+			BottomRight: 512, -512
 	Armor:
-		Type: wood
+		Type: building
 	RevealsShroud:
 		Range: 4c768
 	RenderSprites:
-		Image: research.harkonnen
+		Image: research.ordos
 		FactionImages:
 			atreides: research.atreides
-			ordos: research.ordos
-			smuggler: research.ordos
-			mercenary: research.ordos
+			fremen: research.atreides
+			harkonnen: research.harkonnen
+			corrino: research.harkonnen
+	WithBuildingBib:
 	WithIdleOverlay@LIGHTS:
+		RequiresCondition: !build-incomplete
 		Sequence: idle-lights
 	Power:
 		Amount: -175
 	ProvidesPrerequisite@buildingname:
-	SelectionDecorations:
-		VisualBounds: 96,80
 
 palace:
 	Inherits: ^Building
+	Inherits@PRIMARY: ^PrimaryBuilding
+	Inherits@IDISABLE: ^DisableOnLowPowerOrPowerDown
 	Buildable:
-		Prerequisites: construction_yard, research_centre, ~techlevel.high
+		Prerequisites: research_centre, ~techlevel.high
 		Queue: Building
-		BuildPaletteOrder: 150
-		BuildDuration: 810
-		BuildDurationModifier: 40
-		Description: Unlocks elite infantry
+		BuildPaletteOrder: 620
+		BuildDuration: 937
+		BuildDurationModifier: 100
+		Description: actor-palace.description
 	Selectable:
-		Bounds: 96,96
+		Bounds: 3072, 3072
 	Valued:
 		Cost: 1600
 	Tooltip:
-		Name: Palace
-	Building:
+		Name: actor-palace.name
+	RallyPoint:
+	CommandBarBlacklist:
+		DisableStop: false
+	D2kBuilding:
 		Footprint: xx= xxx =xx
 		Dimensions: 3,3
-	Bib:
-		HasMinibib: True
+	Encyclopedia:
+		Description: actor-palace.encyclopedia
+		Category: Buildings
+		Order: 150
 	Health:
-		HP: 4000
+		HP: 40000
+	HitShape:
+		Type: Rectangle
+			TopLeft: -1536, -512
+			BottomRight: 1536, 512
+	HitShape@TOP:
+		Type: Rectangle
+			TopLeft: -1536, -1536
+			BottomRight: 512, -512
+	HitShape@BOTTOM:
+		Type: Rectangle
+			TopLeft: -512, 512
+			BottomRight: 1536, 1536
 	Armor:
-		Type: wood
+		Type: heavy
 	RevealsShroud:
 		Range: 4c768
 	RenderSprites:
-		Image: palace.harkonnen
+		Image: palace.ordos
 		FactionImages:
 			atreides: palace.atreides
-			ordos: palace.ordos
+			fremen: palace.atreides
+			harkonnen: palace.harkonnen
 			corrino: palace.corrino
-			smuggler: palace.ordos
-			mercenary: palace.ordos
+	WithBuildingBib:
+		HasMinibib: True
+	WithSupportPowerActivationOverlay:
+		RequiresCondition: !build-incomplete && !launchpad-damaged && harkonnen
+	GrantConditionOnDamageState@LAUNCHPADDAMAGED:
+		Condition: launchpad-damaged
 	Power:
 		Amount: -200
 	ProvidesPrerequisite@nuke:
@@ -942,44 +1141,80 @@ palace:
 	ProvidesPrerequisite@saboteur:
 		Prerequisite: palace.saboteur
 		Factions: ordos
+	ProvidesPrerequisite@sardaukar:
+		Prerequisite: palace.sardaukar
+		Factions: corrino
+	PrimaryBuilding:
+		RequiresCondition: atreides || ordos
+	WithTextDecoration@primary:
+		RequiresCondition: primary && (atreides || ordos)
 	NukePower:
 		Cursor: nuke
 		Icon: deathhand
+		PauseOnCondition: disabled
+		RequiresCondition: harkonnen
 		Prerequisites: ~techlevel.superweapons, ~palace.nuke
-		ChargeTime: 300
-		Description: Death Hand
-		LongDesc: Launches an atomic missile at a target location
+		ChargeInterval: 7500
+		Name: actor-palace.nukepower-name
+		Description: actor-palace.nukepower-description
 		BeginChargeSpeechNotification: DeathHandMissilePrepping
 		EndChargeSpeechNotification: DeathHandMissileReady
-		MissileLaunchDetected: MissileLaunchDetected
-		MissileWeapon: atomic
-		SpawnOffset: -512,1c171,0
+		IncomingSpeechNotification: MissileLaunchDetected
+		BeginChargeTextNotification: notification-death-hand-missile-prepping
+		EndChargeTextNotification: notification-death-hand-missile-ready
+		IncomingTextNotification: notification-missile-launch-detected
+		SelectTargetTextNotification: notification-select-target
+		MissileWeapon: deathhand
+		MissileImage: deathhand
+		MissileDelay: 18
+		SpawnOffset: 32,816,0
+		DetonationAltitude: 3c0
+		RemoveMissileOnDetonation: False
 		DisplayBeacon: True
 		DisplayRadarPing: True
-		CameraActor: camera
-		ActivationSequence:
+		CameraRange: 10c0
+		CameraRemoveDelay: 60
+		ArrowSequence: arrow
+		CircleSequence: circles
+		FlightVelocity: 384
+		TrailInterval: 0
+		TrailImage: large_trail
+		TrailSequences: idle
+		SupportPowerPaletteOrder: 40
 	ProduceActorPower@fremen:
-		Description: Recruit Fremen
-		LongDesc: Elite sniper infantry unit                       \n  Strong vs Infantry\n  Weak vs Vehicles\n  Special Ability: Invisibility
+		Name: actor-palace.produceactorpower-fremen-name
+		Description: actor-palace.produceactorpower-fremen-description
 		Icon: fremen
+		PauseOnCondition: disabled
+		RequiresCondition: atreides
 		Prerequisites: ~techlevel.superweapons, ~palace.fremen
 		Actors: fremen, fremen
-		Type: Palace
-		ChargeTime: 90
+		Type: Fremen
+		ChargeInterval: 2250
+		EndChargeTextNotification: notification-fremen-ready
 		ReadyAudio: Reinforce
+		ReadyTextNotification: notification-reinforcements-have-arrived
 		BlockedAudio: NoRoom
+		BlockedTextNotification: notification-no-room-for-new-unit
 		OrderName: ProduceActorPower.Fremen
+		SupportPowerPaletteOrder: 20
 	ProduceActorPower@saboteur:
-		Description: Recruit Saboteur
-		LongDesc: Sneaky infantry, armed with explosives           \n  Strong vs Buildings\n  Weak vs Everything\n  Special Ability: destroy buildings
+		Name: actor-palace.produceactorpower-saboteur-name
+		Description: actor-palace.produceactorpower-saboteur-description
 		Icon: saboteur
+		PauseOnCondition: disabled
+		RequiresCondition: ordos
 		Prerequisites: ~techlevel.superweapons, ~palace.saboteur
 		Actors: saboteur
-		Type: Palace
-		ChargeTime: 90
+		Type: Saboteur
+		ChargeInterval: 2250
+		EndChargeTextNotification: notification-saboteur-ready
 		ReadyAudio: Reinforce
+		ReadyTextNotification: notification-reinforcements-have-arrived
 		BlockedAudio: NoRoom
+		BlockedTextNotification: notification-no-room-for-new-unit
 		OrderName: ProduceActorPower.Saboteur
+		SupportPowerPaletteOrder: 30
 	Exit@1:
 		SpawnOffset: -704,768,0
 		ExitCell: -1,2
@@ -989,14 +1224,23 @@ palace:
 	Exit@3:
 		SpawnOffset: -704,768,0
 		ExitCell: 0,3
-	Production:
-		Produces: Palace
-	CanPowerDown:
-		PowerupSound: EnablePower
-		PowerdownSound: DisablePower
-	DisabledOverlay:
-	RequiresPower:
+	Production@Atreides:
+		Produces: Fremen
+		RequiresCondition: atreides
+	Production@Ordos:
+		Produces: Saboteur
+		RequiresCondition: ordos
+	GrantConditionOnFaction@Atreides:
+		Condition: atreides
+		Factions: atreides, fremen
+	GrantConditionOnFaction@Harkonnen:
+		Condition: harkonnen
+		Factions: harkonnen
+	GrantConditionOnFaction@Ordos:
+		Condition: ordos
+		Factions: ordos, mercenary, smuggler
 	SupportPowerChargeBar:
+		RequiresCondition: atreides || harkonnen || ordos
 	ProvidesPrerequisite@buildingname:
 
 conyard.atreides:
@@ -1009,6 +1253,8 @@ conyard.atreides:
 	RenderSprites:
 		Image: conyard.atreides
 		-FactionImages:
+	UpdatesPlayerStatistics:
+		OverrideActor: construction_yard
 
 conyard.harkonnen:
 	Inherits: construction_yard
@@ -1020,6 +1266,8 @@ conyard.harkonnen:
 	RenderSprites:
 		Image: conyard.harkonnen
 		-FactionImages:
+	UpdatesPlayerStatistics:
+		OverrideActor: construction_yard
 
 conyard.ordos:
 	Inherits: construction_yard
@@ -1031,3 +1279,5 @@ conyard.ordos:
 	RenderSprites:
 		Image: conyard.ordos
 		-FactionImages:
+	UpdatesPlayerStatistics:
+		OverrideActor: construction_yard

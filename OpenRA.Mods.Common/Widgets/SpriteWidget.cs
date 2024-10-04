@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -17,7 +17,8 @@ namespace OpenRA.Mods.Common.Widgets
 {
 	public class SpriteWidget : Widget
 	{
-		public Func<float> GetScale = () => 1f;
+		public float Scale = 1f;
+		public Func<float> GetScale;
 		public string Palette = "chrome";
 		public Func<string> GetPalette;
 		public Func<Sprite> GetSprite;
@@ -28,6 +29,7 @@ namespace OpenRA.Mods.Common.Widgets
 		public SpriteWidget(WorldRenderer worldRenderer)
 		{
 			GetPalette = () => Palette;
+			GetScale = () => Scale;
 
 			WorldRenderer = worldRenderer;
 		}
@@ -59,10 +61,11 @@ namespace OpenRA.Mods.Common.Widgets
 			if (sprite == null || palette == null)
 				return;
 
-			if (sprite != cachedSprite)
+			if (sprite != cachedSprite || scale != cachedScale)
 			{
-				offset = 0.5f * (new float2(RenderBounds.Size) - sprite.Size.XY);
+				offset = 0.5f * (new float2(RenderBounds.Size) - scale * sprite.Size.XY);
 				cachedSprite = sprite;
+				cachedScale = scale;
 			}
 
 			if (palette != cachedPalette)
@@ -71,14 +74,9 @@ namespace OpenRA.Mods.Common.Widgets
 				cachedPalette = palette;
 			}
 
-			if (scale != cachedScale)
-			{
-				offset *= scale;
-				cachedScale = scale;
-			}
-
-			var size = new float2(sprite.Size.X * scale, sprite.Size.Y * scale);
-			Game.Renderer.SpriteRenderer.DrawSprite(sprite, RenderOrigin + offset, pr, size);
+			Game.Renderer.EnableAntialiasingFilter();
+			Game.Renderer.SpriteRenderer.DrawSprite(sprite, pr, RenderOrigin + offset, scale);
+			Game.Renderer.DisableAntialiasingFilter();
 		}
 	}
 }

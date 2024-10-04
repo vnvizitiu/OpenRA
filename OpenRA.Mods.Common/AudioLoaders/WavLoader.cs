@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -17,7 +17,7 @@ namespace OpenRA.Mods.Common.AudioLoaders
 {
 	public class WavLoader : ISoundLoader
 	{
-		bool IsWave(Stream s)
+		static bool IsWave(Stream s)
 		{
 			var start = s.Position;
 			var type = s.ReadASCII(4);
@@ -48,38 +48,28 @@ namespace OpenRA.Mods.Common.AudioLoaders
 		}
 	}
 
-	public class WavFormat : ISoundFormat
+	public sealed class WavFormat : ISoundFormat
 	{
-		public int Channels { get { return reader.Value.Channels; } }
-		public int SampleBits { get { return reader.Value.BitsPerSample; } }
-		public int SampleRate { get { return reader.Value.SampleRate; } }
-		public float LengthInSeconds { get { return WavReader.WaveLength(stream); } }
-		public Stream GetPCMInputStream() { return new MemoryStream(reader.Value.RawOutput); }
+		public int Channels => channels;
+		public int SampleBits => sampleBits;
+		public int SampleRate => sampleRate;
+		public float LengthInSeconds => lengthInSeconds;
+		public Stream GetPCMInputStream() { return wavStreamFactory(); }
+		public void Dispose() { sourceStream.Dispose(); }
 
-		Lazy<WavReader> reader;
-
-		readonly Stream stream;
+		readonly Stream sourceStream;
+		readonly Func<Stream> wavStreamFactory;
+		readonly short channels;
+		readonly int sampleBits;
+		readonly int sampleRate;
+		readonly float lengthInSeconds;
 
 		public WavFormat(Stream stream)
 		{
-			this.stream = stream;
+			sourceStream = stream;
 
-			var position = stream.Position;
-			reader = Exts.Lazy(() =>
-			{
-				var wavReader = new WavReader();
-				try
-				{
-					if (!wavReader.LoadSound(stream))
-						throw new InvalidDataException();
-				}
-				finally
-				{
-					stream.Position = position;
-				}
-
-				return wavReader;
-			});
+			if (!WavReader.LoadSound(stream, out wavStreamFactory, out channels, out sampleBits, out sampleRate, out lengthInSeconds))
+				throw new InvalidDataException();
 		}
 	}
 }

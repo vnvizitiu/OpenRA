@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -15,18 +15,21 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
 {
-	public class ExitsDebugOverlayManagerInfo : ITraitInfo
+	[TraitLocation(SystemActors.World)]
+	public class ExitsDebugOverlayManagerInfo : TraitInfo
 	{
 		[Desc("The font used to draw cell vectors. Should match the value as-is in the Fonts section of the mod manifest (do not convert to lowercase).")]
 		public readonly string Font = "TinyBold";
 
-		object ITraitInfo.Create(ActorInitializer init) { return new ExitsDebugOverlayManager(init.Self, this); }
+		public override object Create(ActorInitializer init) { return new ExitsDebugOverlayManager(init.Self, this); }
 	}
 
 	public class ExitsDebugOverlayManager : IWorldLoaded, IChatCommand
 	{
 		const string CommandName = "exits-overlay";
-		const string CommandHelp = "Displays exits for factories.";
+
+		[FluentReference]
+		const string CommandDescription = "description-exits-overlay";
 
 		public readonly SpriteFont Font;
 		public readonly ExitsDebugOverlayManagerInfo Info;
@@ -41,7 +44,7 @@ namespace OpenRA.Mods.Common.Traits
 			Info = info;
 
 			if (!Game.Renderer.Fonts.TryGetValue(info.Font, out Font))
-				throw new YamlException("Could not find font '{0}'".F(info.Font));
+				throw new YamlException($"Could not find font '{info.Font}'");
 		}
 
 		void IWorldLoaded.WorldLoaded(World w, WorldRenderer wr)
@@ -53,7 +56,7 @@ namespace OpenRA.Mods.Common.Traits
 				return;
 
 			console.RegisterCommand(CommandName, this);
-			help.RegisterHelp(CommandName, CommandHelp);
+			help.RegisterHelp(CommandName, CommandDescription);
 		}
 
 		void IChatCommand.InvokeCommand(string command, string arg)

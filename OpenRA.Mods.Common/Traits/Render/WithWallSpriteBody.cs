@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -25,29 +25,30 @@ namespace OpenRA.Mods.Common.Traits.Render
 	}
 
 	[Desc("Render trait for actors that change sprites if neighbors with the same trait are present.")]
-	class WithWallSpriteBodyInfo : WithSpriteBodyInfo, IWallConnectorInfo, Requires<BuildingInfo>
+	sealed class WithWallSpriteBodyInfo : WithSpriteBodyInfo, IWallConnectorInfo, Requires<BuildingInfo>
 	{
 		public readonly string Type = "wall";
 
 		public override object Create(ActorInitializer init) { return new WithWallSpriteBody(init, this); }
 
-		public override IEnumerable<IActorPreview> RenderPreviewSprites(ActorPreviewInitializer init, RenderSpritesInfo rs, string image, int facings, PaletteReference p)
+		public override IEnumerable<IActorPreview> RenderPreviewSprites(ActorPreviewInitializer init, string image, int facings, PaletteReference p)
 		{
+			if (!EnabledByDefault)
+				yield break;
+
 			var adjacent = 0;
+			var locationInit = init.GetOrDefault<LocationInit>();
+			var neighbourInit = init.GetOrDefault<RuntimeNeighbourInit>();
 
-			if (init.Contains<RuntimeNeighbourInit>())
+			if (locationInit != null && neighbourInit != null)
 			{
-				var location = CPos.Zero;
-				if (init.Contains<LocationInit>())
-					location = init.Get<LocationInit, CPos>();
-
-				var neighbours = init.Get<RuntimeNeighbourInit, Dictionary<CPos, string[]>>();
-				foreach (var kv in neighbours)
+				var location = locationInit.Value;
+				foreach (var kv in neighbourInit.Value)
 				{
 					var haveNeighbour = false;
 					foreach (var n in kv.Value)
 					{
-						var rb = init.World.Map.Rules.Actors[n].TraitInfos<IWallConnectorInfo>().FirstOrDefault(Exts.IsTraitEnabled);
+						var rb = init.World.Map.Rules.Actors[n].TraitInfos<IWallConnectorInfo>().FirstEnabledTraitOrDefault();
 						if (rb != null && rb.GetWallConnectionType() == Type)
 						{
 							haveNeighbour = true;
@@ -69,10 +70,10 @@ namespace OpenRA.Mods.Common.Traits.Render
 				}
 			}
 
-			var anim = new Animation(init.World, image, () => 0);
+			var anim = new Animation(init.World, image);
 			anim.PlayFetchIndex(RenderSprites.NormalizeSequence(anim, init.GetDamageState(), Sequence), () => adjacent);
 
-			yield return new SpriteActorPreview(anim, () => WVec.Zero, () => 0, p, rs.Scale);
+			yield return new SpriteActorPreview(anim, () => WVec.Zero, () => 0, p);
 		}
 
 		string IWallConnectorInfo.GetWallConnectionType()
@@ -81,7 +82,7 @@ namespace OpenRA.Mods.Common.Traits.Render
 		}
 	}
 
-	class WithWallSpriteBody : WithSpriteBody, INotifyRemovedFromWorld, IWallConnector, ITick
+	sealed class WithWallSpriteBody : WithSpriteBody, INotifyRemovedFromWorld, IWallConnector, ITick
 	{
 		readonly WithWallSpriteBodyInfo wallInfo;
 		int adjacent = 0;
@@ -96,13 +97,16 @@ namespace OpenRA.Mods.Common.Traits.Render
 		void IWallConnector.SetDirty() { dirty = true; }
 
 		public WithWallSpriteBody(ActorInitializer init, WithWallSpriteBodyInfo info)
-			: base(init, info, () => 0)
+			: base(init, info)
 		{
 			wallInfo = info;
 		}
 
 		protected override void DamageStateChanged(Actor self)
 		{
+			if (IsTraitDisabled)
+				return;
+
 			DefaultAnimation.PlayFetchIndex(NormalizeSequence(self, Info.Sequence), () => adjacent);
 		}
 
@@ -118,9 +122,8 @@ namespace OpenRA.Mods.Common.Traits.Render
 			adjacent = 0;
 			foreach (var a in adjacentActors)
 			{
-				CVec facing;
-				var wc = a.TraitsImplementing<IWallConnector>().FirstOrDefault(Exts.IsTraitEnabled);
-				if (wc == null || !wc.AdjacentWallCanConnect(a, self.Location, wallInfo.Type, out facing))
+				var wc = a.TraitsImplementing<IWallConnector>().FirstEnabledTraitOrDefault();
+				if (wc == null || !wc.AdjacentWallCanConnect(a, self.Location, wallInfo.Type, out var facing))
 					continue;
 
 				if (facing.Y > 0)
@@ -136,8 +139,11 @@ namespace OpenRA.Mods.Common.Traits.Render
 			dirty = false;
 		}
 
-		protected override void OnBuildComplete(Actor self)
+		protected override void TraitEnabled(Actor self)
 		{
+			base.TraitEnabled(self);
+			dirty = true;
+
 			DefaultAnimation.PlayFetchIndex(NormalizeSequence(self, Info.Sequence), () => adjacent);
 			UpdateNeighbours(self);
 
@@ -155,17 +161,15 @@ namespace OpenRA.Mods.Common.Traits.Render
 				aat.SetDirty();
 		}
 
-		public void RemovedFromWorld(Actor self)
+		void INotifyRemovedFromWorld.RemovedFromWorld(Actor self)
 		{
 			UpdateNeighbours(self);
 		}
 	}
 
-	public class RuntimeNeighbourInit : IActorInit<Dictionary<CPos, string[]>>, ISuppressInitExport
+	public class RuntimeNeighbourInit : ValueActorInit<Dictionary<CPos, string[]>>, ISuppressInitExport, ISingleInstanceInit
 	{
-		[FieldFromYamlKey] readonly Dictionary<CPos, string[]> value = null;
-		public RuntimeNeighbourInit() { }
-		public RuntimeNeighbourInit(Dictionary<CPos, string[]> init) { value = init; }
-		public Dictionary<CPos, string[]> Value(World world) { return value; }
+		public RuntimeNeighbourInit(Dictionary<CPos, string[]> value)
+			: base(value) { }
 	}
 }

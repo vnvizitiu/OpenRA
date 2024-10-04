@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -12,36 +12,59 @@
 using System;
 using System.Linq;
 using OpenRA.Mods.Common.Traits;
+using OpenRA.Server;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Lint
 {
-	class CheckDefaultVisibility : ILintRulesPass
+	sealed class CheckDefaultVisibility : ILintRulesPass, ILintServerMapPass
 	{
-		public void Run(Action<string> emitError, Action<string> emitWarning, Ruleset rules)
+		void ILintRulesPass.Run(Action<string> emitError, Action<string> emitWarning, ModData modData, Ruleset rules)
+		{
+			Run(emitError, rules);
+		}
+
+		void ILintServerMapPass.Run(Action<string> emitError, Action<string> emitWarning, ModData modData, MapPreview map, Ruleset mapRules)
+		{
+			Run(emitError, mapRules);
+		}
+
+		static void Run(Action<string> emitError, Ruleset rules)
 		{
 			foreach (var actorInfo in rules.Actors)
 			{
-				if (actorInfo.Key.StartsWith("^"))
-					continue;
-
-				var count = actorInfo.Value.TraitInfos<IDefaultVisibilityInfo>().Count();
-
-				if (count == 0)
-					emitError("Actor type `{0}` does not define a default visibility type!".F(actorInfo.Key));
-				else if (count > 1)
-					emitError("Actor type `{0}` defines multiple default visibility types!".F(actorInfo.Key));
-				else
+				// Catch TypeDictionary errors.
+				try
 				{
-					var vis = actorInfo.Value.TraitInfoOrDefault<HiddenUnderShroudInfo>();
-					if (vis != null && vis.Type == VisibilityType.Footprint)
+					var visibilityTypes = actorInfo.Value.TraitInfos<IDefaultVisibilityInfo>();
+					var count = visibilityTypes.Count;
+
+					if (count == 0)
+						emitError($"Actor type `{actorInfo.Key}` does not define a default visibility type.");
+					else if (count > 1)
+						emitError(
+							$"Actor type `{actorInfo.Key}` defines multiple default visibility types: " +
+							$"{string.Join(", ", visibilityTypes.Select(vis => vis.GetType().Name))}.");
+					else
 					{
-						var ios = actorInfo.Value.TraitInfoOrDefault<IOccupySpaceInfo>();
-						if (ios == null)
-							emitError("Actor type `{0}` defines VisibilityType.Footprint in `{1}` but has no IOccupySpace traits!".F(actorInfo.Key, vis.GetType()));
-						else if (!ios.OccupiedCells(actorInfo.Value, CPos.Zero).Any())
-							emitError("Actor type `{0}` defines VisibilityType.Footprint in `{1}` but does not have any footprint cells!".F(actorInfo.Key, vis.GetType()));
+						var vis = actorInfo.Value.TraitInfoOrDefault<HiddenUnderShroudInfo>();
+						if (vis != null && vis.Type == VisibilityType.Footprint)
+						{
+							var ios = actorInfo.Value.TraitInfoOrDefault<IOccupySpaceInfo>();
+							if (ios == null)
+								emitError(
+									$"Actor type `{actorInfo.Key}` defines VisibilityType.Footprint in `{vis.GetType().Name}` " +
+									"but has no IOccupySpace traits.");
+							else if (ios.OccupiedCells(actorInfo.Value, CPos.Zero).Count == 0)
+								emitError(
+									$"Actor type `{actorInfo.Key}` defines VisibilityType.Footprint in `{vis.GetType().Name}` " +
+									"but does not have any footprint cells.");
+						}
 					}
+				}
+				catch (InvalidOperationException e)
+				{
+					emitError($"{e.Message} (Actor type `{actorInfo.Key}`).");
 				}
 			}
 		}

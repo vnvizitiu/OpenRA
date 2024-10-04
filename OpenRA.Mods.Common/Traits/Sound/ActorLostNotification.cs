@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -13,26 +13,40 @@ using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Sound
 {
-	class ActorLostNotificationInfo : ITraitInfo
+	sealed class ActorLostNotificationInfo : ConditionalTraitInfo
 	{
+		[NotificationReference("Speech")]
+		[Desc("Speech notification to play.")]
 		public readonly string Notification = "UnitLost";
+
+		[Desc("Text notification to display.")]
+		[FluentReference(optional: true)]
+		public readonly string TextNotification = null;
+
 		public readonly bool NotifyAll = false;
 
-		public object Create(ActorInitializer init) { return new ActorLostNotification(this); }
+		public override object Create(ActorInitializer init) { return new ActorLostNotification(this); }
 	}
 
-	class ActorLostNotification : INotifyKilled
+	sealed class ActorLostNotification : ConditionalTrait<ActorLostNotificationInfo>, INotifyKilled
 	{
-		ActorLostNotificationInfo info;
 		public ActorLostNotification(ActorLostNotificationInfo info)
-		{
-			this.info = info;
-		}
+			: base(info) { }
 
-		public void Killed(Actor self, AttackInfo e)
+		void INotifyKilled.Killed(Actor self, AttackInfo e)
 		{
-			var player = info.NotifyAll ? self.World.LocalPlayer : self.Owner;
-			Game.Sound.PlayNotification(self.World.Map.Rules, player, "Speech", info.Notification, self.Owner.Faction.InternalName);
+			if (IsTraitDisabled)
+				return;
+
+			var localPlayer = self.World.LocalPlayer;
+
+			if (localPlayer == null || localPlayer.Spectating)
+				return;
+
+			var player = Info.NotifyAll ? localPlayer : self.Owner;
+
+			Game.Sound.PlayNotification(self.World.Map.Rules, player, "Speech", Info.Notification, self.Owner.Faction.InternalName);
+			TextNotificationsManager.AddTransientLine(player, Info.TextNotification);
 		}
 	}
 }

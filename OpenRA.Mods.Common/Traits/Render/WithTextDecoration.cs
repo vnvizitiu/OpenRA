@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,20 +9,20 @@
  */
 #endregion
 
-using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Graphics;
+using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits.Render
 {
 	[Desc("Displays a text overlay relative to the selection box.")]
-	public class WithTextDecorationInfo : UpgradableTraitInfo, IRulesetLoaded
+	public class WithTextDecorationInfo : WithDecorationBaseInfo
 	{
-		[FieldLoader.Require] [Translate] public readonly string Text = null;
+		[FieldLoader.Require]
+		public readonly string Text = null;
 
 		public readonly string Font = "TinyBold";
 
@@ -32,102 +32,45 @@ namespace OpenRA.Mods.Common.Traits.Render
 		[Desc("Use the player color of the current owner.")]
 		public readonly bool UsePlayerColor = false;
 
-		[Desc("Point in the actor's selection box used as reference for offsetting the decoration image. " +
-			"Possible values are combinations of Center, Top, Bottom, Left, Right.")]
-		public readonly ReferencePoints ReferencePoint = ReferencePoints.Top | ReferencePoints.Left;
-
-		[Desc("The Z offset to apply when rendering this decoration.")]
-		public readonly int ZOffset = 1;
-
-		[Desc("Player stances who can view the decoration.")]
-		public readonly Stance ValidStances = Stance.Ally;
-
-		[Desc("Should this be visible only when selected?")]
-		public readonly bool RequiresSelection = false;
-
 		public override object Create(ActorInitializer init) { return new WithTextDecoration(init.Self, this); }
 
-		void IRulesetLoaded<ActorInfo>.RulesetLoaded(Ruleset rules, ActorInfo info)
+		public override void RulesetLoaded(Ruleset rules, ActorInfo ai)
 		{
-			if (!Game.ModData.Manifest.Fonts.ContainsKey(Font))
-				throw new YamlException("Font '{0}' is not listed in the mod.yaml's Fonts section".F(Font));
+			if (!Game.ModData.Manifest.Get<Fonts>().FontList.ContainsKey(Font))
+				throw new YamlException($"Font '{Font}' is not listed in the mod.yaml's Fonts section");
+
+			base.RulesetLoaded(rules, ai);
 		}
 	}
 
-	public class WithTextDecoration : UpgradableTrait<WithTextDecorationInfo>, IRender, IRenderAboveShroudWhenSelected, INotifyCapture
+	public class WithTextDecoration : WithDecorationBase<WithTextDecorationInfo>, INotifyOwnerChanged
 	{
 		readonly SpriteFont font;
 		Color color;
 
 		public WithTextDecoration(Actor self, WithTextDecorationInfo info)
-			: base(info)
+			: base(self, info)
 		{
 			font = Game.Renderer.Fonts[info.Font];
-			color = Info.UsePlayerColor ? self.Owner.Color.RGB : Info.Color;
+			color = info.UsePlayerColor ? self.OwnerColor() : info.Color;
 		}
 
-		public virtual bool ShouldRender(Actor self) { return true; }
-
-		IEnumerable<IRenderable> IRender.Render(Actor self, WorldRenderer wr)
+		protected override IEnumerable<IRenderable> RenderDecoration(Actor self, WorldRenderer wr, int2 screenPos)
 		{
-			return !Info.RequiresSelection ? RenderInner(self, wr) : SpriteRenderable.None;
-		}
-
-		IEnumerable<IRenderable> IRenderAboveShroudWhenSelected.RenderAboveShroud(Actor self, WorldRenderer wr)
-		{
-			return Info.RequiresSelection ? RenderInner(self, wr) : SpriteRenderable.None;
-		}
-
-		IEnumerable<IRenderable> RenderInner(Actor self, WorldRenderer wr)
-		{
-			if (IsTraitDisabled || self.IsDead || !self.IsInWorld)
+			if (IsTraitDisabled || self.IsDead || !self.IsInWorld || !ShouldRender(self))
 				return Enumerable.Empty<IRenderable>();
 
-			if (self.World.RenderPlayer != null)
+			var size = font.Measure(Info.Text);
+			return new IRenderable[]
 			{
-				var stance = self.Owner.Stances[self.World.RenderPlayer];
-				if (!Info.ValidStances.HasStance(stance))
-					return Enumerable.Empty<IRenderable>();
-			}
-
-			if (!ShouldRender(self) || self.World.FogObscures(self))
-				return Enumerable.Empty<IRenderable>();
-
-			var bounds = self.VisualBounds;
-			var halfSize = font.Measure(Info.Text) / 2;
-
-			var boundsOffset = new int2(bounds.Left + bounds.Right, bounds.Top + bounds.Bottom) / 2;
-			var sizeOffset = new int2();
-			if (Info.ReferencePoint.HasFlag(ReferencePoints.Top))
-			{
-				boundsOffset -= new int2(0, bounds.Height / 2);
-				sizeOffset += new int2(0, halfSize.Y);
-			}
-			else if (Info.ReferencePoint.HasFlag(ReferencePoints.Bottom))
-			{
-				boundsOffset += new int2(0, bounds.Height / 2);
-				sizeOffset -= new int2(0, halfSize.Y);
-			}
-
-			if (Info.ReferencePoint.HasFlag(ReferencePoints.Left))
-			{
-				boundsOffset -= new int2(bounds.Width / 2, 0);
-				sizeOffset += new int2(halfSize.X, 0);
-			}
-			else if (Info.ReferencePoint.HasFlag(ReferencePoints.Right))
-			{
-				boundsOffset += new int2(bounds.Width / 2, 0);
-				sizeOffset -= new int2(halfSize.X, 0);
-			}
-
-			var screenPos = wr.ScreenPxPosition(self.CenterPosition) + boundsOffset + sizeOffset;
-			return new IRenderable[] { new TextRenderable(font, wr.ProjectedPosition(screenPos), Info.ZOffset, color, Info.Text) };
+				new UITextRenderable(font, self.CenterPosition, screenPos - size / 2, 0, color, Info.Text)
+			};
 		}
 
-		void INotifyCapture.OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner)
+		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
 		{
 			if (Info.UsePlayerColor)
-				color = newOwner.Color.RGB;
+				color = self.OwnerColor();
 		}
 	}
 }

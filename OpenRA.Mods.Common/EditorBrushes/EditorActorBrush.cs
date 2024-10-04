@@ -1,6 +1,6 @@
-﻿#region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -9,69 +9,65 @@
  */
 #endregion
 
+using System.Collections.Generic;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits;
-using OpenRA.Primitives;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Widgets
 {
 	public sealed class EditorActorBrush : IEditorBrush
 	{
-		public readonly ActorInfo Actor;
+		public EditorActorPreview Preview;
 
-		readonly WorldRenderer worldRenderer;
 		readonly World world;
 		readonly EditorActorLayer editorLayer;
+		readonly EditorActionManager editorActionManager;
 		readonly EditorViewportControllerWidget editorWidget;
-		readonly ActorPreviewWidget preview;
-		readonly CVec locationOffset;
-		readonly WVec previewOffset;
-		readonly PlayerReference owner;
-		readonly CVec[] footprint;
+		readonly WVec centerOffset;
+		readonly bool sharesCell;
 
-		int facing = 92;
+		CPos cell;
+		SubCell subcell = SubCell.Invalid;
 
 		public EditorActorBrush(EditorViewportControllerWidget editorWidget, ActorInfo actor, PlayerReference owner, WorldRenderer wr)
 		{
 			this.editorWidget = editorWidget;
-			worldRenderer = wr;
 			world = wr.World;
 			editorLayer = world.WorldActor.Trait<EditorActorLayer>();
-
-			Actor = actor;
-			this.owner = owner;
-
-			preview = editorWidget.Get<ActorPreviewWidget>("DRAG_ACTOR_PREVIEW");
-			preview.GetScale = () => worldRenderer.Viewport.Zoom;
-			preview.IsVisible = () => editorWidget.CurrentBrush == this;
-
-			var buildingInfo = actor.TraitInfoOrDefault<BuildingInfo>();
-			if (buildingInfo != null)
-			{
-				locationOffset = -FootprintUtils.AdjustForBuildingSize(buildingInfo);
-				previewOffset = FootprintUtils.CenterOffset(world, buildingInfo);
-			}
-
-			var td = new TypeDictionary();
-			td.Add(new FacingInit(facing));
-			td.Add(new TurretFacingInit(facing));
-			td.Add(new OwnerInit(owner.Name));
-			td.Add(new FactionInit(owner.Faction));
-			preview.SetPreview(actor, td);
+			editorActionManager = world.WorldActor.Trait<EditorActionManager>();
 
 			var ios = actor.TraitInfoOrDefault<IOccupySpaceInfo>();
-			if (ios != null)
-				footprint = ios.OccupiedCells(actor, CPos.Zero)
-					.Select(c => c.Key - CPos.Zero)
-					.ToArray();
-			else
-				footprint = new CVec[0];
+			centerOffset = (ios as BuildingInfo)?.CenterOffset(world) ?? WVec.Zero;
+			sharesCell = ios != null && ios.SharesCell;
 
-			// The preview widget may be rendered by the higher-level code before it is ticked.
-			// Force a manual tick to ensure the bounds are set correctly for this first draw.
-			Tick();
+			// Enforce first entry of ValidOwnerNames as owner if the actor has RequiresSpecificOwners.
+			var ownerName = owner.Name;
+			var specificOwnerInfo = actor.TraitInfoOrDefault<RequiresSpecificOwnersInfo>();
+			if (specificOwnerInfo != null && !specificOwnerInfo.ValidOwnerNames.Contains(ownerName))
+				ownerName = specificOwnerInfo.ValidOwnerNames.First();
+
+			var reference = new ActorReference(actor.Name)
+			{
+				new OwnerInit(ownerName),
+				new FactionInit(owner.Faction)
+			};
+
+			var worldPx = wr.Viewport.ViewToWorldPx(Viewport.LastMousePos) - wr.ScreenPxOffset(centerOffset);
+			cell = wr.Viewport.ViewToWorld(wr.Viewport.WorldToViewPx(worldPx));
+			reference.Add(new LocationInit(cell));
+			if (sharesCell)
+			{
+				subcell = editorLayer.FreeSubCellAt(cell);
+				if (subcell != SubCell.Invalid)
+					reference.Add(new SubCellInit(subcell));
+			}
+
+			if (actor.HasTraitInfo<IFacingInfo>())
+				reference.Add(new FacingInit(editorLayer.Info.DefaultActorFacing));
+
+			Preview = new EditorActorPreview(wr, null, reference, owner);
 		}
 
 		public bool HandleMouseInput(MouseInput mi)
@@ -91,57 +87,94 @@ namespace OpenRA.Mods.Common.Widgets
 				return false;
 			}
 
-			var cell = worldRenderer.Viewport.ViewToWorld(mi.Location);
 			if (mi.Button == MouseButton.Left && mi.Event == MouseInputEvent.Down)
 			{
 				// Check the actor is inside the map
-				if (!footprint.All(c => world.Map.Tiles.Contains(cell + locationOffset + c)))
+				if (!Preview.Footprint.All(c => world.Map.Tiles.Contains(c.Key)))
 					return true;
 
-				var newActorReference = new ActorReference(Actor.Name);
-				newActorReference.Add(new OwnerInit(owner.Name));
-
-				cell += locationOffset;
-				newActorReference.Add(new LocationInit(cell));
-
-				var ios = Actor.TraitInfoOrDefault<IOccupySpaceInfo>();
-				if (ios != null && ios.SharesCell)
-				{
-					var subcell = editorLayer.FreeSubCellAt(cell);
-					if (subcell != SubCell.Invalid)
-						newActorReference.Add(new SubCellInit(subcell));
-				}
-
-				var initDict = newActorReference.InitDict;
-
-				if (Actor.HasTraitInfo<IFacingInfo>())
-					initDict.Add(new FacingInit(facing));
-
-				if (Actor.HasTraitInfo<TurretedInfo>())
-					initDict.Add(new TurretFacingInit(facing));
-
-				editorLayer.Add(newActorReference);
+				var action = new AddActorAction(editorLayer, Preview.Export());
+				editorActionManager.Add(action);
 			}
 
 			return true;
 		}
 
-		public void Tick()
+		void IEditorBrush.TickRender(WorldRenderer wr, Actor self)
 		{
-			var cell = worldRenderer.Viewport.ViewToWorld(Viewport.LastMousePos);
-			var pos = world.Map.CenterOfCell(cell + locationOffset) + previewOffset;
+			// Offset mouse position by the center offset (in world pixels)
+			var worldPx = wr.Viewport.ViewToWorldPx(Viewport.LastMousePos) - wr.ScreenPxOffset(centerOffset);
+			var currentCell = wr.Viewport.ViewToWorld(wr.Viewport.WorldToViewPx(worldPx));
+			var currentSubcell = sharesCell ? editorLayer.FreeSubCellAt(currentCell) : SubCell.Invalid;
+			if (cell != currentCell || subcell != currentSubcell)
+			{
+				cell = currentCell;
+				Preview.ReplaceInit(new LocationInit(cell));
 
-			var origin = worldRenderer.Viewport.WorldToViewPx(worldRenderer.ScreenPxPosition(pos));
+				if (sharesCell)
+				{
+					subcell = editorLayer.FreeSubCellAt(cell);
+					if (subcell == SubCell.Invalid)
+						Preview.RemoveInit<SubCellInit>();
+					else
+						Preview.ReplaceInit(new SubCellInit(subcell));
+				}
 
-			var zoom = worldRenderer.Viewport.Zoom;
-			var s = preview.IdealPreviewSize;
-			var o = preview.PreviewOffset;
-			preview.Bounds.X = origin.X - (int)(zoom * (o.X + s.X / 2));
-			preview.Bounds.Y = origin.Y - (int)(zoom * (o.Y + s.Y / 2));
-			preview.Bounds.Width = (int)(zoom * s.X);
-			preview.Bounds.Height = (int)(zoom * s.Y);
+				Preview.UpdateFromMove();
+			}
 		}
 
+		IEnumerable<IRenderable> IEditorBrush.RenderAboveShroud(Actor self, WorldRenderer wr)
+		{
+			return Preview.Render().OrderBy(WorldRenderer.RenderableZPositionComparisonKey);
+		}
+
+		IEnumerable<IRenderable> IEditorBrush.RenderAnnotations(Actor self, WorldRenderer wr)
+		{
+			return Preview.RenderAnnotations();
+		}
+
+		public void Tick() { }
+
 		public void Dispose() { }
+	}
+
+	sealed class AddActorAction : IEditorAction
+	{
+		public string Text { get; private set; }
+
+		[FluentReference("name", "id")]
+		const string AddedActor = "notification-added-actor";
+
+		readonly EditorActorLayer editorLayer;
+		readonly ActorReference actor;
+
+		EditorActorPreview editorActorPreview;
+
+		public AddActorAction(EditorActorLayer editorLayer, ActorReference actor)
+		{
+			this.editorLayer = editorLayer;
+
+			// Take an immutable copy of the reference
+			this.actor = actor.Clone();
+		}
+
+		public void Execute()
+		{
+			Do();
+		}
+
+		public void Do()
+		{
+			editorActorPreview = editorLayer.Add(actor);
+			Text = FluentProvider.GetString(AddedActor,
+				"name", editorActorPreview.Info.Name,
+				"id", editorActorPreview.ID);
+		}
+
+		public void Undo()
+		{
+			editorLayer.Remove(editorActorPreview);
+		}
 	}
 }

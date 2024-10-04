@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2016 The OpenRA Developers (see AUTHORS)
+ * Copyright (c) The OpenRA Developers and Contributors
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -18,18 +18,42 @@ using OpenRA.Traits;
 namespace OpenRA.Mods.Common.Traits
 {
 	[Desc("Actor can be sold")]
-	public class SellableInfo : UpgradableTraitInfo
+	public class SellableInfo : ConditionalTraitInfo
 	{
+		[Desc("Percentage of units value to give back after selling.")]
 		public readonly int RefundPercent = 50;
-		public readonly string[] SellSounds = { };
+
+		[Desc("List of audio clips to play when the actor is being sold.")]
+		public readonly string[] SellSounds = Array.Empty<string>();
+
+		[NotificationReference("Speech")]
+		[Desc("Speech notification to play.")]
+		public readonly string Notification = null;
+
+		[FluentReference(optional: true)]
+		[Desc("Text notification to display.")]
+		public readonly string TextNotification = null;
+
+		[Desc("Whether to show the cash tick indicators rising from the actor.")]
+		public readonly bool ShowTicks = true;
+
+		[Desc("Whether to show the refund text on the tooltip, when actor is hovered over with sell order.")]
+		public readonly bool ShowTooltipText = true;
+
+		[Desc("Skip playing (reversed) make animation.")]
+		public readonly bool SkipMakeAnimation = false;
+
+		[CursorReference]
+		[Desc("Cursor to display when the sell order generator hovers over this actor.")]
+		public readonly string Cursor = "sell";
 
 		public override object Create(ActorInitializer init) { return new Sellable(init.Self, this); }
 	}
 
-	public class Sellable : UpgradableTrait<SellableInfo>, IResolveOrder, IProvideTooltipInfo
+	public class Sellable : ConditionalTrait<SellableInfo>, IResolveOrder, IProvideTooltipInfo
 	{
 		readonly Actor self;
-		readonly Lazy<Health> health;
+		readonly Lazy<IHealth> health;
 		readonly SellableInfo info;
 
 		public Sellable(Actor self, SellableInfo info)
@@ -37,7 +61,7 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			this.self = self;
 			this.info = info;
-			health = Exts.Lazy(() => self.TraitOrDefault<Health>());
+			health = Exts.Lazy(() => self.TraitOrDefault<IHealth>());
 		}
 
 		public void ResolveOrder(Actor self, Order order)
@@ -51,28 +75,30 @@ namespace OpenRA.Mods.Common.Traits
 			if (IsTraitDisabled)
 				return;
 
-			var building = self.TraitOrDefault<Building>();
-			if (building != null && !building.Lock())
-				return;
-
 			self.CancelActivity();
 
 			foreach (var s in info.SellSounds)
-				Game.Sound.PlayToPlayer(self.Owner, s, self.CenterPosition);
+				Game.Sound.PlayToPlayer(SoundType.UI, self.Owner, s, self.CenterPosition);
 
 			foreach (var ns in self.TraitsImplementing<INotifySold>())
 				ns.Selling(self);
 
-			var makeAnimation = self.TraitOrDefault<WithMakeAnimation>();
-			if (makeAnimation != null)
-				makeAnimation.Reverse(self, new Sell(self), false);
-			else
-				self.QueueActivity(false, new Sell(self));
+			if (!info.SkipMakeAnimation)
+			{
+				var makeAnimation = self.TraitOrDefault<WithMakeAnimation>();
+				if (makeAnimation != null)
+				{
+					makeAnimation.Reverse(self, new Sell(self, info.ShowTicks), false);
+					return;
+				}
+			}
+
+			self.QueueActivity(false, new Sell(self, info.ShowTicks));
 		}
 
 		public bool IsTooltipVisible(Player forPlayer)
 		{
-			if (self.World.OrderGenerator is SellOrderGenerator)
+			if (info.ShowTooltipText && !IsTraitDisabled && self.World.OrderGenerator is SellOrderGenerator)
 				return forPlayer == self.Owner;
 			return false;
 		}
@@ -81,14 +107,14 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			get
 			{
-				var sellValue = self.GetSellValue() * info.RefundPercent / 100;
-				if (health.Value != null)
-				{
-					sellValue *= health.Value.HP;
-					sellValue /= health.Value.MaxHP;
-				}
+				var sellValue = self.GetSellValue();
 
-				return "Refund: $" + sellValue;
+				// Cast to long to avoid overflow when multiplying by the health
+				var hp = health != null ? health.Value.HP : 1L;
+				var maxHP = health != null ? health.Value.MaxHP : 1L;
+				var refund = (int)(sellValue * info.RefundPercent * hp / (100 * maxHP));
+
+				return "Refund: $" + refund;
 			}
 		}
 	}
